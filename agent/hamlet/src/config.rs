@@ -21,6 +21,8 @@ pub struct AgentToml {
     pub database: Database,
     #[serde(default)]
     pub browser: BrowserSection,
+    #[serde(default)]
+    pub verification: VerificationSection,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -71,6 +73,20 @@ impl Default for Paths {
 pub struct Database {
     /// Имя переменной окружения с адресом Postgres.
     pub url_env: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VerificationSection {
+    /// Проверка ответа (у muse — ворота `HEALTH_RESPONSE_VERIFICATION_ENABLED`).
+    #[serde(default = "yes")]
+    pub enabled: bool,
+}
+
+impl Default for VerificationSection {
+    fn default() -> Self {
+        VerificationSection { enabled: true }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]

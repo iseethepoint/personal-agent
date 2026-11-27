@@ -581,14 +581,20 @@ pub struct HookRun {
 /// `completed_notified`, `completed_noop`, `failed` с `last_error_stage`.
 impl Store {
     pub async fn hook_run_insert(&self, run_id: &str, source_ref: &str, lane_key: &str, metadata: &Value) -> Result<()> {
+        self.run_insert("event_hook", run_id, source_ref, lane_key, metadata).await
+    }
+
+    /// Новый прогон `worker_kind` (`event_hook`, `verification`).
+    pub async fn run_insert(&self, worker_kind: &str, run_id: &str, source_ref: &str, lane_key: &str, metadata: &Value) -> Result<()> {
         sqlx::query(
-            "insert into runtime.execute_resolve_runs as existing (run_id, worker_kind, source_ref, lane_key, status, metadata_json) values ($1, 'event_hook', $2, $3, 'pending', $4) \
+            "insert into runtime.execute_resolve_runs as existing (run_id, worker_kind, source_ref, lane_key, status, metadata_json) values ($1, $5, $2, $3, 'pending', $4) \
              on conflict (worker_kind, source_ref) do nothing",
         )
         .bind(run_id)
         .bind(source_ref)
         .bind(lane_key)
         .bind(metadata)
+        .bind(worker_kind)
         .execute(&self.pool)
         .await
         .map_err(db)?;

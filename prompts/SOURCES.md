@@ -432,3 +432,34 @@
 - окно читалки — сообщения целиком, части текста сообщения склеиваются переводом строки;
 - текст незнакомого `message_id` и чужого `chat_id`;
 - режим истории чата (`chat_id` без `message_id`, `cursor`, `limit`) не взят: чат один, а `chat.list` у Hamlet нет.
+
+## Проверка ответа (П3ж-1)
+
+`prompts/verification/` — тексты muse `hatch-server/prompts/verification/` как есть: `classifier.md`, `execute_task.md`, `evidence.md`, `review_scope.md`, `resolve_note.md`, `health.md`, `health_relevance.md`, `bookings.md`. Кроме них:
+- `not_relevant.md` — `hatch-agent/prompts/tools/verification_not_relevant.md`;
+- `feedback.md` — `session/response_verification_feedback.md` из ядра (около `0x6bd81e`).
+
+Правки:
+- `muse.*` → `hamlet.*` в именах инструментов;
+- метки `personal-muse-only` / `group-muse-only` → `personal-only` / `group-only`;
+- П10: из `evidence.md` убраны два предложения о «Meta-maintained docs under `~/docs/`» — у Hamlet таких документов нет.
+
+Устройство — как у muse:
+- классификатор (назначение `ResponseVerificationClassifier`, место `request_verification_classifier`, инструмент `submit_request_verification` с описаниями ядра, категории `health` / `bookings` / `none`);
+- проверяющий (место `verifier`: `read`, `browser.search` / `open` / `find` / `lookup_citation_url`, `nothing_to_do`, `notify_main_agent`, `verifier.not_relevant` — только у `health`, завершает исполнение и возвращает исходный черновик);
+- прогон `worker_kind = 'verification'` в `runtime.execute_resolve_runs`, `metadata_json.category`;
+- фаза исполнения — `execute_task.md` с `{category_guidance}` (у `health` — `health.md` и `health_relevance.md`, у `bookings` — `bookings.md`) и `{evidence_instructions}` (`evidence.md` с `{review_scope}`); фаза итога — `resolve_note.md`;
+- `notify_main_agent` — исправленный черновик: главный агент получает заметку `feedback.md` и пишет окончательный ответ; `nothing_to_do` или сбой («Verification did not finish.») — отдаётся исходный черновик;
+- переключатель `[verification] enabled` (по умолчанию включено) — ворота muse `HEALTH_RESPONSE_VERIFICATION_ENABLED`.
+
+Своё:
+- вход классификатора — до 10 недавних реплик в `<recent_conversation>` («говорящий: текст») и просьба в `<request>`;
+- задание проверяющему — разделы `<verification-task>` (строка владельца), `<verification-draft>`, `<verification-trajectory>` (имена — строки ядра), затем текст фазы;
+- путь проверяющего — вызовы хода с аргументами и первой строкой результата (до 500 знаков);
+- системный текст проверяющего — системный текст агента;
+- проверяется только ход со строкой владельца; проверка идёт внутри хода, а не фоновым прогоном с продолжением хода;
+- id прогона — `verification:<мс>:<n>`, работника — `verifier:<run_id>`;
+- прогон проверки, оборванный перезапуском, не продолжается (черновик не отдан, ход не возобновляется: история кончается ответом модели);
+- проверка отчётов расписаний (`cron_classifier.md`, `unverified_handoff.md`, категория `purchases`) — следующий срез П3ж.
+
+Ворота завершения окна браузера (`browser/completion_gate/report_required.md`) уже были (П4к). Ворота артефактов, Spaces и Ideas — со своими строками (П17, П22).

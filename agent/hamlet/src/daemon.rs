@@ -117,6 +117,7 @@ impl Hamlet {
         // отмечается за ходом.
         static TURNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let turn_id = resumed.unwrap_or_else(|| format!("{}:turn:{}:{}", crate::ROOT_AGENT, self.clock.now_ms(), TURNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+        let start = conv.history.len();
         let (ids, taken) = self.inbox.take();
         for m in taken {
             if m.role == Role::User {
@@ -135,7 +136,15 @@ impl Hamlet {
         t.record = Some(self.history.clone());
         // Имя хода для ящика (`stream_owner_message_id`). Своё: `root:turn:<мс>:<n>`.
         t.turn_id = Some(turn_id.clone());
-        let result = t.run(&mut conv.history, &mut |_| {}).await;
+        let mut result = t.run(&mut conv.history, &mut |_| {}).await;
+        // Проверка ответа перед отдачей: исправленный черновик — заметкой
+        // главному агенту, ход продолжается и пишет окончательный ответ.
+        if let Ok(resp) = &result {
+            if let Some(revised) = self.verify(&conv.history, start, &resp.text()).await {
+                conv.history.push(Message { role: Role::Developer, content: vec![Part::Text { text: agent_cron::verification::feedback(&revised) }] });
+                result = t.run(&mut conv.history, &mut |_| {}).await;
+            }
+        }
         // Вести, взятые ходом, закрываются по его итогу.
         if let Err(e) = self.inbox.complete(&turn_id, result.is_ok()).await {
             eprintln!("mailbox complete: {e}");
@@ -147,6 +156,49 @@ impl Hamlet {
         let resp = result.map_err(|e| e.to_string())?;
         conv.record_usage(&resp.usage);
         Ok(resp.text())
+    }
+
+    /// Проверка черновика хода (`agent_cron::verification`): только у хода
+    /// со строкой владельца; классификатор видит строку и недавние реплики,
+    /// проверяющий — строку, черновик и вызовы хода. `Some` — исправленный
+    /// черновик. Своё: ход проверяющего — вызов с аргументами и первая
+    /// строка результата (до 500 знаков).
+    pub async fn verify(&self, history: &[Message], start: usize, draft: &str) -> Option<String> {
+        let v = self.verification.as_ref()?;
+        if draft.trim().is_empty() {
+            return None;
+        }
+        let texts = |m: &Message| m.content.iter().filter_map(|p| if let Part::Text { text } = p { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
+        let at = (start..history.len()).find(|&i| history[i].role == Role::User && !texts(&history[i]).is_empty())?;
+        let request = texts(&history[at]);
+        let mut recent: Vec<(String, String)> = history[..at]
+            .iter()
+            .filter(|m| matches!(m.role, Role::User | Role::Assistant))
+            .filter_map(|m| {
+                let t = texts(m);
+                (!t.is_empty()).then(|| (if m.role == Role::User { "user" } else { "assistant" }.to_string(), t))
+            })
+            .collect();
+        recent = recent.split_off(recent.len().saturating_sub(agent_cron::verification::RECENT_MESSAGES));
+        let category = agent_cron::verification::classify(&v.classifier, &request, &recent, &self.spill_dir).await?;
+        let mut trajectory = vec![];
+        for m in &history[at + 1..history.len().saturating_sub(1)] {
+            for p in &m.content {
+                match p {
+                    Part::ToolCall { name, arguments, .. } => trajectory.push(format!("call {name} {arguments}")),
+                    Part::ToolResult { content, is_error, .. } => {
+                        let first = content.iter().find_map(|c| if let agent_model::ToolResultPart::Text { text } = c { Some(text.as_str()) } else { None }).unwrap_or("");
+                        let first: String = first.lines().next().unwrap_or("").chars().take(500).collect();
+                        trajectory.push(format!("{} {first}", if *is_error { "error" } else { "result" }));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        match v.verifier.verify(category, &request, draft, &trajectory.join("\n")).await {
+            agent_cron::verification::Verdict::Revised(r) => Some(r),
+            agent_cron::verification::Verdict::Original => None,
+        }
     }
 
     /// Очередь ходов: строка владельца или весть в ящике — новый ход;

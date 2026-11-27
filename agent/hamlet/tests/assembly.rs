@@ -91,7 +91,8 @@ fn agent_dir_with(name: &str, wire: Wire, server: &Server, search_base: &str) ->
         ),
     )
     .unwrap();
-    std::fs::write(dir.join("agent.toml"), format!("[agent]\nlocale = \"en-US\"\n\n[database]\nurl_env = \"{db_var}\"\n")).unwrap();
+    // Проверка ответа зовёт свои модели — в тестах с чужими шагами выключена.
+    std::fs::write(dir.join("agent.toml"), format!("[agent]\nlocale = \"en-US\"\n\n[database]\nurl_env = \"{db_var}\"\n\n[verification]\nenabled = false\n")).unwrap();
     std::fs::write(dir.join("system.md"), "You are Hamlet, a test agent.").unwrap();
     std::fs::create_dir_all(dir.join("home")).unwrap();
     std::fs::write(dir.join("home/MEMORY.md"), "# Memory\n\nThe owner drinks coffee without sugar.\n").unwrap();
@@ -963,6 +964,52 @@ async fn memory_search_finds_past_conversations() {
         assert_eq!(msgs[1]["text"], "Noted, Bublik it is.");
         assert_eq!((read["more_before"].as_bool(), read["more_after"].as_bool()), (Some(false), Some(true)), "{wire:?}: {read}");
         h2.browsers.shutdown().await;
+    }
+}
+
+/// П3ж-1: проверка ответа. Просьба о здоровье: классификатор отвечает
+/// `health`, проверяющий (фазы исполнения и итога, прогон `verification`)
+/// отдаёт исправленный черновик, главный агент получает заметку ядра
+/// «job_id: response_verification» и пишет окончательный ответ — его и
+/// видит владелец. Просьба без категории — черновик как есть, без
+/// проверяющего.
+#[tokio::test]
+async fn health_answer_is_verified_before_delivery() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s, _p) = model(
+            wire,
+            vec![
+                Step::Text("Take 2 g of paracetamol at once."),
+                Step::Calls(vec![("c1", "hamlet.submit_request_verification", json!({"category": "health"}))]),
+                Step::Text("The label says at most 1 g per dose and 4 g a day."),
+                Step::Calls(vec![("n1", "hamlet.notify_main_agent", json!({"message": "Take at most 1 g per dose and no more than 4 g a day."}))]),
+                Step::Text("Take at most 1 g at a time and no more than 4 g a day."),
+                // Вторая просьба — без категории.
+                Step::Text("It is Tuesday."),
+                Step::Calls(vec![("c2", "hamlet.submit_request_verification", json!({"category": "none"}))]),
+            ],
+            true,
+        );
+        let dir = agent_dir("verify", wire, &s);
+        let toml = std::fs::read_to_string(dir.join("agent.toml")).unwrap().replace("enabled = false", "enabled = true");
+        std::fs::write(dir.join("agent.toml"), toml).unwrap();
+        let h = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(one_run(&h, Some("How much paracetamol can I take for my headache?")).await, "Take at most 1 g at a time and no more than 4 g a day.", "{wire:?}");
+        let reqs = s.requests();
+        assert_eq!(reqs.len(), 5, "{wire:?}");
+        let r = |i: usize| reqs[i].to_string();
+        assert!(r(1).contains("hamlet.submit_request_verification") && r(1).contains("<request>") && r(1).contains("paracetamol"), "{wire:?}: классификатор");
+        assert!(r(2).contains("<verification-draft>") && r(2).contains("Take 2 g of paracetamol at once.") && r(2).contains("verifier.not_relevant"), "{wire:?}: проверяющий");
+        assert!(r(3).contains("Call hamlet.notify_main_agent with only the"), "{wire:?}: фаза итога");
+        assert!(r(4).contains("job_id: response_verification") && r(4).contains("Take at most 1 g per dose and no more than 4 g a day."), "{wire:?}: заметка главному агенту");
+        let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
+        let (status, category): (String, Option<String>) =
+            sqlx::query_as("select status, metadata_json ->> 'category' from runtime.execute_resolve_runs where worker_kind = 'verification'").fetch_one(&pool).await.unwrap();
+        assert_eq!((status.as_str(), category.as_deref()), ("completed_notified", Some("health")), "{wire:?}");
+
+        assert_eq!(one_run(&h, Some("What day is it?")).await, "It is Tuesday.", "{wire:?}");
+        assert_eq!(s.requests().len(), 7, "{wire:?}: без проверяющего");
+        h.browsers.shutdown().await;
     }
 }
 

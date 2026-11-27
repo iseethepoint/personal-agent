@@ -44,6 +44,12 @@ pub const ROOT_AGENT: &str = "root";
 /// `recovery_class` точки перезапуска главного агента (значение ядра).
 pub const ROOT_RECOVERY_CLASS: &str = "foreground_root";
 
+/// Проверка ответа главного агента (`agent_cron::verification`).
+pub struct Verification {
+    pub classifier: AnyProvider,
+    pub verifier: agent_cron::verification::Verifier<AnyProvider>,
+}
+
 /// Собранный агент.
 pub struct Hamlet {
     pub dir: AgentDir,
@@ -68,6 +74,9 @@ pub struct Hamlet {
     pub compaction: (Arc<AnyProvider>, Arc<AnyProvider>, u64),
     /// История главного агента в базе (`agent.context_items`).
     pub history: Arc<agent_history::AgentHistory>,
+    /// Проверка ответа (`[verification] enabled`): классификатор и
+    /// проверяющий.
+    pub verification: Option<Verification>,
     pub timezone: Option<String>,
     pub clock: Arc<dyn Clock>,
 }
@@ -199,6 +208,32 @@ impl Hamlet {
             history: history_store.clone(),
         };
         let system = std::fs::read_to_string(dir.path(&t.paths.system)).unwrap_or_default();
+        // Проверка ответа: классификатор — назначение
+        // `ResponseVerificationClassifier`, проверяющий — модель сессии,
+        // чтение файлов и веб (место `verifier` muse).
+        let verification = if t.verification.enabled {
+            let web = WebTools::new(parts.web.search.clone(), Blocklist::load(&parts.web.blocklist, &parts.web_root)?);
+            let files = FileTools::new(parts.home.clone());
+            let vclock = clock.clone();
+            Some(Verification {
+                classifier: provider(&resolve(&reg, Purpose::ResponseVerificationClassifier, sel)?)?,
+                verifier: agent_cron::verification::Verifier {
+                    store: core.store.clone(),
+                    provider: main.clone(),
+                    tools: Arc::new(move || {
+                        let mut t = Tools::new();
+                        files.add_read_to(&mut t);
+                        web.add_to(&mut t);
+                        t
+                    }),
+                    system: system.clone(),
+                    spill_dir: spill_dir.clone(),
+                    now: Arc::new(move || vclock.now_ms()),
+                },
+            })
+        } else {
+            None
+        };
         let parts = Arc::new(parts);
 
         // Сохранённые работы: шаги — на модели сессии, рабочая папка —
@@ -362,6 +397,7 @@ impl Hamlet {
             continuation: agent_tools::Continuation::new(),
             compaction,
             history,
+            verification,
             timezone: t.agent.timezone.clone(),
             clock,
         })

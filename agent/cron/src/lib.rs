@@ -9,6 +9,7 @@ pub mod schedule;
 pub mod service;
 pub mod store;
 pub mod tools;
+pub mod verification;
 pub mod worker;
 
 pub use clock::{Clock, FakeClock, SystemClock};

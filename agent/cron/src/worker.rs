@@ -283,11 +283,15 @@ pub fn resolution_specs() -> Vec<ToolSpec> {
     vec![NothingToReport(r.clone()).spec(), NotifyMainAgent(r).spec(), NothingToDo(h.clone()).spec(), NotifyMainAgent(h).spec()]
 }
 
-/// Чей работник: расписания (`mode` — `task` или `heartbeat`) или
-/// наблюдателя (`resolve` — сообщение фазы итога).
+/// Чей работник: расписания (`mode` — `task` или `heartbeat`),
+/// наблюдателя (`resolve` — сообщение фазы итога) или проверяющего ответ
+/// (`resolve`; `terminal` — завершающие инструменты фазы исполнения, `stop`
+/// — исполнение кончилось таким инструментом: фаза итога не идёт, итог —
+/// исходный черновик).
 pub enum Kind {
     Cron { mode: String },
     Hook { resolve: String },
+    Verify { resolve: String, terminal: Vec<String>, stop: Arc<dyn Fn() -> bool + Send + Sync> },
 }
 
 /// Итог прогона.
@@ -387,6 +391,9 @@ pub async fn run<P: Provider>(
         }
         let mut turn = Turn::from_prefix(provider, tools, prefix, spill_dir);
         turn.record = record.clone();
+        if let Kind::Verify { terminal, .. } = &kind {
+            turn.terminal = terminal.clone();
+        }
         let executed = match timeout_secs {
             Some(t) => tokio::time::timeout(Duration::from_secs(t.max(1) as u64), turn.run(&mut history, &mut quiet)).await,
             None => Ok(turn.run(&mut history, &mut quiet).await),
@@ -409,6 +416,14 @@ pub async fn run<P: Provider>(
             }
         }
         close_dangling(&mut history);
+        if let Kind::Verify { stop, .. } = &kind {
+            if stop() {
+                if let Some(r) = &recording {
+                    r.checkpoint(None, None).await;
+                }
+                return Outcome { signal: Some(Signal::Quiet), timed_out, error: None };
+            }
+        }
         let (failed, unanswered) = collect(&history);
         evidence.failed_calls = failed;
         evidence.unanswered_calls = unanswered;
@@ -421,7 +436,7 @@ pub async fn run<P: Provider>(
         }
         match &kind {
             Kind::Cron { mode } => text.push_str(personal(RESOLUTION_CONTRACT).replace("{mode}", mode).trim_end()),
-            Kind::Hook { resolve } => text.push_str(resolve.trim_end()),
+            Kind::Hook { resolve } | Kind::Verify { resolve, .. } => text.push_str(resolve.trim_end()),
         }
         history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
         // Договор итога записан до точки фазы итога: продолжение итога после
@@ -439,7 +454,7 @@ pub async fn run<P: Provider>(
         evidence.complete = !timed_out;
         evidence.ending = if timed_out { "timed out".into() } else { "completed".into() };
     }
-    let hook = matches!(kind, Kind::Hook { .. });
+    let hook = matches!(kind, Kind::Hook { .. } | Kind::Verify { .. });
 
     let resolution = Resolution { evidence: Arc::new(evidence), signal: Arc::new(Mutex::new(None)), hook };
     let mut terminal = Tools::new();
