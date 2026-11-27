@@ -105,11 +105,11 @@ async fn build(dir: &Path, clock: FakeClock) -> Arc<Hamlet> {
 
 /// Полный список инструментов главного агента — красный, если что-то не
 /// подключено.
-const MAIN_TOOLS: [&str; 89] = [
+const MAIN_TOOLS: [&str; 90] = [
     "browser.browse", "browser.find", "browser.lookup_citation_url", "browser.open", "browser.search", "browser.windows", "browser_deep_research",
     "cron.add", "cron.list", "cron.remove", "cron.run", "cron.runs", "cron.status", "cron.stop", "cron.update", "cron.view",
     "forget.confirm", "forget.plan",
-    "hamlet.connector_search", "hamlet.edit", "hamlet.exec", "hamlet.memory_explain", "hamlet.memory_get", "hamlet.memory_search", "hamlet.read", "hamlet.skill_search", "hamlet.write",
+    "hamlet.connector_search", "hamlet.db", "hamlet.edit", "hamlet.exec", "hamlet.memory_explain", "hamlet.memory_get", "hamlet.memory_search", "hamlet.read", "hamlet.skill_search", "hamlet.write",
     "hooks.add", "hooks.disable", "hooks.dry_run", "hooks.enable", "hooks.list", "hooks.logs", "hooks.remove", "hooks.run", "hooks.update", "hooks.view",
     "process.clear", "process.kill", "process.list", "process.log", "process.poll", "process.send_keys", "process.write",
     "subagent.close", "subagent.list", "subagent.resume", "subagent.send", "subagent.spawn",

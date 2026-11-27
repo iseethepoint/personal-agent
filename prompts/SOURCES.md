@@ -155,3 +155,19 @@
 |---|---|---|
 | `todo/todo_continuation_handoff.md` | ядро: `session/todo_continuation_handoff.md` (около `0x9f40a0`, текст до `</system-reminder>`) | `muse.nothing_to_do` → `hamlet.nothing_to_do` (П10); `{{RECONCILIATION_GUIDANCE}}`, `{{TODO_SNAPSHOT}}` подставляет код |
 | `todo/todo_reconciliation.md` | ядро: `session/todo_reconciliation.md` (около `0x9f3c3d`) | `muse.nothing_to_do` → `hamlet.nothing_to_do` (П10) |
+
+## Запросы к своей базе `hamlet.db` (П4л-6)
+
+| Файл | Исходник | Правки |
+|---|---|---|
+| `db/tools.json` | ядро: описание `muse.db` и поле `sql` (около `0x945f6e`), `struct MuseDbQueryArgs` (`0xa33ba7`) | «Muse» → «Hamlet» (П10); список примеров сужен до того, что есть в нашей базе («memories, scheduled work, goals and briefings, and workflow runs and their agent calls» вместо transcripts, messages, Feed и Ideas, artifacts, device-sync); путь `/opt/muse/skills/muse_db/references/schema.md` → `{schema_path}`, его подставляет код — настоящий путь навыка в папке системных навыков; короткое описание не взято (у нас его некому показывать); `texts` — свои (ниже) |
+| `../skills/hamlet_db/` | у muse навык `muse_db` есть в списке навыков ядра (`tool-schemas.txt:3760`), но его папки в снимке нет и текста в ядре нет | своё: `skill.yaml`, `SKILL.md` — коротко, по описанию инструмента; `references/schema.md` и `references/querying.md` строит из каталога код (`Catalog::schema_md`, `querying_md`), тест сверяет файлы с базой |
+
+Из ядра (`hatch-agent/src/tools/db.rs`, исполнение около `0x1f444281`…`0x1f445717`):
+- тексты ошибок проверки (`0x18a9ce1`), отношения/функции/приведения (`0x3134c1`), повтор столбцов (`0x398a37`), общий срок и длина (`0x32b1e2`), «failed» (`0x34f99b`); `muse.db` → `hamlet.db`;
+- разбор — sqlparser 0.62.0, PostgreSqlDialect; исполняется нормализованный текст, если он разбирается в то же дерево;
+- длина запроса 16384 байта (`cmp $0x4000` у `0x1f4f1227`), общий срок 5000 мс (`0x49f2e0`), `statement_timeout` 3000 мс (`0x4a3318`), `lock_timeout` 250 мс (`0x4a3970`), `set transaction read only`, `search_path = pg_catalog`;
+- строка — `to_jsonb(...)::text`, длиннее 65536 байт (`0x4a1f28`) — пометка `_hatch_db_row_omitted`; `limit 201` (`0x498088`) — шаблон у `0x1820e96`, аргументы у вызова `0x1f44471b`;
+- каталог — форма вшитого JSON muse (`format_version` 3, около `0x18a9a6a`), функции и приведения — его `query_capabilities` как есть.
+
+Своё (код `agent/db`): в каталоге — наши таблицы, которые есть и в каталоге muse (`READABLE`, 19; `runtime.event_hook_admissions` в каталоге muse нет); без `migrations_sha256` и `redaction` (скрытых столбцов нет); каталог вшит файлом `agent/db/catalog.json`, сверку с миграциями держит тест; ответ модели — строки JSON по одной на строку, из 201 — 200 и строка «`{n} rows shown; more rows matched. Narrow the query to see the rest.`», пусто — «`0 rows`» (вид ответа в разборе не найден); `hamlet.db` — в общем наборе (главный, подагент, работник расписаний, шаг работы), как поиск навыков: профили muse с этим инструментом в разборе не видны.

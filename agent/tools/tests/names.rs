@@ -1,7 +1,7 @@
 //! Тест П10: в том, что уходит модели, нет имён muse и Meta. Проверяется
 //! всё сразу:
 //! - описания всех инструментов реестра (вместе с параметрами);
-//! - все тексты `prompts/` в личном варианте;
+//! - все тексты `prompts/` в личном варианте и системные навыки `skills/`;
 //! - все строки в коде `agent/*/src` (без комментариев): из них собираются
 //!   заметки, ошибки и ответы инструментов.
 
@@ -103,6 +103,7 @@ async fn all_tools() -> Tools {
     for t in agent_goals::tools(&goals) {
         tools.add(t);
     }
+    tools.add(agent_db::Db::connect(&pg::database(), &root().join("skills")).await.unwrap());
     // Окна главного агента; Chromium до первого вызова не запускается.
     let (_s, browser_model) = model(Wire::OpenaiCompat, vec![], false);
     let browsers = agent_browser::browsers::Browsers::new(home_dir.join("no-chromium"), home_dir.join("browser"), true, Arc::new(browser_model), "en-US".into(), temp_dir("names-browser-spill"), Inbox::new());
@@ -118,7 +119,7 @@ async fn tool_descriptions_have_no_muse_or_meta() {
     let mut specs = tools.specs();
     specs.extend(agent_cron::resolution_specs());
     let names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
-    for want in ["hamlet.read", "hamlet.write", "hamlet.edit", "hamlet.exec", "hamlet.skill_search", "hamlet.connector_search", "hamlet.memory_search", "subagent.spawn", "browser.search", "todo.write", "forget.plan", "forget.confirm", "cron.add", "cron.stop", "hooks.add", "hooks.dry_run", "hamlet.notify_main_agent", "hamlet.nothing_to_report", "hamlet.nothing_to_do", "user_goal.create", "user_goal.delete_briefing", "tracking.create", "tracking.set_status", "browser.browse", "browser.windows"] {
+    for want in ["hamlet.read", "hamlet.write", "hamlet.edit", "hamlet.exec", "hamlet.skill_search", "hamlet.connector_search", "hamlet.memory_search", "subagent.spawn", "browser.search", "todo.write", "forget.plan", "forget.confirm", "cron.add", "cron.stop", "hooks.add", "hooks.dry_run", "hamlet.notify_main_agent", "hamlet.nothing_to_report", "hamlet.nothing_to_do", "user_goal.create", "user_goal.delete_briefing", "tracking.create", "tracking.set_status", "browser.browse", "browser.windows", "hamlet.db"] {
         assert!(names.contains(&want), "нет {want} в {names:?}");
     }
     let mut bad = Vec::new();
@@ -145,6 +146,8 @@ fn prompts_have_no_muse_or_meta() {
     }
     let mut files = Vec::new();
     walk(&root().join("prompts"), &mut files);
+    // Системные навыки тоже уходят модели.
+    walk(&root().join("skills"), &mut files);
     for f in files {
         let name = f.file_name().unwrap().to_string_lossy().to_string();
         // SOURCES.md — рабочий документ: откуда взят каждый файл; модель его не видит.

@@ -1,0 +1,2609 @@
+{
+  "format_version": 3,
+  "query_capabilities": {
+    "cast_types": [
+      "bigint",
+      "bool",
+      "boolean",
+      "bytea",
+      "char",
+      "character",
+      "character varying",
+      "date",
+      "decimal",
+      "double precision",
+      "float4",
+      "float8",
+      "int",
+      "int2",
+      "int4",
+      "int8",
+      "integer",
+      "interval",
+      "json",
+      "jsonb",
+      "numeric",
+      "real",
+      "smallint",
+      "text",
+      "time",
+      "timestamp",
+      "timestamp with time zone",
+      "timestamp without time zone",
+      "timestamptz",
+      "timetz",
+      "uuid",
+      "varchar"
+    ],
+    "functions": [
+      "abs",
+      "age",
+      "array_length",
+      "array_position",
+      "array_to_string",
+      "avg",
+      "bit_and",
+      "bit_or",
+      "bool_and",
+      "bool_or",
+      "btrim",
+      "cardinality",
+      "ceil",
+      "ceiling",
+      "char_length",
+      "coalesce",
+      "concat",
+      "concat_ws",
+      "count",
+      "date_bin",
+      "date_part",
+      "date_trunc",
+      "dense_rank",
+      "encode",
+      "every",
+      "extract",
+      "first_value",
+      "floor",
+      "greatest",
+      "json_array_length",
+      "json_build_array",
+      "json_build_object",
+      "json_extract_path",
+      "json_extract_path_text",
+      "json_object_keys",
+      "json_typeof",
+      "jsonb_array_length",
+      "jsonb_build_array",
+      "jsonb_build_object",
+      "jsonb_extract_path",
+      "jsonb_extract_path_text",
+      "jsonb_object_keys",
+      "jsonb_typeof",
+      "lag",
+      "last_value",
+      "lead",
+      "least",
+      "left",
+      "length",
+      "lower",
+      "ltrim",
+      "make_interval",
+      "max",
+      "md5",
+      "min",
+      "mod",
+      "now",
+      "nth_value",
+      "ntile",
+      "nullif",
+      "octet_length",
+      "position",
+      "power",
+      "rank",
+      "regexp_match",
+      "regexp_replace",
+      "replace",
+      "reverse",
+      "right",
+      "round",
+      "row_number",
+      "rtrim",
+      "split_part",
+      "sqrt",
+      "strpos",
+      "substr",
+      "substring",
+      "sum",
+      "time_bucket",
+      "timezone",
+      "to_char",
+      "to_json",
+      "to_jsonb",
+      "trim",
+      "upper"
+    ]
+  },
+  "scope": "Hamlet application base tables readable by hamlet.db",
+  "tables": [
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "briefing_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "goal_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "path",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "created_at",
+          "nullable": false,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "updated_at",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_opened_at",
+          "nullable": true,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "created_at_ts",
+          "nullable": true,
+          "position": 7,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "updated_at_ts",
+          "nullable": true,
+          "position": 8,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_opened_at_ts",
+          "nullable": true,
+          "position": 9,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "hero_image_path",
+          "nullable": true,
+          "position": 10,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "goal_id",
+          "name": "briefings_goal_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "goal_id",
+            "schema": "goals",
+            "table": "goals"
+          },
+          "type": "FOREIGN KEY"
+        },
+        {
+          "column": "goal_id",
+          "name": "briefings_goal_id_path_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "path",
+          "name": "briefings_goal_id_path_key",
+          "position": 2,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "briefing_id",
+          "name": "briefings_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "briefings",
+      "schema": "goals"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "goal_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "slug",
+          "nullable": true,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "title",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "summary",
+          "nullable": true,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "description",
+          "nullable": true,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "momentum",
+          "nullable": true,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "momentum_status",
+          "nullable": true,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "emoji",
+          "nullable": true,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "status",
+          "nullable": false,
+          "position": 9,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "created_at",
+          "nullable": false,
+          "position": 10,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "updated_at",
+          "nullable": false,
+          "position": 11,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "parent_goal_id",
+          "nullable": true,
+          "position": 12,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "sort_order",
+          "nullable": false,
+          "position": 13,
+          "type": "double precision"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "completed_at",
+          "nullable": true,
+          "position": 14,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "created_at_ts",
+          "nullable": true,
+          "position": 15,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "updated_at_ts",
+          "nullable": true,
+          "position": 16,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_activity_at",
+          "nullable": true,
+          "position": 17,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_activity_at_ts",
+          "nullable": true,
+          "position": 18,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "true",
+          "name": "pushable",
+          "nullable": false,
+          "position": 19,
+          "type": "boolean"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "category",
+          "nullable": true,
+          "position": 20,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "goal_kind",
+          "nullable": true,
+          "position": 21,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "value_alignment",
+          "nullable": true,
+          "position": 22,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "completed_at_ts",
+          "nullable": true,
+          "position": 23,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "'user_goal'::text",
+          "name": "source",
+          "nullable": false,
+          "position": 24,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'does_not_need_attention'::text",
+          "name": "attention_kind",
+          "nullable": false,
+          "position": 25,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "attention_updated_at",
+          "nullable": false,
+          "position": 26,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "next_due_at",
+          "nullable": true,
+          "position": 27,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "fixed_position",
+          "nullable": true,
+          "position": 28,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "escalation",
+          "nullable": true,
+          "position": 29,
+          "type": "jsonb"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "escalation_due_at",
+          "nullable": true,
+          "position": 30,
+          "type": "timestamp with time zone"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "parent_goal_id",
+          "name": "goals_parent_goal_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "goal_id",
+            "schema": "goals",
+            "table": "goals"
+          },
+          "type": "FOREIGN KEY"
+        },
+        {
+          "column": "goal_id",
+          "name": "goals_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        },
+        {
+          "column": "slug",
+          "name": "goals_slug_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        }
+      ],
+      "name": "goals",
+      "schema": "goals"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "update_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "goal_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "title",
+          "nullable": true,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "summary",
+          "nullable": true,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "description",
+          "nullable": true,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "effective_at",
+          "nullable": true,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "created_at",
+          "nullable": false,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "updated_at",
+          "nullable": false,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "effective_at_ts",
+          "nullable": true,
+          "position": 9,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "updated_at_ts",
+          "nullable": true,
+          "position": 10,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "'user'::text",
+          "name": "author_source",
+          "nullable": false,
+          "position": 11,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "goal_id",
+          "name": "updates_goal_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "goal_id",
+            "schema": "goals",
+            "table": "goals"
+          },
+          "type": "FOREIGN KEY"
+        },
+        {
+          "column": "update_id",
+          "name": "updates_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "updates",
+      "schema": "goals"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "claim_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "run_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "kind",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "salience",
+          "nullable": false,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "claim_text",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "quote",
+          "nullable": true,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "speaker",
+          "nullable": false,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'[]'::jsonb",
+          "name": "evidence_handles",
+          "nullable": false,
+          "position": 8,
+          "type": "jsonb"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "supersedes_claim_id",
+          "nullable": true,
+          "position": 9,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'active'::text",
+          "name": "status",
+          "nullable": false,
+          "position": 10,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "confidence",
+          "nullable": false,
+          "position": 11,
+          "type": "double precision"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "first_seen",
+          "nullable": false,
+          "position": 12,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "reinforced_at",
+          "nullable": false,
+          "position": 13,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "valid_until",
+          "nullable": true,
+          "position": 14,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "source_path",
+          "nullable": false,
+          "position": 15,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "source_line",
+          "nullable": false,
+          "position": 16,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 17,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": false,
+          "position": 18,
+          "type": "timestamp with time zone"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "claim_id",
+          "name": "claims_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "claims",
+      "schema": "memory"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": "nextval('memory.embedding_models_embedding_model_id_seq'::regclass)",
+          "name": "embedding_model_id",
+          "nullable": false,
+          "position": 1,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "model_name",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "dimensions",
+          "nullable": false,
+          "position": 3,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "distance_metric",
+          "nullable": false,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 5,
+          "type": "timestamp with time zone"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "model_name",
+          "name": "embedding_models_model_name_dimensions_distance_metric_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "dimensions",
+          "name": "embedding_models_model_name_dimensions_distance_metric_key",
+          "position": 2,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "distance_metric",
+          "name": "embedding_models_model_name_dimensions_distance_metric_key",
+          "position": 3,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "embedding_model_id",
+          "name": "embedding_models_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "embedding_models",
+      "schema": "memory"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": "nextval('memory.embeddings_memory_embedding_id_seq'::regclass)",
+          "name": "memory_embedding_id",
+          "nullable": false,
+          "position": 1,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "memory_entry_id",
+          "nullable": false,
+          "position": 2,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "embedding_model_id",
+          "nullable": false,
+          "position": 3,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "embedding",
+          "nullable": false,
+          "position": 4,
+          "type": "vector(384)"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 5,
+          "type": "timestamp with time zone"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "embedding_model_id",
+          "name": "embeddings_embedding_model_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "embedding_model_id",
+            "schema": "memory",
+            "table": "embedding_models"
+          },
+          "type": "FOREIGN KEY"
+        },
+        {
+          "column": "memory_entry_id",
+          "name": "embeddings_memory_entry_id_embedding_model_id_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "embedding_model_id",
+          "name": "embeddings_memory_entry_id_embedding_model_id_key",
+          "position": 2,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "memory_entry_id",
+          "name": "embeddings_memory_entry_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "memory_entry_id",
+            "schema": "memory",
+            "table": "entries"
+          },
+          "type": "FOREIGN KEY"
+        },
+        {
+          "column": "memory_embedding_id",
+          "name": "embeddings_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "embeddings",
+      "schema": "memory"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": "nextval('memory.entries_memory_entry_id_seq'::regclass)",
+          "name": "memory_entry_id",
+          "nullable": false,
+          "position": 1,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "memory_uri",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "chunk_id",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "source_type",
+          "nullable": false,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "status",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "privacy_class",
+          "nullable": false,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "1.0",
+          "name": "confidence",
+          "nullable": false,
+          "position": 7,
+          "type": "double precision"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "citation_path",
+          "nullable": true,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "line_start",
+          "nullable": false,
+          "position": 9,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "line_end",
+          "nullable": false,
+          "position": 10,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 11,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "created_at_unix",
+          "nullable": false,
+          "position": 12,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "title_text",
+          "nullable": true,
+          "position": 13,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "body_text",
+          "nullable": false,
+          "position": 14,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "reason_text",
+          "nullable": true,
+          "position": 15,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "memory_uri",
+          "name": "entries_memory_uri_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "memory_entry_id",
+          "name": "entries_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "entries",
+      "schema": "memory"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": "nextval('memory.entry_attributes_memory_entry_attribute_id_seq'::regclass)",
+          "name": "memory_entry_attribute_id",
+          "nullable": false,
+          "position": 1,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "memory_entry_id",
+          "nullable": false,
+          "position": 2,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "attribute_name",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "scalar_value",
+          "nullable": false,
+          "position": 4,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "memory_entry_id",
+          "name": "entry_attributes_memory_entry_id_attribute_name_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "attribute_name",
+          "name": "entry_attributes_memory_entry_id_attribute_name_key",
+          "position": 2,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "memory_entry_id",
+          "name": "entry_attributes_memory_entry_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "memory_entry_id",
+            "schema": "memory",
+            "table": "entries"
+          },
+          "type": "FOREIGN KEY"
+        },
+        {
+          "column": "memory_entry_attribute_id",
+          "name": "entry_attributes_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "entry_attributes",
+      "schema": "memory"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "key",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "value",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": false,
+          "position": 3,
+          "type": "timestamp with time zone"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "key",
+          "name": "metadata_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "metadata",
+      "schema": "memory"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": "nextval('runtime.search_documents_search_document_id_seq'::regclass)",
+          "name": "search_document_id",
+          "nullable": false,
+          "position": 1,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "owner_table",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "owner_key",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'english'::regconfig",
+          "name": "language",
+          "nullable": false,
+          "position": 4,
+          "type": "regconfig"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "search_vector",
+          "nullable": false,
+          "position": 5,
+          "type": "tsvector"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": false,
+          "position": 6,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "search_text",
+          "nullable": false,
+          "position": 7,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "owner_table",
+          "name": "search_documents_owner_table_owner_key_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "owner_key",
+          "name": "search_documents_owner_table_owner_key_key",
+          "position": 2,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "search_document_id",
+          "name": "search_documents_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "search_documents",
+      "schema": "runtime"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "call_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "run_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "phase_run_id",
+          "nullable": true,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "replay_key",
+          "nullable": false,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "cache_key",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "call_ordinal",
+          "nullable": false,
+          "position": 6,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "prompt",
+          "nullable": false,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'{}'::jsonb",
+          "name": "options_json",
+          "nullable": false,
+          "position": 8,
+          "type": "jsonb"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "child_agent_id",
+          "nullable": true,
+          "position": 9,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'pending'::text",
+          "name": "status",
+          "nullable": false,
+          "position": 10,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "cached_from_call_id",
+          "nullable": true,
+          "position": 11,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "final_response",
+          "nullable": true,
+          "position": 12,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "input_tokens",
+          "nullable": false,
+          "position": 13,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "output_tokens",
+          "nullable": false,
+          "position": 14,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "tool_call_count",
+          "nullable": false,
+          "position": 15,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "duration_ms",
+          "nullable": true,
+          "position": 16,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 17,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "started_at",
+          "nullable": true,
+          "position": 18,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": false,
+          "position": 19,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "completed_at",
+          "nullable": true,
+          "position": 20,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "error",
+          "nullable": true,
+          "position": 21,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "cached_from_call_id",
+          "name": "workflow_agent_calls_cached_from_call_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "call_id",
+            "schema": "runtime",
+            "table": "workflow_agent_calls"
+          },
+          "type": "FOREIGN KEY"
+        },
+        {
+          "column": "phase_run_id",
+          "name": "workflow_agent_calls_phase_run_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "phase_run_id",
+            "schema": "runtime",
+            "table": "workflow_phase_runs"
+          },
+          "type": "FOREIGN KEY"
+        },
+        {
+          "column": "call_id",
+          "name": "workflow_agent_calls_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        },
+        {
+          "column": "run_id",
+          "name": "workflow_agent_calls_run_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "run_id",
+            "schema": "runtime",
+            "table": "workflow_runs"
+          },
+          "type": "FOREIGN KEY"
+        },
+        {
+          "column": "run_id",
+          "name": "workflow_agent_calls_run_id_replay_key_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "replay_key",
+          "name": "workflow_agent_calls_run_id_replay_key_key",
+          "position": 2,
+          "references": null,
+          "type": "UNIQUE"
+        }
+      ],
+      "name": "workflow_agent_calls",
+      "schema": "runtime"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "phase_run_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "run_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "phase_name",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "ordinal",
+          "nullable": false,
+          "position": 4,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": "'pending'::text",
+          "name": "status",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "agent_total",
+          "nullable": false,
+          "position": 6,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "agent_completed",
+          "nullable": false,
+          "position": 7,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "input_tokens",
+          "nullable": false,
+          "position": 8,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "output_tokens",
+          "nullable": false,
+          "position": 9,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "started_at",
+          "nullable": true,
+          "position": 10,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": false,
+          "position": 11,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "completed_at",
+          "nullable": true,
+          "position": 12,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "error",
+          "nullable": true,
+          "position": 13,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "phase_run_id",
+          "name": "workflow_phase_runs_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        },
+        {
+          "column": "run_id",
+          "name": "workflow_phase_runs_run_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "run_id",
+            "schema": "runtime",
+            "table": "workflow_runs"
+          },
+          "type": "FOREIGN KEY"
+        },
+        {
+          "column": "run_id",
+          "name": "workflow_phase_runs_unique_phase",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "phase_name",
+          "name": "workflow_phase_runs_unique_phase",
+          "position": 2,
+          "references": null,
+          "type": "UNIQUE"
+        }
+      ],
+      "name": "workflow_phase_runs",
+      "schema": "runtime"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "run_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'async'::text",
+          "name": "launch_mode",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "resume_from_run_id",
+          "nullable": true,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "workflow_name",
+          "nullable": false,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "''::text",
+          "name": "description",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'[]'::jsonb",
+          "name": "phases_json",
+          "nullable": false,
+          "position": 6,
+          "type": "jsonb"
+        },
+        {
+          "comment": null,
+          "default": "'{}'::jsonb",
+          "name": "args_json",
+          "nullable": false,
+          "position": 7,
+          "type": "jsonb"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "workspace_root",
+          "nullable": false,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "script_path",
+          "nullable": false,
+          "position": 9,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "script_sha256",
+          "nullable": false,
+          "position": 10,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "recovery_count",
+          "nullable": false,
+          "position": 11,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_recovery_reason",
+          "nullable": true,
+          "position": 12,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_recovered_at",
+          "nullable": true,
+          "position": 13,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "'queued'::text",
+          "name": "status",
+          "nullable": false,
+          "position": 14,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "error",
+          "nullable": true,
+          "position": 15,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "final_result",
+          "nullable": true,
+          "position": 16,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 17,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "started_at",
+          "nullable": true,
+          "position": 18,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": false,
+          "position": 19,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "completed_at",
+          "nullable": true,
+          "position": 20,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "terminal_handoff_message_id",
+          "nullable": true,
+          "position": 21,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "terminal_handoff_delivered_at",
+          "nullable": true,
+          "position": 22,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "terminal_handoff_disposition",
+          "nullable": true,
+          "position": 23,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "terminal_handoff_generation",
+          "nullable": false,
+          "position": 24,
+          "type": "integer"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "run_id",
+          "name": "workflow_runs_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        },
+        {
+          "column": "resume_from_run_id",
+          "name": "workflow_runs_resume_from_run_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "run_id",
+            "schema": "runtime",
+            "table": "workflow_runs"
+          },
+          "type": "FOREIGN KEY"
+        }
+      ],
+      "name": "workflow_runs",
+      "schema": "runtime"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": "nextval('scheduler.cron_mutations_mutation_seq_seq'::regclass)",
+          "name": "mutation_seq",
+          "nullable": false,
+          "position": 1,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "job_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "action",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "occurred_at_ms",
+          "nullable": false,
+          "position": 4,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "carrier_message_id",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "request_id",
+          "nullable": false,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "tool_call_id",
+          "nullable": false,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "input_message_ids",
+          "nullable": false,
+          "position": 8,
+          "type": "text[]"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 9,
+          "type": "timestamp with time zone"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "mutation_seq",
+          "name": "cron_mutations_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "cron_mutations",
+      "schema": "scheduler"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "delivery_key",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "job_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "run_id",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "payload_json",
+          "nullable": false,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "state",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "attempt_count",
+          "nullable": false,
+          "position": 6,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "next_attempt_at_utc",
+          "nullable": false,
+          "position": 7,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_error",
+          "nullable": true,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "created_at_utc",
+          "nullable": false,
+          "position": 9,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "updated_at_utc",
+          "nullable": false,
+          "position": 10,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "delivered_at_utc",
+          "nullable": true,
+          "position": 11,
+          "type": "bigint"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "delivery_key",
+          "name": "delivery_outbox_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "delivery_outbox",
+      "schema": "scheduler"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": "nextval('scheduler.job_definitions_job_definition_id_seq'::regclass)",
+          "name": "job_definition_id",
+          "nullable": false,
+          "position": 1,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "job_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "version",
+          "nullable": false,
+          "position": 3,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "prompt_template_id",
+          "nullable": true,
+          "position": 4,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 5,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "retired_at",
+          "nullable": true,
+          "position": 6,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "task_text",
+          "nullable": false,
+          "position": 7,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "job_definition_id",
+          "name": "job_definitions_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "job_definitions",
+      "schema": "scheduler"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "run_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "job_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "job_definition_id",
+          "nullable": true,
+          "position": 3,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "request_id",
+          "nullable": true,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "scheduled_for",
+          "nullable": false,
+          "position": 5,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "scheduled_for_utc",
+          "nullable": false,
+          "position": 6,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "trigger_reason",
+          "nullable": true,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "started_at",
+          "nullable": true,
+          "position": 8,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "started_at_utc",
+          "nullable": true,
+          "position": 9,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "finished_at",
+          "nullable": true,
+          "position": 10,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "finished_at_utc",
+          "nullable": true,
+          "position": 11,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "status",
+          "nullable": false,
+          "position": 12,
+          "type": "scheduler.run_status"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "result_summary",
+          "nullable": true,
+          "position": 13,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "error_text",
+          "nullable": true,
+          "position": 14,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "1",
+          "name": "attempt",
+          "nullable": false,
+          "position": 15,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "worker_phase",
+          "nullable": true,
+          "position": 16,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "worker_agent_id",
+          "nullable": true,
+          "position": 17,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "false",
+          "name": "worker_execution_timed_out",
+          "nullable": false,
+          "position": 18,
+          "type": "boolean"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "notification_policy_json",
+          "nullable": true,
+          "position": 19,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "run_id",
+          "name": "job_runs_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "job_runs",
+      "schema": "scheduler"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "job_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "false",
+          "name": "is_heartbeat",
+          "nullable": false,
+          "position": 2,
+          "type": "boolean"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "source_path",
+          "nullable": true,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "source_hash",
+          "nullable": true,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "schedule_kind",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "true",
+          "name": "enabled",
+          "nullable": false,
+          "position": 6,
+          "type": "boolean"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "schedule_expr",
+          "nullable": false,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'UTC'::text",
+          "name": "timezone",
+          "nullable": false,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "false",
+          "name": "retry_on_failure",
+          "nullable": false,
+          "position": 9,
+          "type": "boolean"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "max_retries",
+          "nullable": false,
+          "position": 10,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": "'[]'::text",
+          "name": "delivery_targets_json",
+          "nullable": false,
+          "position": 11,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "next_run_at",
+          "nullable": true,
+          "position": 12,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "next_run_at_utc",
+          "nullable": false,
+          "position": 13,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_run_at_utc",
+          "nullable": true,
+          "position": 14,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_success_at_utc",
+          "nullable": true,
+          "position": 15,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_status",
+          "nullable": true,
+          "position": 16,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "consecutive_failures",
+          "nullable": false,
+          "position": 17,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "updated_at_utc",
+          "nullable": false,
+          "position": 18,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 19,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": false,
+          "position": 20,
+          "type": "timestamp with time zone"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "job_id",
+          "name": "jobs_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "jobs",
+      "schema": "scheduler"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "run_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "signal_type",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "message",
+          "nullable": true,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "producer_request_trace_json",
+          "nullable": true,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 5,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "created_at_utc",
+          "nullable": false,
+          "position": 6,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "producer_agent_id",
+          "nullable": true,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "producer_phase_attempt",
+          "nullable": true,
+          "position": 8,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "blocked_reason",
+          "nullable": true,
+          "position": 9,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "blocked_dependency",
+          "nullable": true,
+          "position": 10,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "run_id",
+          "name": "terminal_signals_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "terminal_signals",
+      "schema": "scheduler"
+    }
+  ]
+}
