@@ -97,6 +97,8 @@ struct Parts {
     trash: Trash,
     /// Запросы к своей базе (`hamlet.db`).
     db: agent_db::Db,
+    /// История в базе: «Past conversations» и `chat.read_messages`.
+    history: agent_history::Store,
 }
 
 impl Parts {
@@ -113,7 +115,8 @@ impl Parts {
         let connectors = Catalog::connectors(self.connectors_dir.clone(), &self.home);
         add_search(&mut t, &skills, &connectors);
         WebTools::new(self.web.search.clone(), Blocklist::load(&self.web.blocklist, &self.web_root)?).add_to(&mut t);
-        MemoryTools::new(self.home.dir.clone(), self.memory.clone(), self.embedder.clone()).add_to(&mut t);
+        MemoryTools::new(self.home.dir.clone(), self.memory.clone(), self.embedder.clone()).with_conversations(ROOT_AGENT).add_to(&mut t);
+        t.add(agent_history::ChatReader::new(&self.history, ROOT_AGENT));
         for x in agent_cron::tools(&self.core) {
             t.add(x);
         }
@@ -193,6 +196,7 @@ impl Hamlet {
                 Trash::with_clock(home.clone(), Arc::new(move || chrono::DateTime::from_timestamp_millis(c.now_ms()).unwrap_or_default()))
             },
             db: agent_db::Db::connect(&url, &dir.path(&t.paths.skills)).await?,
+            history: history_store.clone(),
         };
         let system = std::fs::read_to_string(dir.path(&t.paths.system)).unwrap_or_default();
         let parts = Arc::new(parts);

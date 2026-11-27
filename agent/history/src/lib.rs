@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-const MIGRATIONS: [&str; 7] = [
+const MIGRATIONS: [&str; 8] = [
     include_str!("../migrations/0001_history.sql"),
     include_str!("../migrations/0002_mailbox.sql"),
     include_str!("../migrations/0003_todo.sql"),
@@ -48,7 +48,10 @@ const MIGRATIONS: [&str; 7] = [
     include_str!("../migrations/0005_restart.sql"),
     include_str!("../migrations/0006_subagents.sql"),
     include_str!("../migrations/0007_recovery_owners.sql"),
+    include_str!("../migrations/0008_conversation_search.sql"),
 ];
+/// `owner_table` реплик разговора в `runtime.search_documents`.
+pub const CONVERSATION_DOCUMENTS: &str = "agent.context_items";
 /// Режимы точки перезапуска (значения ядра).
 const BEFORE_INFERENCE: &str = "before_inference";
 const IDLE: &str = "idle";
@@ -347,6 +350,21 @@ impl AgentHistory {
             .execute(&self.pool)
             .await
             .map_err(db)?;
+            // Реплика пользователя или ассистента — в поиск по прошлым
+            // разговорам (у muse — публичные `message.user` /
+            // `message.assistant` главного чата).
+            if let (Some(t), "message_text", "user" | "assistant", None) = (text, kind, role, source) {
+                sqlx::query(
+                    "insert into runtime.search_documents (owner_table, owner_key, language, search_vector, search_text) values ($1, $2, 'simple', to_tsvector('simple', $3), $3) \
+                     on conflict (owner_table, owner_key) do update set search_vector = excluded.search_vector, search_text = excluded.search_text, updated_at = now()",
+                )
+                .bind(CONVERSATION_DOCUMENTS)
+                .bind(format!("{}:{next}", self.agent_id))
+                .bind(t)
+                .execute(&self.pool)
+                .await
+                .map_err(db)?;
+            }
             next += 1;
         }
         Ok(next)
@@ -902,6 +920,99 @@ impl WorkerStore for AgentWorkers {
                 sqlx::query("update agent.agents set updated_at = $1, status = 'completed' where id = $2").bind((self.now)() / 1000).bind(&agent).execute(&self.store.pool).await.map_err(db)?;
             }
             Ok(())
+        })
+    }
+}
+
+/// `chat.read_messages` — окно вокруг совпадения «Past conversations», как
+/// у muse: вариант ядра с режимом окна (`chat_read_messages.md`, схема
+/// `chat_id`, `message_id`, `before`, `after` — около `0x8fa116`); тексты
+/// ошибок — ядро (около `0x6da6ff`). Отдаёт найденное сообщение и реплики
+/// пользователя и ассистента вокруг него по порядку и есть ли ещё.
+///
+/// Своё: чат один — главный, `chat_id` — `main`; поля ответа — `chat_id`,
+/// `messages` (`message_id`, `timestamp`, `speaker`, `text`, `matched`),
+/// `more_before`, `more_after`; текст незнакомого `message_id`.
+#[derive(Clone)]
+pub struct ChatReader {
+    pool: PgPool,
+    agent_id: String,
+}
+
+pub const CHAT_READ: &str = "chat.read_messages";
+const CHAT_READ_DESCRIPTION: &str = "Read a main or side-chat conversation. Open a memory search match and surrounding messages using its `message_id`. Reading does not send a message.";
+const MAIN_CHAT: &str = "main";
+const WINDOW_MAX: i64 = 20;
+const WINDOW_DEFAULT: i64 = 2;
+
+impl ChatReader {
+    pub fn new(store: &Store, agent_id: &str) -> ChatReader {
+        ChatReader { pool: store.pool.clone(), agent_id: agent_id.into() }
+    }
+
+    pub async fn read(&self, message_id: &str, before: i64, after: i64) -> Result<serde_json::Value, String> {
+        const MSGS: &str = "with msgs as (select message_id, min(seq) as s, min(role::text) as speaker, string_agg(text_content, E'\\n' order by seq) as body, \
+             to_char(min(created_at) at time zone 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') as ts from agent.context_items \
+             where agent_id = $1 and item_kind = 'message_text' and role in ('user', 'assistant') and message_source is null group by message_id)";
+        let unavailable = |_| "Reading around a search match is unavailable.".to_string();
+        let target: Option<(i64, String, String, String)> = sqlx::query_as(&format!("{MSGS} select s, speaker, body, ts from msgs where message_id = $2"))
+            .bind(&self.agent_id)
+            .bind(message_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(unavailable)?;
+        let Some((seq, speaker, body, ts)) = target else {
+            return Err(format!("No message in the main chat has message_id {message_id}."));
+        };
+        let side = |cmp: &str, order: &str, n: i64| format!("{MSGS} select message_id, speaker, body, ts from msgs where s {cmp} $2 order by s {order} limit {}", n + 1);
+        let earlier: Vec<(String, String, String, String)> = sqlx::query_as(&side("<", "desc", before)).bind(&self.agent_id).bind(seq).fetch_all(&self.pool).await.map_err(unavailable)?;
+        let later: Vec<(String, String, String, String)> = sqlx::query_as(&side(">", "asc", after)).bind(&self.agent_id).bind(seq).fetch_all(&self.pool).await.map_err(unavailable)?;
+        let entry = |(id, speaker, text, ts): &(String, String, String, String), matched: bool| serde_json::json!({"message_id": id, "timestamp": ts, "speaker": speaker, "text": text, "matched": matched});
+        let mut messages: Vec<serde_json::Value> = earlier.iter().take(before as usize).rev().map(|r| entry(r, false)).collect();
+        messages.push(entry(&(message_id.to_string(), speaker, body, ts), true));
+        messages.extend(later.iter().take(after as usize).map(|r| entry(r, false)));
+        Ok(serde_json::json!({
+            "chat_id": MAIN_CHAT,
+            "messages": messages,
+            "more_before": earlier.len() as i64 > before,
+            "more_after": later.len() as i64 > after,
+        }))
+    }
+}
+
+impl agent_loop::Tool for ChatReader {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: CHAT_READ.into(),
+            description: CHAT_READ_DESCRIPTION.into(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "chat_id": {"type": "string", "description": "Chat UUID from chat.list for browsing a chat. Required only when message_id is omitted. If both are supplied, they must refer to the same chat."},
+                    "message_id": {"type": "string", "minLength": 1, "description": "Message ID from the supplied context or hamlet.memory_search. This is sufficient to read the message and surrounding context without chat_id. Do not combine with cursor or limit."},
+                    "before": {"type": "integer", "minimum": 0, "maximum": 20, "description": "User and assistant messages before the requested message. Defaults to 2. Requires message_id."},
+                    "after": {"type": "integer", "minimum": 0, "maximum": 20, "description": "User and assistant messages after the requested message. Defaults to 2. Requires message_id."}
+                }
+            }),
+        }
+    }
+
+    fn call(&self, args: serde_json::Value) -> agent_loop::ToolFuture<'_> {
+        Box::pin(async move {
+            use agent_loop::ToolError;
+            let Some(id) = args.get("message_id").and_then(serde_json::Value::as_str).filter(|s| !s.is_empty()) else {
+                return Err(ToolError::InvalidArguments("message_id is required to read a search match and surrounding messages.".into()));
+            };
+            if args.get("chat_id").and_then(serde_json::Value::as_str).is_some_and(|c| c != MAIN_CHAT) {
+                return Err(ToolError::InvalidArguments(format!("message_id {id} is not in that chat.")));
+            }
+            let n = |k: &str| args.get(k).and_then(serde_json::Value::as_i64).unwrap_or(WINDOW_DEFAULT);
+            let (before, after) = (n("before"), n("after"));
+            if !(0..=WINDOW_MAX).contains(&before) || !(0..=WINDOW_MAX).contains(&after) {
+                return Err(ToolError::InvalidArguments("before and after must each be between 0 and 20.".into()));
+            }
+            let v = self.read(id, before, after).await.map_err(ToolError::Failed)?;
+            Ok(vec![agent_model::ToolResultPart::Text { text: v.to_string() }])
         })
     }
 }

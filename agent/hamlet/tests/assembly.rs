@@ -105,8 +105,9 @@ async fn build(dir: &Path, clock: FakeClock) -> Arc<Hamlet> {
 
 /// Полный список инструментов главного агента — красный, если что-то не
 /// подключено.
-const MAIN_TOOLS: [&str; 90] = [
+const MAIN_TOOLS: [&str; 91] = [
     "browser.browse", "browser.find", "browser.lookup_citation_url", "browser.open", "browser.search", "browser.windows", "browser_deep_research",
+    "chat.read_messages",
     "cron.add", "cron.list", "cron.remove", "cron.run", "cron.runs", "cron.status", "cron.stop", "cron.update", "cron.view",
     "forget.confirm", "forget.plan",
     "hamlet.connector_search", "hamlet.db", "hamlet.edit", "hamlet.exec", "hamlet.memory_explain", "hamlet.memory_get", "hamlet.memory_search", "hamlet.read", "hamlet.skill_search", "hamlet.write",
@@ -900,6 +901,68 @@ async fn browser_window_continues_after_restart() {
         };
         assert!(list.contains(&task_id), "{wire:?}: {list}");
         services.stop(&h2).await;
+    }
+}
+
+/// П3е-6: «Past conversations» в `hamlet.memory_search` — прошлые реплики
+/// главного чата находятся по слову и по началу слова (новые сверху, с
+/// `chat_id`, `message_id`, временем, говорящим и выдержкой), служебные
+/// заметки — нет; `chat.read_messages` открывает совпадение с соседними
+/// репликами.
+#[tokio::test]
+async fn memory_search_finds_past_conversations() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s1, _p) = model(wire, vec![Step::Text("Noted, Bublik it is."), Step::Text("Fine.")], true);
+        let dir = agent_dir("past", wire, &s1);
+        let h1 = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(one_run(&h1, Some("My cat is called Bublik.")).await, "Noted, Bublik it is.", "{wire:?}");
+        assert_eq!(one_run(&h1, Some("Something else entirely.")).await, "Fine.", "{wire:?}");
+        h1.browsers.shutdown().await;
+        let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
+        let owner_line: String = sqlx::query_scalar("select message_id from agent.context_items where agent_id = 'root' and text_content = 'My cat is called Bublik.'").fetch_one(&pool).await.unwrap();
+
+        let (s2, _p) = model(
+            wire,
+            vec![
+                Step::Calls(vec![("m1", "hamlet.memory_search", json!({"queries": ["Bubl"]}))]),
+                Step::Calls(vec![("r1", "chat.read_messages", json!({"message_id": owner_line, "before": 0, "after": 1}))]),
+                Step::Text("Your cat is Bublik."),
+            ],
+            true,
+        );
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(one_run(&h2, Some("What is my cat called?")).await, "Your cat is Bublik.", "{wire:?}");
+        let result = |i: usize| -> serde_json::Value {
+            let req = &s2.requests()[i];
+            let last = match wire {
+                Wire::Anthropic => req["messages"].as_array().unwrap().last().unwrap()["content"][0]["content"].clone(),
+                Wire::OpenaiCompat => req["messages"].as_array().unwrap().last().unwrap()["content"].clone(),
+            };
+            let text = match &last {
+                serde_json::Value::String(t) => t.clone(),
+                serde_json::Value::Array(a) => a[0]["text"].as_str().unwrap().to_string(),
+                v => panic!("{v}"),
+            };
+            serde_json::from_str(&text).unwrap_or_else(|e| panic!("{e}: {text}"))
+        };
+        let found = result(1);
+        let past = found["past_conversations"].as_array().unwrap_or_else(|| panic!("{wire:?}: {found}"));
+        assert!(!past.is_empty(), "{wire:?}: {found}");
+        // Новые сверху: ответ ассистента (позже), потом строка владельца.
+        assert_eq!(past[0]["speaker"], "assistant", "{wire:?}: {found}");
+        assert!(past[0]["excerpt"].as_str().unwrap().contains("Bublik"));
+        let hit = past.iter().find(|p| p["message_id"] == owner_line.as_str()).unwrap_or_else(|| panic!("{wire:?}: {found}"));
+        assert_eq!((hit["chat_id"].as_str(), hit["speaker"].as_str()), (Some("main"), Some("user")));
+        assert!(hit["timestamp"].as_str().unwrap().ends_with('Z') && hit["excerpt"].as_str().unwrap().contains("Bublik"));
+        assert!(found["memories"].is_array());
+        let read = result(2);
+        let msgs = read["messages"].as_array().unwrap_or_else(|| panic!("{wire:?}: {read}"));
+        assert_eq!(msgs.len(), 2, "{wire:?}: {read}");
+        assert_eq!((msgs[0]["text"].as_str(), msgs[0]["matched"].as_bool()), (Some("My cat is called Bublik."), Some(true)));
+        assert_eq!(msgs[1]["text"], "Noted, Bublik it is.");
+        assert_eq!((read["more_before"].as_bool(), read["more_after"].as_bool()), (Some(false), Some(true)), "{wire:?}: {read}");
+        h2.browsers.shutdown().await;
     }
 }
 
