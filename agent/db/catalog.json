@@ -452,6 +452,14 @@
           "nullable": true,
           "position": 18,
           "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "periodic_memory_flush_progress",
+          "nullable": true,
+          "position": 19,
+          "type": "bigint"
         }
       ],
       "comment": null,

@@ -104,6 +104,7 @@ dependencies = [
  "agent-tools",
  "agent-workflows",
  "chrono",
+ "chrono-tz",
  "libc",
  "serde",
  "serde_json",

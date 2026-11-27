@@ -109,8 +109,13 @@ impl Hamlet {
     /// Один ход главной сессии. Перед ходом — сжатие, если разговор дорос
     /// до порога. `resumed` — имя хода, оборванного перезапуском.
     pub async fn turn(&self, conv: &mut Conversation, resumed: Option<String>) -> Result<String, String> {
-        if let Some(done) = self.compactor().compact_if_needed(conv).await.map_err(|e| e.to_string())? {
+        // Сброс перед сжатием пропускается, если периодический уже покрыл
+        // весь разговор (`periodic_flush_covered`).
+        let covered = self.history.flush_progress().await? >= conv.history.len();
+        if let Some(done) = self.compactor(covered).compact_if_needed(conv).await.map_err(|e| e.to_string())? {
             self.history.replace(&conv.history, conv.last_volatile(), &done).await?;
+            // Сброс перед сжатием покрыл всё, что было до него.
+            self.history.set_flush_progress().await?;
         }
         // Поданное в ящик до хода: строка владельца — с заметкой изменчивого
         // за ней, весть службы — как есть; записывается историей и
@@ -240,6 +245,7 @@ impl Hamlet {
             match self.turn(&mut conv, resumed.take()).await {
                 Ok(text) => {
                     let _ = out.send(text);
+                    self.periodic_flush(&conv).await;
                     // Продолжение по списку дел (`todo_continuation`).
                     if let Some(note) = self.todo_continuation().await {
                         conv.history.push(Message { role: Role::Developer, content: vec![Part::Text { text: note }] });
@@ -255,6 +261,32 @@ impl Hamlet {
             }
         }
         reader.abort();
+    }
+
+    /// Периодический сброс памяти между ходами: со времени прошлого
+    /// сброса в разговоре набралось `PERIODIC_THRESHOLD_TOKENS` токенов.
+    pub async fn periodic_flush(&self, conv: &Conversation) {
+        let from = match self.history.flush_progress().await {
+            Ok(i) => i,
+            Err(e) => {
+                eprintln!("failed to read pending periodic memory flush: {e}");
+                return;
+            }
+        };
+        if conv.tokens_from(from) < agent_loop::compaction::PERIODIC_THRESHOLD_TOKENS {
+            return;
+        }
+        eprintln!("periodic memory flush started");
+        match self.compactor(false).flush(conv).await {
+            Ok(()) => {
+                if let Err(e) = self.history.set_flush_progress().await {
+                    eprintln!("failed to persist periodic memory flush progress: {e}");
+                    return;
+                }
+                eprintln!("periodic memory flush completed");
+            }
+            Err(e) => eprintln!("periodic memory flush failed: {e}"),
+        }
     }
 
     /// Записка хода-продолжения, если в списке дел осталась работа и нет

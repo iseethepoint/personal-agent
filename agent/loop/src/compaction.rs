@@ -11,6 +11,16 @@
 //! 3. история = сводка + последний ход владельца целиком: его вызовы с
 //!    результатами и блоки мышления не трогаются. Неизменное начало (П3б)
 //!    сжатие не меняет.
+//!
+//! Периодический сброс — как у muse (`memory_flush/periodic_coverage.rs`,
+//! `maintenance/handlers/periodic_memory_flush.rs`): когда в разговоре со
+//! времени прошлого сброса набралось `JARVIS_MEMORY_FLUSH_PERIODIC_
+//! THRESHOLD_TOKENS` токенов (по умолчанию 50 000, `0xc350` в ядре около
+//! `0xac1408c`), тот же ход сброса идёт между ходами («periodic memory
+//! flush started / completed / failed»); сброс перед сжатием пропускается,
+//! если всё уже сброшено (`periodic_flush_covered`). Перед просьбой о сбросе
+//! — сегодняшний журнал памяти («Today's memory log at ~/… already ends with
+//! the entries below…», строка ядра около `0x6bf7fc`), если файл есть.
 
 use std::path::PathBuf;
 
@@ -28,6 +38,14 @@ pub const SYSTEM_MD: &str = include_str!("../../../prompts/compaction/system.md"
 pub const SUMMARIZATION_MD: &str = include_str!("../../../prompts/compaction/summarization.md");
 pub const SUMMARY_RULES_MD: &str = include_str!("../../../prompts/compaction/summary_rules.md");
 pub const MEMORY_FLUSH_PROMPT_MD: &str = include_str!("../../../prompts/compaction/memory_flush_prompt.md");
+
+/// Порог периодического сброса памяти в токенах (по умолчанию ядра).
+pub const PERIODIC_THRESHOLD_TOKENS: u64 = 50_000;
+
+/// Сегодняшний журнал памяти перед просьбой о сбросе.
+pub fn today_log_note(path: &str, content: &str) -> String {
+    format!("Today's memory log at ~/{path} already ends with the entries below. Do not re-append anything already recorded there; append only new entries and corrections.\n\n{content}")
+}
 
 /// Заголовок сводки в истории — строка ядра muse (0xb3a958).
 pub const SUMMARY_HEADER: &str = "Context checkpoint compaction summary:\n";
@@ -103,6 +121,10 @@ pub struct Compactor<'a, F, C> {
     pub tools: &'a Tools,
     pub trigger: u64,
     pub spill_dir: PathBuf,
+    /// Сегодняшний журнал памяти: путь от дома и содержимое.
+    pub today: Option<(String, String)>,
+    /// Всё уже сброшено периодическим сбросом (`periodic_flush_covered`).
+    pub flush_covered: bool,
 }
 
 impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
@@ -118,14 +140,9 @@ impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
         };
 
         // 1. Ход сброса памяти — на копии истории, в разговор не идёт.
-        let mut scratch = conv.history.clone();
-        scratch.push(Message {
-            role: Role::Developer,
-            content: vec![Part::Text { text: personal(MEMORY_FLUSH_PROMPT_MD) }],
-        });
-        Turn::from_prefix(self.flush, self.tools, &conv.prefix, self.spill_dir.clone())
-            .run(&mut scratch, &mut |_: &str| {})
-            .await?;
+        if !self.flush_covered {
+            self.flush(conv).await?;
+        }
 
         // 2. Сводка старой части.
         let mut messages = conv.history[..cut].to_vec();
@@ -151,6 +168,24 @@ impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
         history.extend_from_slice(&conv.history[cut..]);
         conv.replace_history(history);
         Ok(Some(Compacted { summary, first_kept: cut, tokens_before, tokens_after: conv.estimate_tokens() }))
+    }
+}
+
+impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
+    /// Ход сброса памяти на копии истории; в разговор не идёт.
+    pub async fn flush(&self, conv: &Conversation) -> Result<(), TurnError> {
+        let mut scratch = conv.history.clone();
+        if let Some((path, content)) = &self.today {
+            scratch.push(Message { role: Role::Developer, content: vec![Part::Text { text: today_log_note(path, content) }] });
+        }
+        scratch.push(Message {
+            role: Role::Developer,
+            content: vec![Part::Text { text: personal(MEMORY_FLUSH_PROMPT_MD) }],
+        });
+        Turn::from_prefix(self.flush, self.tools, &conv.prefix, self.spill_dir.clone())
+            .run(&mut scratch, &mut |_: &str| {})
+            .await?;
+        Ok(())
     }
 }
 
