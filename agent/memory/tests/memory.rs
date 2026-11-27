@@ -10,10 +10,10 @@ use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use agent_loop::{Tools, Turn};
-use agent_memory::{reindex, MemoryTools, NewClaim, ProviderEmbedder, Store};
+use agent_loop::{Inbox, Prefix, Subagents, Tool, ToolFuture, Tools, Transcript, Turn};
+use agent_memory::{reindex, ForgetTools, MemoryTools, NewClaim, ProviderEmbedder, Store};
 use agent_model::openai_compat::OpenaiCompatProvider;
-use agent_model::{Message, OpenaiCompatFacts, Part, Role, ToolResultPart};
+use agent_model::{Message, OpenaiCompatFacts, Part, Role, ToolResultPart, ToolSpec};
 use common::{model, temp_dir, Step, Wire};
 use serde_json::{json, Value};
 
@@ -309,4 +309,110 @@ async fn one_turn_anthropic() {
 #[tokio::test]
 async fn one_turn_openai_compat() {
     one_turn(Wire::OpenaiCompat).await
+}
+
+/// Тестовый инструмент подагента: записать файл от дома.
+struct Put(PathBuf);
+
+impl Tool for Put {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: "put".into(),
+            description: "записать файл".into(),
+            input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}, "text": {"type": "string"}}}),
+        }
+    }
+
+    fn call(&self, args: Value) -> ToolFuture<'_> {
+        Box::pin(async move {
+            write(&self.0, args["path"].as_str().unwrap(), args["text"].as_str().unwrap());
+            Ok(vec![ToolResultPart::Text { text: "ok".into() }])
+        })
+    }
+}
+
+async fn wait_inbox(inbox: &Inbox) -> Vec<Message> {
+    tokio::time::timeout(std::time::Duration::from_secs(10), inbox.wait()).await.expect("итог не пришёл");
+    inbox.drain()
+}
+
+async fn forget_flow(wire: Wire) {
+    let h = home(&format!("forget-flow-{wire:?}"));
+    write(&h, "memory/2026-11-20.md", "- The owner's bank is Northwind.\n  claim: b1\n\n- The owner likes jazz.\n");
+    let s = store().await;
+    s.add_claim(&claim("b1", "The owner's bank is Northwind.", None)).await.unwrap();
+    write(&h, "skills/forget/SKILL.md", "# Forgetting\n");
+    let skill = h.join("skills/forget/SKILL.md");
+
+    // Подагенты: план, затем исполнитель (правит файл и пишет pending.json).
+    let child_steps = vec![
+        Step::Text("План: убрать строку о банке и утверждение b1."),
+        Step::Calls(vec![
+            ("e1", "put", json!({"path": "memory/2026-11-20.md", "text": "- The owner likes jazz.\n"})),
+            ("e2", "put", json!({"path": "workspace/memory/forget/pending.json", "text": "{\"claims\":[\"b1\"],\"citations\":[\"memory/2026-11-20.md#L1\"]}"})),
+        ]),
+        Step::Text("Убрал."),
+    ];
+    let (child_server, cp) = model(wire, child_steps, false);
+    let mut child_tools = Tools::new();
+    child_tools.add(Put(h.clone()));
+    let transcript = Transcript::new();
+    let subs = Subagents::new(
+        Arc::new(cp),
+        Arc::new(child_tools.clone()),
+        Prefix { system: "Ты — подагент.".into(), tools: child_tools.specs() },
+        temp_dir("forget-child"),
+        Inbox::new(),
+        transcript.clone(),
+    );
+    let memory = MemoryTools::new(&h, s.clone(), None);
+    let mut tools = tools_for(&memory);
+    ForgetTools::new(subs.clone(), &h, s.clone(), None, &skill).add_to(&mut tools);
+    assert_eq!(paths(&search(&tools, "Northwind").await), ["memory/2026-11-20.md#L1-L2"]);
+
+    // Без плана исполнять нечего.
+    let e = call(&tools, "forget.confirm", json!({})).await.unwrap_err();
+    assert!(e.contains("requires a completed forget plan"), "{e}");
+
+    let parent_steps = vec![
+        Step::Calls(vec![("p1", "forget.plan", json!({}))]),
+        Step::Text("Готовлю план."),
+        Step::Calls(vec![("p2", "forget.confirm", json!({}))]),
+        Step::Text("Убираю."),
+    ];
+    let (_parent_server, pp) = model(wire, parent_steps, false);
+    let mut turn = Turn::new(&pp, &tools, "Ты — Hamlet.", temp_dir("forget-parent"));
+    turn.transcript = Some(transcript);
+    let mut hist = vec![Message { role: Role::User, content: vec![Part::Text { text: "забудь, в каком я банке".into() }] }];
+    turn.run(&mut hist, &mut |_: &str| {}).await.unwrap();
+    let plan = wait_inbox(subs.inbox()).await;
+    assert!(plan[0].text().contains("План: убрать строку"), "{plan:?}");
+    // План унаследовал разговор: просьба владельца в нём есть, задание — текст ядра.
+    let first = child_server.requests()[0].to_string();
+    assert!(first.contains("забудь, в каком я банке") && first.contains("This turn is planning only."), "{first}");
+    assert!(first.contains(&skill.display().to_string()));
+
+    hist.extend(plan);
+    hist.push(Message { role: Role::User, content: vec![Part::Text { text: "да, убирай".into() }] });
+    turn.run(&mut hist, &mut |_: &str| {}).await.unwrap();
+    let done = wait_inbox(subs.inbox()).await;
+    let note = done[0].text();
+    assert!(note.contains("Убрал.") && note.contains("[Memory refresh] Retracted 1 claims"), "{note}");
+    // Исполнитель видел план и согласие.
+    let exec = child_server.requests()[1].to_string();
+    assert!(exec.contains("План: убрать строку") && exec.contains("да, убирай") && exec.contains("pending.json"), "{exec}");
+    assert_eq!(s.claim("b1").await.unwrap().unwrap().status, "retracted");
+    assert!(paths(&search(&tools, "Northwind").await).is_empty());
+    assert_eq!(paths(&search(&tools, "jazz").await), ["memory/2026-11-20.md#L1"]);
+    assert!(!h.join("workspace/memory/forget/pending.json").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn forget_flow_anthropic() {
+    forget_flow(Wire::Anthropic).await
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn forget_flow_openai_compat() {
+    forget_flow(Wire::OpenaiCompat).await
 }

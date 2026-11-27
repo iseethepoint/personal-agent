@@ -11,7 +11,7 @@ pub mod turn;
 pub use compaction::{personal, summarization_prompt, Compactor, Plan, SUMMARY_HEADER};
 pub use prompt::{o200k_count, Conversation, Prefix, HOME_FILES};
 pub use spill::SPILL_THRESHOLD_BYTES;
-pub use subagents::{first_message, Inbox, Status, SubagentTool, Subagents, CONTROL_TIMEOUT};
+pub use subagents::{first_message, inherited_history, AfterDone, Inbox, Status, SubagentTool, Subagents, Transcript, CONTROL_TIMEOUT};
 pub use tool::{Tool, ToolError, ToolFuture, Tools};
 pub use turn::{
     forced_tool_choice, Turn, TurnError, MODEL_RETRIES, OUTPUT_TOKEN_CAP_NOTICE, SUBMIT_RESULT, THINKING_ONLY_NOTICE, TOOL_TIMEOUT,
