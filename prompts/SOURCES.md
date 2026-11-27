@@ -72,6 +72,14 @@
 | `browser/pages.md` | `pages.md` | убрано «Observe again after another agent returns…» (специалистов нет) |
 | `browser/presentation_language.md` | `presentation_language.md` | без правок; идёт не в системный текст, а в задание и продолжение после «\n\nLanguage:\n», края обрезаны, `{locale}` подставлен (`0x8b1f920`, П5-2 часть 4) |
 | задание и продолжение окна (`planner.rs`) | ядро: `0x8b1f310`, строки `0x539613`, `0x539652`, литерал «\n\nLanguage:\n» (`0x8b1f3af`) | «Muse's new instruction» → «Hamlet's new instruction» (П10) |
+| `browser/instructions/assignment.md` | `instructions/assignment.md` | убрано предложение о передаче работы специалистам |
+| `browser/instructions/browsing.md` | `instructions/browsing.md` | убраны «a route in the site's guide» и абзац о гайдах сайтов (П4к-3) |
+| `browser/instructions/obstacles.md` | `instructions/obstacles.md` | убрано «Sign-in, checkout and bot checks belong to the specialists.» |
+| `browser/instructions/asking.md` | `instructions/asking.md` | убраны обзор корзины и карта из кошелька (покупки — П4к-4) |
+| `browser/instructions/reporting.md` | `instructions/reporting.md` | убраны находки специалистов и абзац о результате покупки |
+| `browser/instructions/privacy.md` | `instructions/privacy.md` | убраны служба входа и абзац о файлах (`browser.files` нет) |
+| `browser/instructions/{conduct,facts,commitments}.md` | те же | без правок, кроме общих |
+| `browser/copyrighted_material.md` | ядро: запись `tools/copyrighted_material.md` раздела `0x64` в.1 (вид 2 — текст в ядре, `0x7ebeea`, 0x16c байт) | без правок |
 | `browser/completion_gate/report_required.md` | `completion_gate/report_required.md` | без правок |
 | `browser/tools/observe.{json,md}` | `tools/observe.*` | убраны поля `image` (осмотр и разметка снимков) и `listen` (звук) и их абзацы; «inspections of saved images» и `look` в последнем абзаце убраны |
 | `browser/tools/act.{json,md}` | `tools/act.*` | виды действий — без `drag`, `hold`, `mouse_*`, `program`; поля `look`, `within`, `from_*`, `to_*`, `duration_ms`, `dx`, `dy`, `source` и их абзацы убраны (наведение по описанию и модель наведения — позже); описание `ref` и `timeout_ms` сокращено под это; из кодов отказа убраны `page_busy`, `site_in_use`, `entry_unsupported`, `picker_unavailable`, `pointer_*`; пример `needs_reference` — «choosing an option, ticking a box or scrolling inside an area»; модификатор `Meta` оставлен как у muse — имя клавиши, а не компании; в тесте П10 разрешён белым списком ровно здесь и в `window.rs` (слово ревизора, П4к-1б) |
@@ -1165,7 +1173,7 @@
 Индексы 1–6 (подагент и браузер) `0xc468b20` не отдаёт. Developer-сообщение по срезу 1 у главного и ролей по роли — часть 5.
 
 **Браузер.** Тексты `browser/instructions/*` и `presentation_language.md` в ядре дословно не лежат: muse читает их с диска по пути. Ниже — все обращения к описаниям этих файлов (путь, длина, вид). Кроме них, пути лежат в реестре файлов подсказок (записи `inventory`: таблицы методов `0x29065338` и `0x28ed1178`) — это регистрация, не чтение.
-- `assignment`, `browsing`, `obstacles`, `asking`, `commitments`, `facts`, `privacy`, `conduct`, `reporting`. Читает только диспетчер (`0xa9baa48`, раздел `0x64` в.1), то есть срез 1 профиля 1, а он не выводится. Файлы убраны из `prompts/browser/instructions/` и из `planner.rs`.
+- `assignment`, `browsing`, `obstacles`, `asking`, `commitments`, `facts`, `privacy`, `conduct`, `reporting`. Читает только диспетчер (`0xa9baa48`, раздел `0x64` в.1), то есть срез 1 профиля 1. (В части 4 здесь стоял вывод «срез 1 профиля 1 не выводится, файлы убраны» — неверно: его выводит `0xcdb6660` в составном тексте хода, см. часть 5а. Файлы возвращены.)
 - `presentation_language.md` (описание `0x28ed1410`). Читает `0x8b1f920`: обрезает края (`0xf76f820`) и подставляет `{locale}` (`0x498590`). Его зовёт сборка задания `0x8b1f310`: строка начала или продолжения, затем задание, «\n\nLanguage:\n» и язык. Сборку зовут `0x97cf670`, `0xa85d260`, `0xc24b8b0`, `0xc252630`. Ещё файл читает итоговая сводка задачи hatch-server (`0x18748550`, `0x1c85b040`) — её у Hamlet нет. У Hamlet язык перенесён в `assignment_message` и `update_message`.
 - Системный текст исполнителя — записи `system.md` и `pages.md` подряд (`0x64` в.0, профиль 1), личный вариант меток, края без переводов строки.
 
@@ -1189,3 +1197,41 @@
 | `bot_checks`, `specialists`, `specialist_assignment`, `login`, `verification_codes`, `checkout`, `challenges`, `poppy` | только таблица `0x2906bd30` (срез 1 профилей 1–5, в.1/3/5/7/9) — не выводятся |
 
 **Тесты:** `agent/browser/tests/planner_text.rs` — системный текст исполнителя равен `system.md` + `pages.md` по форме профиля, без `instructions/*` и без языка; первое сообщение и продолжение — побайтно по форме `0x8b1f310` с подставленным `locale`. `agent/hamlet/tests/profiles.rs` — `via = "flag"`.
+
+## П5-2, часть 5а: тексты хода — механизм и браузер
+
+**Что muse кладёт в ход.** Ход `0xca92e40` пишет в список хода `+0x69d8` два элемента:
+- вид 2 (`0xcaaa2fb`) — `turn_directives`: срез 2 профиля, выводит `0xcdb67c0` (вызов `0xcaa9ff8`);
+- вид 4 (`0xcaafc95`) — составной текст `0xcdb6cb0` (`+0x84a0`).
+
+Порядок записи — сначала вид 2, потом вид 4. У обоих внутреннее значение одно: встроенный системный элемент (вариант 0, `0x8000000000000000`: `0xcaaa2e1`, `0xcaafc27`) подвида 1 (байт `+0x20` = 1: `0xcaaa2f3`, `0xcaafc8d`). `0xbc94680` (через `0x29ad9340`, вызов `0xcab0121`) переводит их в сообщения запроса: `0xb5227f0`, ветка `0xb522836`.
+
+**Составной текст `0xcdb6cb0`** — части через «\n\n» (`0x9e0a89`):
+- раздел `0xcf`, если он есть в срезе 1;
+- `0xcdb6660`: срез 1 (берёт `0xcdb1920`, то есть и у профилей по виду) с фильтром `0xbfcd420`; выводятся только `0x64` (без условий), `0xcc` и `0xcd`/`0xce` (при флагах — часть 5б);
+- developer-текст хода (`+0x8f90`): `0xcdb9b00` — `date_grounding_developer_message` (флаг `0xc8`), вывод среза 1 `0xcdbf740` (только у профилей по роли), раздел `0x3b` (`ctx+0x382`). Он хранится по `seq` сообщения хода (`capture_turn_developer_contexts`, `0x16f9283`) и при повторе хода берётся сохранённый (`+0x3270`, `load_turn_developer_contexts`, `0x1d98b540`).
+
+**Формы у поставщиков** (`agent/model`):
+- Anthropic (`convert_prompt.rs`, `0x20cd95b0`): вид сообщения — таблица `0x22730cc`, подвид — таблица `0x2273154`. Подвид 0 дописывается к параметру `system` через «\n\n». Подвид 1 (`0x20cd9f72`) — объект `{"role":"system","content":[{"type":"text","text":…}]}` в массиве `messages` на своём месте (`0x20cda00a`, `0x20cda16f`). У Hamlet: при `anthropic.mid_conversation_system_messages` каждая заметка (`Role::Developer`) — отдельным таким сообщением, если место допустимо (правила muse «system section must follow a user message / precede an assistant message or end the array», `strings-all.txt:235512`). Без умения — заметки одним текстом в `<system-reminder>` внутри сообщения пользователя (своё: ветку muse для таких весов не нашли в П1б).
+- Chat Completions (`kimi_chat_completions/prompt.rs`, `0x20ad1520`): роль встроенного элемента — из таблицы `0x297732c0` по байту подвида (`0x20ad26da`, длины `0x2269d00`): 0 `system`, 1 `developer`, 2 `user`, 3 `assistant`. У Hamlet при `developer_role` — `{"role":"developer","content":…}` (раньше было `system`). Без умения — `<system-reminder>` (своё).
+
+**Механизм у Hamlet.** `agent_loop::push_turn_texts` / `Conversation::push_turn_texts`: тексты хода кладутся за сообщением владельца этого хода, каждый отдельной заметкой, по порядку (`turn_directives`, потом составной текст); пустые не кладутся. Они лежат в истории хода: после перезапуска история из записи несёт их те же, при сжатии они уходят в сводку вместе со своим ходом.
+
+**Открытый вопрос — место.** Где у muse элементы `+0x69d8` стоят относительно сообщения владельца и истории, по ядру не установлено. Дальше список идёт в оценку и отпечаток запроса (`0xb3fca90` через `0x29ad9348`, `0xcab0556`, «prompt envelope»), место вставки не найдено. За «после сообщения владельца этого хода» говорят:
+- имена `turn_directives` / `turn_developer_context`;
+- хранение по `seq` сообщения хода, загрузка сразу для нескольких ходов (`… seq = ANY($2) ORDER BY seq`, `0x16f90a6`);
+- текст ядра «developer messages: time tags and reminders associated with user inputs» (`0xa08ca5`).
+
+Это вывод, не адрес.
+
+**Сжатие.** Сжатие пишет `first_kept_seq` (`agent_compactions`, `0x172330a`), тексты загружаются по `seq` видимых сообщений. Вывод: тексты ушедших в сводку ходов пропадают, у оставшихся — на месте. Отдельного пересчёта старых текстов не найдено.
+
+**Браузер.** Срез 2 профиля 1 пуст. Составной текст = раздел `0x64` в.1 (`0xcdb6660` выводит `0x64` без условий): записи таблицы `0x2906bd30` подряд — `assignment`, `browsing`, `obstacles`, `asking`, `commitments`, `facts`, `privacy`, `conduct`, `tools/copyrighted_material.md`, `reporting`. `specialists.md` и `bot_checks.md` не берутся целиком (специалисты и проверки ботов — П4к-2…4). Developer-текста хода у профиля по виду нет (`+0x8ecc`). Затем личный вариант меток и края без переводов строки (своё, как у системного текста). У Hamlet — `agent_browser::planner::turn_texts`, кладётся за заданием и за продолжением, начинающим новую работу. Обновление посреди работы приходит в тот же ход, без новых текстов.
+
+**Часть 5б** (не сделано): условия `0xcd552d0` (срез 2), `0xcdbf740` (таблица `0x9d84ec`), флаги `0xcc`/`0xcd`/`0xce` в `0xcdb6660` — затем наполнение у главного и ролей по роли.
+
+**Тесты:**
+- `agent/loop/tests/turn_texts.rs` (оба поставщика): с умением и без; порядок двух текстов; тексты те же после перезапуска; после сжатия у старого хода текстов нет;
+- `agent/model/tests/anthropic.rs` — форма `content: [{"type":"text"}]`, заметки подряд — отдельными сообщениями;
+- `agent/model/tests/openai_compat.rs` — роль `developer`;
+- `agent/browser/tests/planner_text.rs` — составной текст исполнителя; `planner.rs` — он за заданием.

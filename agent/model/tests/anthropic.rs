@@ -238,7 +238,17 @@ fn system_message_only_where_allowed() {
     let mut req = request();
     req.messages.push(dev("[время 10:00]"));
     let b = request_body("m", &req, &full_facts()).unwrap();
-    assert_eq!(b["messages"][1], json!({"role": "system", "content": "[время 10:00]"}));
+    // Форма muse `0x20cd9f72`: содержимое — массив блоков `text`.
+    assert_eq!(b["messages"][1], json!({"role": "system", "content": [{"type": "text", "text": "[время 10:00]"}]}));
+
+    // Заметки подряд после user — каждая своим сообщением, по порядку.
+    let mut req = request();
+    req.messages = vec![user("а"), dev("первая"), dev("вторая"), assistant("б")];
+    let b = request_body("m", &req, &full_facts()).unwrap();
+    let msgs = b["messages"].as_array().unwrap();
+    assert_eq!(msgs[1], json!({"role": "system", "content": [{"type": "text", "text": "первая"}]}));
+    assert_eq!(msgs[2], json!({"role": "system", "content": [{"type": "text", "text": "вторая"}]}));
+    assert_eq!(msgs[3]["role"], "assistant");
 
     // После user и перед assistant — role: system.
     let mut req = request();

@@ -3,7 +3,7 @@
 //! `pages.md`), задание и продолжение — сборка `0x8b1f310` с языком
 //! `presentation_language.md` (`0x8b1f920`).
 
-use agent_browser::planner::{assignment_message, system, update_message};
+use agent_browser::planner::{assignment_message, system, turn_texts, update_message};
 use agent_loop::personal;
 
 fn prompt(path: &str) -> String {
@@ -31,4 +31,26 @@ fn assignment_and_update_follow_core() {
         update_message("Also check Sunday.", "de-DE"),
         format!("Continue this task from the history above with Hamlet's new instruction below, then report the result.\n\nAlso check Sunday.\n\nLanguage:\n{language}")
     );
+}
+
+/// Составной текст хода — раздел `0x64` вариант 1 (таблица `0x2906bd30`):
+/// записи подряд, без `specialists.md` и `bot_checks.md` (правило блока).
+#[test]
+fn turn_texts_are_instructions() {
+    let records = [
+        "browser/instructions/assignment.md",
+        "browser/instructions/browsing.md",
+        "browser/instructions/obstacles.md",
+        "browser/instructions/asking.md",
+        "browser/instructions/commitments.md",
+        "browser/instructions/facts.md",
+        "browser/instructions/privacy.md",
+        "browser/instructions/conduct.md",
+        "browser/copyrighted_material.md",
+        "browser/instructions/reporting.md",
+    ];
+    let joined: String = records.iter().map(|r| prompt(r)).collect();
+    assert_eq!(turn_texts(), vec![personal(&joined).trim_matches('\n').to_string()]);
+    assert!(turn_texts()[0].starts_with("## Your Assignment"));
+    assert!(turn_texts()[0].contains("Link to or summarize copyrighted material"));
 }

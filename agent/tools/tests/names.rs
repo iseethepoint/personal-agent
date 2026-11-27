@@ -137,6 +137,11 @@ fn prompts_have_no_muse_or_meta() {
     let mut seen = 0;
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         for e in std::fs::read_dir(dir).unwrap().flatten() {
+            // Скрытые файлы (имя с точки, например `.DS_Store` Finder) — не
+            // наши тексты, модели не уходят.
+            if e.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
             if e.path().is_dir() {
                 walk(&e.path(), out);
             } else {

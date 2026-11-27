@@ -243,7 +243,8 @@ fn tool_results_images_developer() {
     assert_eq!(m[1]["content"][1], json!({"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBO"}}));
     assert_eq!(m[2]["tool_calls"][0]["function"], json!({"name": "hamlet.read", "arguments": "{\"path\":\"~/a\"}"}));
     assert_eq!(m[3], json!({"role": "tool", "tool_call_id": "c1", "content": format!("{TOOL_ERROR_PREFIX}нет файла")}));
-    assert_eq!(m[4], json!({"role": "system", "content": "[время 10:00]"}));
+    // Роль встроенного системного элемента подвида 1 у muse — `developer` (`0x297732c0`).
+    assert_eq!(m[4], json!({"role": "developer", "content": "[время 10:00]"}));
     assert_eq!(b["tool_choice"], json!({"type": "function", "function": {"name": "hamlet.read"}}));
 
     // Без developer_role — обёртка в сообщении пользователя.
