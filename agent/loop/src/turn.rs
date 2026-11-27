@@ -110,6 +110,11 @@ pub trait Record: Send + Sync {
     fn usage<'a>(&'a self, _usage: &'a agent_model::Usage) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(async { Ok(()) })
     }
+    /// Убрать записанные сообщения с этими номерами (карантин). Номера —
+    /// по возрастанию, в истории, которую ход отдавал в `record`.
+    fn remove<'a>(&'a self, _indices: &'a [usize]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// Исполненный вызов: имя, аргументы, ошибка ли, первая строка результата.
@@ -373,6 +378,23 @@ impl<'a, P: Provider> Turn<'a, P> {
             };
             let can_retry = shown.is_empty() && attempt < self.retries;
             match result {
+                Err(e) if shown.is_empty() && crate::quarantine::is_poison(&e) => {
+                    let Some(removed) = crate::quarantine::candidate(history, &e) else {
+                        eprintln!("prompt poison recovery found no quarantine candidate: {}", e.message);
+                        return Err(TurnError::Model(e));
+                    };
+                    let current = crate::quarantine::is_current(history, &removed);
+                    if let Some(r) = &self.record {
+                        r.remove(&removed).await.map_err(|err| TurnError::Record(format!("prompt poison recovery failed: {err}")))?;
+                    }
+                    for &i in removed.iter().rev() {
+                        history.remove(i);
+                    }
+                    eprintln!("quarantined prompt context after inference failure: {} messages", removed.len());
+                    if current {
+                        return Err(TurnError::Model(crate::quarantine::current_error(&e)));
+                    }
+                }
                 Err(e) => {
                     let repeatable = e.retryable || e.kind == ProviderErrorKind::Decode;
                     if repeatable && can_retry {

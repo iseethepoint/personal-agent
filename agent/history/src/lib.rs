@@ -238,6 +238,27 @@ impl AgentHistory {
         Ok(())
     }
 
+    /// Карантин: убрать записанные сообщения с этими номерами текущей
+    /// подсказки — запрос ядра `DELETE FROM agent.context_items WHERE agent_id
+    /// = $1 AND seq = ANY($2)`; их строки поиска по разговорам — тоже.
+    pub async fn remove(&self, indices: &[usize]) -> Result<(), String> {
+        let mut st = self.state.lock().await;
+        let written: Vec<usize> = indices.iter().copied().filter(|&i| i < st.written).collect();
+        let mut seqs: Vec<i64> = Vec::new();
+        for &i in &written {
+            let end = st.starts.get(i + 1).copied().unwrap_or(st.next);
+            seqs.extend(st.starts[i]..end);
+        }
+        sqlx::query("DELETE FROM agent.context_items WHERE agent_id = $1 AND seq = ANY($2)").bind(&self.agent_id).bind(&seqs).execute(&self.pool).await.map_err(db)?;
+        let keys: Vec<String> = seqs.iter().map(|q| format!("{}:{q}", self.agent_id)).collect();
+        sqlx::query("DELETE FROM runtime.search_documents WHERE owner_table = $1 AND owner_key = ANY($2)").bind(CONVERSATION_DOCUMENTS).bind(&keys).execute(&self.pool).await.map_err(db)?;
+        for &i in written.iter().rev() {
+            st.starts.remove(i);
+            st.written -= 1;
+        }
+        Ok(())
+    }
+
     /// История заменена (сжатие): новая пишется после старой, граница
     /// подсказки сдвигается на её начало, сжатие — строка
     /// `agent.agent_compactions` (`checkpoint_seq` — новая граница,
@@ -452,6 +473,10 @@ impl Record for AgentHistory {
 
     fn usage<'a>(&'a self, usage: &'a agent_model::Usage) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(self.record_usage(usage))
+    }
+
+    fn remove<'a>(&'a self, indices: &'a [usize]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(AgentHistory::remove(self, indices))
     }
 }
 

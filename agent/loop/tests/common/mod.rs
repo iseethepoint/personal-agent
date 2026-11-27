@@ -49,6 +49,8 @@ pub enum Step {
     CutAfterText(&'static str),
     /// Данные потока не разбираются, текста ещё нет.
     Garbage,
+    /// Отказ в запросе: код и текст ошибки поставщика (`invalid_request_error`).
+    Rejected(u16, &'static str),
 }
 
 fn sse(events: &[Value]) -> String {
@@ -109,6 +111,10 @@ fn anthropic_body(step: &Step) -> (u16, &'static str, String) {
             let body = json!({"type": "error", "error": {"type": "api_error", "message": "boom"}});
             return (*code, "application/json", body.to_string());
         }
+        Step::Rejected(code, message) => {
+            let body = json!({"type": "error", "error": {"type": "invalid_request_error", "message": message}});
+            return (*code, "application/json", body.to_string());
+        }
         Step::ThinkingOnly(t) => {
             ev.push(json!({"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}}));
             ev.push(json!({"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": t}}));
@@ -165,6 +171,10 @@ fn openai_body(step: &Step) -> (u16, &'static str, String) {
         }
         Step::Status(code) | Step::RetryAfter(code, _) => {
             let body = json!({"error": {"message": "boom", "type": "server_error"}});
+            return (*code, "application/json", body.to_string());
+        }
+        Step::Rejected(code, message) => {
+            let body = json!({"error": {"message": message, "type": "invalid_request_error"}});
             return (*code, "application/json", body.to_string());
         }
         Step::ThinkingOnly(t) => {
