@@ -2,7 +2,7 @@
 -- схема goals): goals.goals, goals.updates, goals.briefings. Колонки, типы
 -- и умолчания — как там; берутся колонки, которые заполняют инструменты.
 -- Не взяты (их служб у Hamlet пока нет): у goals — connection_*, research_*,
--- settled_*, escalation*, watch, icon_generation_status, image_relpath,
+-- settled_*, watch, icon_generation_status, image_relpath,
 -- activity_key, user_words, assistant_distillation, woop, implementation_intentions, momentum_dimensions, provenance и прочие
 -- поля самоулучшения и изучения; таблицы actions, associations,
 -- engagement_events, learning_state, momentum_history, sessions,

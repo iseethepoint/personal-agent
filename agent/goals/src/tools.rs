@@ -9,12 +9,17 @@
 //!
 //! Не взяты (их служб у Hamlet нет): общие цели (`host_muse`,
 //! `expected_revision`, задачи), `watch` / `requested` / `connection_id` /
-//! `follow_up_at` у дел (коннекторы, П6), `escalation` (нужен будильник
-//! внимания), подсказки и связи цели (`suggestions`, `associations` —
+//! `follow_up_at` у дел (коннекторы, П6), подсказки и связи цели (`suggestions`, `associations` —
 //! в ответе `get` пустые).
+//!
+//! После создания дела и после записи в его ленту рантайм muse ставит в
+//! очередь пересчёт внимания («failed to enqueue goal attention refresh»,
+//! «goal created side effects», `strings-all.txt:55733-55736`) — здесь это
+//! фоновая задача на модели `GoalAttention`; инструмент её не ждёт.
+//! Смена статуса дела пишет запись словами модели `TrackingGoalLifecycle`.
 
 use std::path::PathBuf;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex};
 
 use agent_loop::{personal, Tool, ToolError, ToolFuture};
 use agent_model::{Provider, Purpose, Registry, RegistryError, Resolved, ToolResultPart, ToolSpec};
@@ -22,7 +27,7 @@ use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use serde_json::{json, Map, Value};
 
 use crate::activity;
-use crate::store::{rfc3339, GoalPatch, NewGoal, Store, CATEGORIES, GOAL_KINDS, TRACKING, USER_GOAL};
+use crate::store::{rfc3339, Escalation, Goal, GoalPatch, NewGoal, Store, CATEGORIES, GOAL_KINDS, TRACKING, USER_GOAL};
 use crate::workspace;
 use crate::OwnedCleanup;
 
@@ -104,17 +109,22 @@ impl Op {
     }
 }
 
-/// Модели решений по целям — назначения реестра muse `GoalActivityState`
-/// и `GoalSubgoalRollup` (`strings-all.txt:56281`).
+/// Модели решений по целям — назначения реестра muse `GoalActivityState`,
+/// `GoalSubgoalRollup`, `TrackingGoalLifecycle` и `GoalAttention`
+/// (`strings-all.txt:56281`).
 pub struct Models<P> {
     pub activity_state: Arc<P>,
     pub subgoal_rollup: Arc<P>,
+    pub lifecycle: Arc<P>,
+    pub attention: Arc<P>,
 }
 
 /// Выбор моделей решений через `Registry::resolve`.
 pub struct Plan<'r> {
     pub activity_state: Resolved<'r>,
     pub subgoal_rollup: Resolved<'r>,
+    pub lifecycle: Resolved<'r>,
+    pub attention: Resolved<'r>,
 }
 
 impl<'r> Plan<'r> {
@@ -122,14 +132,24 @@ impl<'r> Plan<'r> {
         let get = |p: Purpose| -> Result<Resolved<'r>, RegistryError> {
             Ok(reg.resolve(p, selection)?.expect("resolve отдаёт None только для Embeddings"))
         };
-        Ok(Plan { activity_state: get(Purpose::GoalActivityState)?, subgoal_rollup: get(Purpose::GoalSubgoalRollup)? })
+        Ok(Plan {
+            activity_state: get(Purpose::GoalActivityState)?,
+            subgoal_rollup: get(Purpose::GoalSubgoalRollup)?,
+            lifecycle: get(Purpose::TrackingGoalLifecycle)?,
+            attention: get(Purpose::GoalAttention)?,
+        })
     }
 }
 
 impl<P> Models<P> {
     /// Поставщики по выбору `plan`; `build` — `from_resolved` нужного вида.
     pub fn from_plan<E>(plan: &Plan<'_>, build: impl Fn(&Resolved<'_>) -> Result<P, E>) -> Result<Self, E> {
-        Ok(Models { activity_state: Arc::new(build(&plan.activity_state)?), subgoal_rollup: Arc::new(build(&plan.subgoal_rollup)?) })
+        Ok(Models {
+            activity_state: Arc::new(build(&plan.activity_state)?),
+            subgoal_rollup: Arc::new(build(&plan.subgoal_rollup)?),
+            lifecycle: Arc::new(build(&plan.lifecycle)?),
+            attention: Arc::new(build(&plan.attention)?),
+        })
     }
 }
 
@@ -143,6 +163,65 @@ pub struct Goals<P> {
     pub models: Option<Models<P>>,
     /// Расписания, принадлежащие цели, — удаляются вместе с ней.
     pub cleanup: Option<Arc<dyn OwnedCleanup>>,
+    /// Идущие пересчёты внимания.
+    refreshes: Mutex<Vec<tokio::task::JoinHandle<()>>>,
+}
+
+impl<P: Provider + Send + Sync + 'static> Goals<P> {
+    pub fn new(store: Store, home: PathBuf, models: Option<Models<P>>, cleanup: Option<Arc<dyn OwnedCleanup>>) -> Arc<Self> {
+        Arc::new(Goals { store, home, models, cleanup, refreshes: Mutex::new(Vec::new()) })
+    }
+
+    /// Дождаться идущих пересчётов внимания (для тестов и остановки).
+    pub async fn settle(&self) {
+        loop {
+            let hs: Vec<_> = self.refreshes.lock().unwrap().drain(..).collect();
+            if hs.is_empty() {
+                break;
+            }
+            for h in hs {
+                let _ = h.await;
+            }
+        }
+    }
+
+    /// Пересчёт внимания дела в фоне. Без модели — ничего (внимание
+    /// прежнее, как при сбое вывода).
+    fn refresh_attention(self: &Arc<Self>, goal_id: String, trigger: Value) {
+        if self.models.is_none() {
+            return;
+        }
+        let me = self.clone();
+        let h = tokio::spawn(async move {
+            if let Err(e) = me.apply_attention(&goal_id, trigger).await {
+                eprintln!("failed to persist goal attention; preserving existing attention: {e}");
+            }
+        });
+        self.refreshes.lock().unwrap().push(h);
+    }
+
+    async fn apply_attention(&self, goal_id: &str, trigger: Value) -> Result<(), String> {
+        let Some(m) = &self.models else { return Ok(()) };
+        let Some(g) = self.store.goal(goal_id).await? else { return Ok(()) };
+        let recent = self.store.entries(goal_id).await?;
+        let observed = observed_at(self.store.now_ms());
+        let Some(a) = activity::attention(&*m.attention, &g, trigger, &recent, &observed).await else { return Ok(()) };
+        let due = a.next_due_at.as_deref().and_then(|d| parse_effective(d).ok());
+        self.store.update(goal_id, &GoalPatch { attention_kind: Some(a.attention), next_due_at: Some(due), ..Default::default() }).await?;
+        let esc = if a.clear_escalation { Some(None) } else { a.escalation.map(Some) };
+        if let Some(e) = esc {
+            if let Err(err) = self.store.set_escalation(goal_id, e.as_ref()).await {
+                eprintln!("goal escalation persistence failed; preserving stored escalation: {err}");
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Время для решения о внимании — с днём недели, формат ядра
+/// `%A, %Y-%m-%dT%H:%M:%SZ`.
+fn observed_at(ms: i64) -> String {
+    Utc.timestamp_millis_opt(ms).single().unwrap_or_default().format("%A, %Y-%m-%dT%H:%M:%SZ").to_string()
 }
 
 pub struct GoalTool<P> {
@@ -204,6 +283,16 @@ impl<P> GoalTool<P> {
                 if user {
                     p.insert("pushable".into(), json!({"type": "boolean", "description": self.field(op, "pushable")}));
                 }
+                p.insert(
+                    "escalation".into(),
+                    json!({
+                        "type": ["object", "null"],
+                        "description": lookup(&[self.ns.prefix(), "extra", "update.escalation"]),
+                        "properties": {"condition": {"type": "string"}, "due_at": {"type": "string"}, "action": {"type": "string", "enum": crate::store::ESCALATION_ACTIONS}},
+                        "required": ["condition", "due_at", "action"],
+                        "additionalProperties": false,
+                    }),
+                );
                 req.push("goal_id");
             }
             Op::Get | Op::Delete => {
@@ -392,6 +481,9 @@ impl<P: Provider + Send + Sync + 'static> GoalTool<P> {
             })
             .await?;
         workspace::ensure(&self.goals.home, &g).await?;
+        if self.ns == Ns::Tracking {
+            self.goals.refresh_attention(g.goal_id.clone(), json!({"kind": "goal_created", "title": g.title, "current_state": g.current_state, "description": g.description}));
+        }
         let mut v = json!(g);
         v["workspace"] = format!("workspace/goals/{}/", g.slug).into();
         Ok(v)
@@ -422,7 +514,16 @@ impl<P: Provider + Send + Sync + 'static> GoalTool<P> {
         if self.ns == Ns::UserGoal {
             p.pushable = args.get("pushable").and_then(Value::as_bool);
         }
-        let g = self.store().update(id, &p).await?;
+        // `escalation`: объект — записать, `null` — снять, нет поля — не трогать.
+        let esc = match args.get("escalation") {
+            None => None,
+            Some(Value::Null) => Some(None),
+            Some(v) => Some(Some(Escalation::parse(v, &msg("escalation_stored_invalid"), &msg("escalation_due_at"))?)),
+        };
+        let mut g = self.store().update(id, &p).await?;
+        if let Some(e) = esc {
+            g = self.store().set_escalation(id, e.as_ref()).await?;
+        }
         Ok(json!(g))
     }
 
@@ -492,14 +593,30 @@ impl<P: Provider + Send + Sync + 'static> GoalTool<P> {
         let changed = self.store().set_status(id, status).await?;
         // Причина ложится последней записью на ленту («That status transition
         // automatically records the reason as the final timeline entry»,
-        // `goal_record_generic.md`). Заголовок записи — свой.
-        let entry = if changed {
-            let title = if status == "completed" { "Completed" } else { "Reopened" };
-            Some(self.store().add_entry(id, Some(title), None, Some(&reason), None, "assistant").await?)
-        } else {
-            None
-        };
+        // `goal_record_generic.md`). У дела заголовок и состояние пишет модель
+        // `TrackingGoalLifecycle`; без неё и у целей — заголовки ядра.
+        let entry = if changed { Some(self.lifecycle_entry(&g, status == "completed", &reason).await?) } else { None };
         Ok(json!({"goal_id": g.goal_id, "status": status, "changed": changed, "entry": entry}))
+    }
+
+    async fn lifecycle_entry(&self, g: &Goal, completed: bool, reason: &str) -> Result<crate::store::Entry, String> {
+        let tracking = self.ns == Ns::Tracking;
+        let copy = match (&self.goals.models, tracking) {
+            (Some(m), true) => {
+                let recent = self.store().entries(&g.goal_id).await?;
+                activity::lifecycle(&*m.lifecycle, g, completed, reason, &recent).await
+            }
+            _ => None,
+        };
+        let author = "assistant";
+        match copy {
+            Some(c) => {
+                let e = self.store().add_entry(&g.goal_id, Some(&c.activity_title), Some(&c.current_state), Some(reason), None, author).await?;
+                self.store().update(&g.goal_id, &GoalPatch { current_state: Some(Some(c.current_state)), ..Default::default() }).await?;
+                Ok(e)
+            }
+            None => self.store().add_entry(&g.goal_id, Some(activity::lifecycle_fallback(tracking, completed)), None, Some(reason), None, author).await,
+        }
     }
 
     async fn delete(&self, args: &Value) -> Result<Value, String> {
@@ -551,6 +668,9 @@ impl<P: Provider + Send + Sync + 'static> GoalTool<P> {
         }
         out["current_state"] = json!(updated.current_state);
         out["attention_kind"] = json!(updated.attention_kind);
+        if self.ns == Ns::Tracking {
+            self.goals.refresh_attention(g.goal_id.clone(), json!(e));
+        }
         // Запись подцели переносится на родителя («An entry on a nested goal
         // is also rolled up onto its parent goal's timeline automatically»).
         if let Some(pid) = &g.parent_goal_id {

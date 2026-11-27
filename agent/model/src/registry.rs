@@ -33,6 +33,10 @@ pub enum Purpose {
     GoalActivityState,
     /// Запись подцели в словах родителя («Subgoal Activity Rollup»).
     GoalSubgoalRollup,
+    /// Текст записи и состояния при смене статуса дела («Tracking Lifecycle Copy»).
+    TrackingGoalLifecycle,
+    /// Внимание дела после события («Goal Attention»).
+    GoalAttention,
     SelfImprovementStep,
     BrowserAgent,
     BrowserMain,

@@ -79,6 +79,8 @@ pub struct Core {
     pub(crate) wakes: Mutex<Vec<crate::hooks::Wake>>,
     /// Цели — для `owner: goal:<slug>` и контекста работника.
     pub goals: Option<agent_goals::Store>,
+    /// Будильник эскалаций: сроки до этой отметки уже разобраны.
+    pub(crate) escalations_through: Mutex<i64>,
 }
 
 impl Core {
@@ -99,6 +101,7 @@ impl Core {
         secret_envs: Vec<String>,
         goals: Option<agent_goals::Store>,
     ) -> Arc<Core> {
+        let started = clock.now_ms();
         Arc::new(Core {
             store,
             clock,
@@ -109,6 +112,7 @@ impl Core {
             next_poll: Default::default(),
             wakes: Mutex::new(Vec::new()),
             goals,
+            escalations_through: Mutex::new(started),
         })
     }
 
@@ -269,7 +273,32 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         for run in self.core.store.queued().await? {
             self.start(run.run_id, run.job_id, run.attempt).await?;
         }
+        self.escalations(now).await?;
         self.deliver().await
+    }
+
+    /// Будильник эскалаций целей: созревшая эскалация — весть главному
+    /// агенту. У muse её получает проактивный вестник по выборке
+    /// `goals.upcoming_escalations` (sql.txt:4314, «escalation due»,
+    /// действия «Muse should let the user know» / «Muse should ask the user
+    /// what to do», `strings-all.txt`); вестника у нас нет — весть идёт в
+    /// ящик главного агента, как итог работника. Своё: вид вести и отметка
+    /// разобранного срока в памяти службы (после перезапуска срок,
+    /// созревший во время простоя, не будит).
+    async fn escalations(&self, now: i64) -> Result<(), String> {
+        let Some(goals) = &self.core.goals else { return Ok(()) };
+        let after = *self.core.escalations_through.lock().unwrap();
+        if now <= after {
+            return Ok(());
+        }
+        for g in goals.due_escalations(after, now).await? {
+            match escalation_note(&g) {
+                Some(m) => self.inbox.push(m),
+                None => eprintln!("goal {}: goal has escalation_due_at without an escalation payload", g.goal_id),
+            }
+        }
+        *self.core.escalations_through.lock().unwrap() = now;
+        Ok(())
     }
 
     /// Дождаться идущих прогонов и отдать их итоги (для тестов и остановки).
@@ -530,6 +559,22 @@ async fn settle_run(core: &Core, job: &Job, run_id: &str, attempt: i32, timeout:
 /// Скрытая заметка главному агенту: `[SCHEDULED TASK HANDOFF]`
 /// (`strings-all.txt:85472`), вступление `main_agent_handoff_intro.md`,
 /// задание в `task_context`, отчёт в `<job_result>`. Склейка — своя.
+/// Весть о созревшей эскалации цели.
+pub fn escalation_note(g: &agent_goals::Goal) -> Option<Message> {
+    let e = g.escalation.as_ref()?;
+    let s = |k: &str| e.get(k).and_then(Value::as_str).unwrap_or_default().to_string();
+    let act = if s("action") == "ask" { "You should ask the user what to do" } else { "You should let the user know" };
+    let text = format!(
+        "[GOAL ESCALATION DUE]\nThe escalation stored on this goal has come due. {act}.\n\ngoal_id: {}\ngoal: {}\ncondition: {}\ndue_at: {}\naction: {}",
+        g.goal_id,
+        g.title,
+        s("condition"),
+        s("due_at"),
+        s("action"),
+    );
+    Some(Message { role: Role::Developer, content: vec![Part::Text { text }] })
+}
+
 pub fn handoff(v: &Value) -> Message {
     let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default();
     let title = if s("title").is_empty() { String::new() } else { format!("title: {}\n", s("title")) };

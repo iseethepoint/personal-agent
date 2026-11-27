@@ -22,9 +22,20 @@ async fn goals(name: &str, provider: Option<AnyProvider>) -> (Arc<Goals<AnyProvi
     let store = Store::connect(&pg::database(), Arc::new(|| 1_800_000_000_000)).await.unwrap();
     let models = provider.map(|p| {
         let p = Arc::new(p);
-        Models { activity_state: p.clone(), subgoal_rollup: p }
+        Models { activity_state: p.clone(), subgoal_rollup: p.clone(), lifecycle: p.clone(), attention: p }
     });
-    (Arc::new(Goals { store, home: home.clone(), models, cleanup: None }), home)
+    (Goals::new(store, home.clone(), models, None), home)
+}
+
+/// Цели с отдельной моделью на каждое назначение.
+async fn goals_with(name: &str, models: Models<AnyProvider>) -> Arc<Goals<AnyProvider>> {
+    let store = Store::connect(&pg::database(), Arc::new(|| 1_800_000_000_000)).await.unwrap();
+    Goals::new(store, temp_dir(&format!("goals-{name}")), Some(models), None)
+}
+
+fn idle(wire: Wire) -> (Server, Arc<AnyProvider>) {
+    let (s, p) = model(wire, vec![Step::Text("—")], true);
+    (s, Arc::new(p))
 }
 
 async fn call(g: &Arc<Goals<AnyProvider>>, name: &str, args: Value) -> Result<Value, String> {
@@ -169,6 +180,7 @@ async fn hierarchy_namespaces_and_errors() {
     let r = call(&g, "user_goal.set_status", json!({"goal_id": other["goal_id"], "status": "completed", "reason": "Done."})).await.unwrap();
     assert_eq!(r["changed"], true);
     assert_eq!(r["entry"]["description"], "Done.");
+    assert_eq!(r["entry"]["title"], "Goal completed", "заголовок ядра");
     let r = call(&g, "user_goal.set_status", json!({"goal_id": other["goal_id"], "status": "completed", "reason": "Again."})).await.unwrap();
     assert_eq!(r["changed"], false);
     let e = call(&g, "user_goal.set_status", json!({"goal_id": other["goal_id"], "status": "paused", "reason": "x"})).await.unwrap_err();
@@ -204,19 +216,138 @@ async fn delete_removes_subgoals_and_keeps_requested_documents() {
 }
 
 /// Модели решений — через `Registry::resolve` по назначениям
-/// `GoalActivityState` и `GoalSubgoalRollup`, с переопределением выбранной модели.
+/// `GoalActivityState`, `GoalSubgoalRollup`, `TrackingGoalLifecycle` и
+/// `GoalAttention`, с переопределением выбранной модели.
 #[test]
 fn decision_models_come_from_registry_purposes() {
     let base = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../model/tests/fixtures/registry_base.toml")).unwrap();
     let from = "  { purpose = \"BrowserAgent\", model = \"anthropic/main\" },";
     assert!(base.contains(from));
-    let text = base.replacen(from, &format!("{from}\n  {{ purpose = \"GoalActivityState\", model = \"anthropic/small\" }},"), 1);
+    let text = base.replacen(from, &format!("{from}\n  {{ purpose = \"GoalActivityState\", model = \"anthropic/small\" }},\n  {{ purpose = \"GoalAttention\", model = \"anthropic/small\" }},"), 1);
     let reg = agent_model::Registry::parse(&text).unwrap();
     let ids = |sel| {
         let plan = Plan::from_registry(&reg, sel).unwrap();
         let m = Models::from_plan(&plan, |r| Ok::<_, ()>(r.option.id.clone())).unwrap();
-        ((*m.activity_state).clone(), (*m.subgoal_rollup).clone())
+        [(*m.activity_state).clone(), (*m.subgoal_rollup).clone(), (*m.lifecycle).clone(), (*m.attention).clone()]
     };
-    assert_eq!(ids(None), ("anthropic/main".to_string(), "anthropic/main".to_string()));
-    assert_eq!(ids(Some("local/chat")), ("anthropic/small".to_string(), "local/chat".to_string()));
+    assert_eq!(ids(None), ["anthropic/main", "anthropic/main", "anthropic/main", "anthropic/main"].map(String::from));
+    assert_eq!(ids(Some("local/chat")), ["anthropic/small", "local/chat", "local/chat", "anthropic/small"].map(String::from));
+}
+
+/// Смена статуса дела: состояние и заголовок записи пишет модель
+/// `TrackingGoalLifecycle` по своему системному тексту; модель не ответила
+/// инструментом — заголовки ядра, состояние прежнее.
+#[tokio::test]
+async fn tracking_lifecycle_copy_comes_from_model() {
+    for wire in WIRES {
+        let (life_server, life) = model(
+            wire,
+            vec![
+                Step::Calls(vec![("l1", "hamlet.set_tracking_goal_lifecycle_copy", json!({"current_state": "The visa was approved on January 14.", "activity_title": "Visa approved"}))]),
+                Step::Calls(vec![("l2", "hamlet.set_tracking_goal_lifecycle_copy", json!({"current_state": "Waiting for the embassy to return the passport.", "activity_title": "Tracking resumed for passport"}))]),
+                Step::Text("no tool"),
+            ],
+            true,
+        );
+        let (_a, attention) = idle(wire);
+        let (_s, other) = idle(wire);
+        let g = goals_with("lifecycle", Models { activity_state: other.clone(), subgoal_rollup: other, lifecycle: Arc::new(life), attention }).await;
+        let t = call(&g, "tracking.create", json!({"title": "Visa application", "current_state": "Submitted."})).await.unwrap();
+        let id = t["goal_id"].as_str().unwrap().to_string();
+        g.settle().await;
+
+        let r = call(&g, "tracking.set_status", json!({"goal_id": id, "status": "completed", "reason": "Embassy approved the visa."})).await.unwrap();
+        assert_eq!(r["entry"]["title"], "Visa approved", "{wire:?}: {r}");
+        assert_eq!(r["entry"]["current_state"], "The visa was approved on January 14.");
+        assert_eq!(r["entry"]["description"], "Embassy approved the visa.");
+        let got = call(&g, "tracking.get", json!({"goal_id": id})).await.unwrap();
+        assert_eq!(got["current_state"], "The visa was approved on January 14.", "{got}");
+        let req = life_server.requests()[0].to_string();
+        assert!(req.contains("assistant-tracking goal is\\ncompleted") || req.contains("assistant-tracking goal is\ncompleted"), "{req}");
+        assert!(req.contains("lifecycle_reason") && req.contains("Embassy approved the visa.") && req.contains("status_before_transition"), "{req}");
+
+        let r = call(&g, "tracking.set_status", json!({"goal_id": id, "status": "active", "reason": "Passport still at the embassy."})).await.unwrap();
+        assert_eq!(r["entry"]["title"], "Tracking resumed for passport", "{r}");
+        assert!(life_server.requests()[1].to_string().contains("reopened"), "текст возобновления");
+
+        // Модель не вызвала инструмент — запасной заголовок ядра.
+        let r = call(&g, "tracking.set_status", json!({"goal_id": id, "status": "completed", "reason": "Passport returned."})).await.unwrap();
+        assert_eq!(r["entry"]["title"], "Tracking completed", "{r}");
+        assert!(r["entry"]["current_state"].is_null());
+    }
+}
+
+/// Внимание дела пересчитывается в фоне после создания и записи моделью
+/// `GoalAttention`: внимание, срок, эскалация и её снятие; сбой модели —
+/// внимание прежнее.
+#[tokio::test]
+async fn attention_refresh_sets_attention_due_and_escalation() {
+    for wire in WIRES {
+        let esc = json!({"condition": "No reply from the landlord", "due_at": "2027-01-20T09:00:00Z", "action": "notify"});
+        let (att_server, attention) = model(
+            wire,
+            vec![
+                Step::Calls(vec![("a1", "hamlet.set_attention", json!({"attention": "new_information"}))]),
+                Step::Calls(vec![("a2", "hamlet.set_attention", json!({"attention": "user_action_required", "evidence_dates": ["2027-01-20 - landlord reply"], "next_due_at": "2027-01-20", "escalation": esc}))]),
+                Step::Calls(vec![("a3", "hamlet.set_attention", json!({"attention": "does_not_need_attention", "clear_escalation": true}))]),
+                Step::Text("no tool"),
+            ],
+            true,
+        );
+        let (_p, pulse) = model(wire, vec![Step::Calls(vec![("n", "hamlet.no_new_state", json!({}))]); 3], true);
+        let pulse = Arc::new(pulse);
+        let (_s, other) = idle(wire);
+        let g = goals_with("attention", Models { activity_state: pulse, subgoal_rollup: other.clone(), lifecycle: other, attention: Arc::new(attention) }).await;
+        let t = call(&g, "tracking.create", json!({"title": "Flat deposit"})).await.unwrap();
+        let id = t["goal_id"].as_str().unwrap().to_string();
+        g.settle().await;
+        let goal = g.store.goal(&id).await.unwrap().unwrap();
+        assert_eq!(goal.attention_kind, "new_information", "{wire:?}: создание — новость");
+        let first = att_server.requests()[0].to_string();
+        assert!(first.contains("goal_created") && first.contains("current_attention") && first.contains("Friday, 2027-01-15T08:00:00Z"), "{first}");
+        assert!(first.contains("hamlet.set_attention") && first.contains("clear_escalation"), "{first}");
+
+        call(&g, "tracking.create_entry", json!({"goal_id": id, "title": "Asked for deposit", "description": "If the landlord does not reply by Wednesday, tell me."})).await.unwrap();
+        g.settle().await;
+        let goal = g.store.goal(&id).await.unwrap().unwrap();
+        assert_eq!(goal.attention_kind, "user_action_required");
+        assert_eq!(goal.next_due_at.as_deref(), Some("2027-01-20T00:00:00.000Z"));
+        assert_eq!(goal.escalation, Some(esc.clone()));
+        assert!(att_server.requests()[1].to_string().contains("Asked for deposit"), "событие — запись ленты");
+
+        call(&g, "tracking.create_entry", json!({"goal_id": id, "title": "Landlord replied"})).await.unwrap();
+        g.settle().await;
+        let goal = g.store.goal(&id).await.unwrap().unwrap();
+        assert_eq!(goal.attention_kind, "does_not_need_attention");
+        assert!(goal.escalation.is_none(), "clear_escalation снимает эскалацию");
+
+        call(&g, "tracking.create_entry", json!({"goal_id": id, "title": "Deposit back"})).await.unwrap();
+        g.settle().await;
+        assert_eq!(g.store.goal(&id).await.unwrap().unwrap().attention_kind, "does_not_need_attention", "сбой — внимание прежнее");
+    }
+}
+
+/// `escalation` у `update`: проверка, запись, снятие `null`, снятие при
+/// завершении.
+#[tokio::test]
+async fn update_escalation_and_clear_on_completion() {
+    let (g, _home) = goals("escalation", None).await;
+    let t = call(&g, "user_goal.create", json!({"title": "Apartment hunt"})).await.unwrap();
+    let id = t["goal_id"].as_str().unwrap().to_string();
+    let e = call(&g, "user_goal.update", json!({"goal_id": id, "escalation": {"condition": "No offer", "due_at": "Friday", "action": "ask"}})).await.unwrap_err();
+    assert_eq!(e, "goal escalation due_at is not a valid RFC 3339 timestamp");
+    let e = call(&g, "user_goal.update", json!({"goal_id": id, "escalation": {"condition": "", "due_at": "2027-02-01T00:00:00Z", "action": "ask"}})).await.unwrap_err();
+    assert_eq!(e, "invalid stored goal escalation: condition and due_at must be non-empty");
+    let esc = json!({"condition": "No offer by February", "due_at": "2027-02-01T00:00:00Z", "action": "ask"});
+    let r = call(&g, "user_goal.update", json!({"goal_id": id, "escalation": esc})).await.unwrap();
+    assert_eq!(r["escalation"], esc);
+    let r = call(&g, "user_goal.update", json!({"goal_id": id, "title": "Apartment search"})).await.unwrap();
+    assert_eq!(r["escalation"], esc, "нет поля — не трогать");
+    let r = call(&g, "user_goal.update", json!({"goal_id": id, "escalation": null})).await.unwrap();
+    assert!(r["escalation"].is_null());
+    call(&g, "user_goal.update", json!({"goal_id": id, "escalation": esc})).await.unwrap();
+    assert_eq!(g.store.due_escalations(0, 2_000_000_000_000).await.unwrap().len(), 1);
+    call(&g, "user_goal.set_status", json!({"goal_id": id, "status": "completed", "reason": "Signed a lease."})).await.unwrap();
+    assert!(g.store.goal(&id).await.unwrap().unwrap().escalation.is_none(), "завершение снимает эскалацию");
+    assert!(g.store.due_escalations(0, 2_000_000_000_000).await.unwrap().is_empty());
 }
