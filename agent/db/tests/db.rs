@@ -130,6 +130,21 @@ async fn query_runs_read_only_with_core_limits() {
     assert!(db.query("select 1 / (count(*) - count(*)) as x from memory.metadata").await.unwrap_err().starts_with("hamlet.db failed: "));
 }
 
+/// Транзакция только на чтение: запись через функцию в SELECT (проверку
+/// она прошла бы, будь функция в каталоге) падает в базе, значение не
+/// сдвигается. Без `set transaction read only` — красный.
+#[tokio::test]
+async fn transaction_is_read_only() {
+    let (_url, pool) = database().await;
+    let mut c = Catalog::embedded();
+    c.query_capabilities.functions.push("nextval".into());
+    let db = Db::new(pool.clone(), &root().join("skills")).with_catalog(c);
+    let e = db.query("select nextval('memory.entries_memory_entry_id_seq') as n").await.unwrap_err();
+    assert!(e.starts_with("hamlet.db failed: ") && e.contains("cannot execute nextval() in a read-only transaction"), "{e}");
+    let called: bool = sqlx::query_scalar("select is_called from memory.entries_memory_entry_id_seq").fetch_one(&pool).await.unwrap();
+    assert!(!called, "последовательность сдвинулась");
+}
+
 async fn one_turn(wire: Wire) {
     let (_url, pool) = database().await;
     insert(&pool, "owner_city", "Tbilisi").await;

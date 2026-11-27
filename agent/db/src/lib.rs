@@ -82,6 +82,13 @@ impl Db {
         Db { pool, catalog: Arc::new(Catalog::embedded()), description }
     }
 
+    /// Другой каталог вместо вшитого (тест исполнения на чтение подаёт
+    /// каталог с функцией, которой во вшитом нет).
+    pub fn with_catalog(mut self, catalog: Catalog) -> Db {
+        self.catalog = Arc::new(catalog);
+        self
+    }
+
     /// Проверить и исполнить запрос; ответ — текст для модели.
     pub async fn query(&self, sql: &str) -> Result<String, String> {
         let normalized = validate::validate(sql, &self.catalog)?;
