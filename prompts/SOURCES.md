@@ -153,7 +153,15 @@
   - ядро файл не читает: в нём нет ни имён файлов чёрного списка, ни магии `MUFP`, ни крейтов `fst` и быстрых хэшей (`crates.txt`: только `sha2`, `sha1_smol`, `ahash`, `foldhash`). Проверка адресов у muse — внешняя: `url_blocklist_guard/lookup.rs` пишет `refusal_kind`, `reply_variant`, `expected_count`/`actual_count` (около `0x88e158`), рядом `BrowserCentralBlackholeBlocklist` (`0x4b29a0`) и «Poppy page blocklist check … answer … timed out» (`0x8bd058`);
   - ограниченная попытка: 20 000 доменов из `mase_all_domains.fst` × 9 форм записи (`d`, `d/`, `http(s)://d[/]`, `www.d[/]`, `https://www.d/`) × 19 хэшей (xxh3/xxh64/xxh32, murmur3, sha256, sha1, md5, blake3, blake2b, siphash, fnv1/1a, wyhash, city, farm; первые 8 байт LE и BE) — ни одного попадания.
 - Повтор дозаполнения векторов памяти (замечание к П4л-8): срока повтора у muse не найдено (`memory_reindex_embedding` — только назначение модели, `maintenance_reindex trigger=` — без чисел). Своего срока нет: службу и так будит пульс (`heartbeat`, раз в 30 минут), на его такте сверка повторится.
-- Предел вызовов workflow («workflow agent call limit exceeded: max {} calls per run», шаблон `0x3d426a`): сравнение в `0x277a4dfa` (и у ссылок `0x277a6c6d`, `0x277ada15`) — счётчик (`xadd 0x84`, минус `0x80`, +1) против поля `0x88` состояния, взятого через thread-local; где поле заполняется — не найдено (П4л-2).
+- Предел вызовов workflow («workflow agent call limit exceeded: max {} calls per run», шаблон `0x3d426a`) — не найден (П4л-2, повторный заход П4л-10), своего предела нет. Что известно:
+  - сравнение в `0x277a4dfa` (и у ссылок `0x277a6c6d`, `0x277ada15`): счётчик (`lock xadd` в `0x84`, минус `0x80`, +1) против поля `0x88`; при превышении флаг `0x8c` (`xchgb`);
+  - структура — внутри `Arc` из task-local слота `%fs:-0x228`/`-0x230` (функция `0x277a4d40`), то есть поля данных — `0x70`/`0x74`/`0x78`/`0x7c`;
+  - запись этих полей в области `0x27600000…0x27900000` не найдена (немедленных записей в `0x88(%reg)` с соседними `0x80`/`0x84` нет);
+  - ручек настройки нет (`env-knobs.txt`, строки `*call_limit*`/`max_calls` — чужие).
+- Число повторов вызова модели (а1, `MODEL_RETRIES = 1`) — не найдено (П4л-10), своё число не менялось. Что известно:
+  - строки «retrying inference after streamed retryable anthropic error before visible output» (`0x6b1554`, ссылки `0x92a6b09`, `0x92a7585`) и причины остановки `retry_budget_exhausted` / `visible_output_emitted` (`0x6b15a5`/`0x6b15bb`, выбор по флагу в `0x92a6e0a`);
+  - счётчик попытки — поле `0x4b850` машины async (увеличение с насыщением в `0x9294846`, `0x9296562`, `0x929b21b` и др.);
+  - сравнения этого счётчика с числом в функции `0x9290000…0x92c0000` нет: флаг бюджета приходит готовым из другой функции.
 
 ## Продолжение по списку дел (П4л-5)
 
