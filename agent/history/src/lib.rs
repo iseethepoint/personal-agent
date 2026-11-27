@@ -61,6 +61,8 @@ const IDLE: &str = "idle";
 const COMPACTION_TRIGGER: &str = "context_pressure";
 const PREFIX_PIN: &str = "prompt_prefix";
 const VOLATILE: &str = "volatile";
+/// Источник границы очистки разговора — значение ядра.
+pub const CLEAR_SOURCE: &str = "runtime.conversation_clear";
 
 pub type Now = Arc<dyn Fn() -> i64 + Send + Sync>;
 
@@ -256,6 +258,37 @@ impl AgentHistory {
     pub async fn set_flush_progress(&self) -> Result<(), String> {
         let next = self.state.lock().await.next;
         sqlx::query("update agent.agents set periodic_memory_flush_progress = $2 where agent_id = $1").bind(&self.agent_id).bind(next).execute(&self.pool).await.map_err(db)?;
+        Ok(())
+    }
+
+    /// Очистка разговора — как у muse (`conversation_clear.rs`): граница
+    /// (`message_source = 'runtime.conversation_clear'`) пишется следующим
+    /// `seq`, граница подсказки сдвигается на неё (`UPDATE agents SET
+    /// updated_at = $1, prompt_floor_seq = $2 WHERE id = $3`); всё до неё
+    /// сброшено в память.
+    pub async fn clear(&self, boundary: &Message) -> Result<(), String> {
+        let mut st = self.state.lock().await;
+        let seq = st.next;
+        let next = self.insert(seq, boundary, None).await?;
+        sqlx::query("update agent.context_items set message_source = $3 where agent_id = $1 and seq >= $2")
+            .bind(&self.agent_id)
+            .bind(seq)
+            .bind(CLEAR_SOURCE)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        sqlx::query("update agent.agents set updated_at = $2, prompt_floor_seq = $3, periodic_memory_flush_progress = $4 where agent_id = $1")
+            .bind(&self.agent_id)
+            .bind((self.now)() / 1000)
+            .bind(seq)
+            .bind(next)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        st.floor = seq;
+        st.next = next;
+        st.starts = vec![seq];
+        st.written = 1;
         Ok(())
     }
 
@@ -576,6 +609,18 @@ impl Mailbox for AgentMailbox {
             .execute(&self.pool)
             .await
             .map_err(db)?;
+            Ok(())
+        })
+    }
+
+    fn abort<'a>(&'a self, ids: &'a [String]) -> Fut<'a, ()> {
+        Box::pin(async move {
+            sqlx::query("update agent.message_mailbox set state = 'aborted', terminalized_at = now() where submission_id = any($1) and agent_id = $2 and state = 'accepted'")
+                .bind(ids)
+                .bind(&self.agent_id)
+                .execute(&self.pool)
+                .await
+                .map_err(db)?;
             Ok(())
         })
     }

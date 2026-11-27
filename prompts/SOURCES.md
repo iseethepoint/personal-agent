@@ -517,3 +517,20 @@
 Не взято (нет у Hamlet того, к чему это относится):
 - `session_memory_capture` / `agent.session_memory_capture_deadlines` — сбор памяти побочных чатов при простое и архивации (`side_chat_idle`, `side_chat_archive`); побочных чатов нет;
 - `idle_internalization` — «idle-session internalization after {N}s quiet window» запускает самоулучшение (`JARVIS_SELF_IMPROVEMENT_IDLE_*`), а не сброс памяти; придёт со срезом самоулучшения.
+
+## Очистка разговора (П3ж-6)
+
+Тексты ядра: «Conversation history before this boundary was cleared.» (граница, около `0x1705e09`), «Conversation cleared.» (`chat.command.conversation_cleared`, около `0x12bcc03`).
+
+Устройство — как у muse (`session/impl_session/conversation_clear.rs`):
+- команда `/clear` в чате; только у главной сессии и только между ходами («clear_conversation requires an idle root session»);
+- принятые и не взятые ходом строки владельца отменяются («rejecting a follow-up a conversation clear superseded»), вести служб остаются;
+- граница пишется в `agent.context_items` с `message_source = 'runtime.conversation_clear'`, граница подсказки сдвигается на неё (`UPDATE agents SET updated_at = $1, prompt_floor_seq = $2 WHERE id = $3`);
+- старый разговор сбрасывается в память в фоне («background pre-clear memory flush finished», «… failed after conversation clear»).
+
+Своё:
+- граница — сообщение роли developer;
+- строки, поданные после `/clear`, ждут, пока очистка не пройдёт;
+- граница периодического сброса ставится на конец (старое покрыто сбросом перед очисткой);
+- после перезапуска история, которая кончается границей очистки, — не оборванный ход;
+- `conversation_epoch` ящика не ведётся (у нас 0), отмена — по состоянию `aborted`.

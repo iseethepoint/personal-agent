@@ -150,6 +150,14 @@ impl Conversation {
         close_interrupted(&mut self.history)
     }
 
+    /// Очистка разговора: история — одна граница, заметка изменчивого
+    /// пойдёт снова со следующей строкой владельца.
+    pub fn clear(&mut self, boundary: Message) {
+        self.history = vec![boundary];
+        self.last_volatile = None;
+        self.anchor = None;
+    }
+
     /// Заменить историю сжатой. Опора счёта поставщика снимается: до
     /// следующего ответа оценка — по o200k. Начало не меняется.
     pub fn replace_history(&mut self, history: Vec<Message>) {

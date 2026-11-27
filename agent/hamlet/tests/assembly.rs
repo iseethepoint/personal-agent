@@ -1115,3 +1115,72 @@ async fn periodic_memory_flush_runs_past_threshold() {
         h.browsers.shutdown().await;
     }
 }
+
+/// П3ж-6: очистка разговора. `/clear` между ходами — ответ «Conversation
+/// cleared.», старый разговор в фоне сбрасывается в память, следующий ход
+/// видит только границу; после перезапуска — тоже. Не взятые строки
+/// владельца отменяются (`aborted`), вести служб остаются. Без очистки в
+/// цикле — красный.
+#[tokio::test]
+async fn clear_starts_a_fresh_conversation() {
+    use agent_hamlet::daemon::{CLEARED, CLEAR_BOUNDARY};
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s, _p) = model(
+            wire,
+            vec![Step::Text("Hello, Lali."), Step::Text("Nothing to record."), Step::Text("I do not know your name."), Step::Text("Nothing to record.")],
+            true,
+        );
+        let dir = agent_dir("clear", wire, &s);
+        let h = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(one_run(&h, Some("My name is Lali.")).await, "Hello, Lali.", "{wire:?}");
+        assert_eq!(one_run(&h, Some("/clear")).await, CLEARED, "{wire:?}");
+        let wait = |n: usize| {
+            let s = &s;
+            async move {
+                for _ in 0..300 {
+                    if s.requests().len() >= n {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                panic!("нет запроса {n}");
+            }
+        };
+        wait(2).await;
+        let flush = s.requests()[1].to_string();
+        assert!(flush.contains("My name is Lali.") && flush.contains("Pre-compaction memory flush."), "{wire:?}: сброс старого разговора");
+        assert_eq!(one_run(&h, Some("What is my name?")).await, "I do not know your name.", "{wire:?}");
+        let next = s.requests()[2].to_string();
+        assert!(next.contains(CLEAR_BOUNDARY) && next.contains("What is my name?") && !next.contains("My name is Lali."), "{wire:?}: {next}");
+        let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
+        let (floor, source): (i64, String) = sqlx::query_as(
+            "select a.prompt_floor_seq, c.message_source from agent.agents a join agent.context_items c on c.agent_id = a.agent_id and c.seq = a.prompt_floor_seq where a.agent_id = 'root'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert!(floor > 0 && source == "runtime.conversation_clear", "{wire:?}");
+        h.browsers.shutdown().await;
+        drop(h);
+
+        // После перезапуска история начинается с границы.
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        let saved = h2.history.load().await.unwrap().unwrap();
+        assert_eq!(saved.history[0].text(), CLEAR_BOUNDARY, "{wire:?}");
+        assert!(!format!("{:?}", saved.history).contains("Lali."), "{wire:?}");
+
+        // Не взятая строка владельца отменяется, весть службы остаётся.
+        let msg = |role, text: &str| agent_model::Message { role, content: vec![agent_model::Part::Text { text: text.into() }] };
+        h2.inbox.push_user(msg(agent_model::Role::User, "stale line")).await;
+        h2.inbox.push(msg(agent_model::Role::Developer, "[SCHEDULED TASK HANDOFF] x")).await;
+        let mut conv = h2.conversation().await.unwrap();
+        assert_eq!(h2.clear(&mut conv).await.unwrap(), CLEARED);
+        wait(4).await;
+        let left = h2.inbox.drain();
+        assert_eq!(left.len(), 1, "{wire:?}");
+        assert_eq!(left[0].text(), "[SCHEDULED TASK HANDOFF] x");
+        let states: Vec<(String, String)> = sqlx::query_as("select submission_kind, state from agent.message_mailbox where state in ('accepted', 'aborted') order by accepted_ordinal").fetch_all(&pool).await.unwrap();
+        assert_eq!(states, [("user".to_string(), "aborted".to_string()), ("notice".to_string(), "accepted".to_string())], "{wire:?}");
+        h2.browsers.shutdown().await;
+    }
+}

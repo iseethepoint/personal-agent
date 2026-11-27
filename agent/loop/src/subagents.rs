@@ -124,6 +124,9 @@ pub trait Mailbox: Send + Sync {
     fn complete<'a>(&'a self, owner: &'a str, ok: bool) -> MailboxFuture<'a, ()>;
     /// Принятые и не взятые вести по порядку.
     fn pending<'a>(&'a self) -> MailboxFuture<'a, Vec<(String, Message)>>;
+    /// Принятые и не взятые вести отменены (`aborted`): их заменила очистка
+    /// разговора.
+    fn abort<'a>(&'a self, ids: &'a [String]) -> MailboxFuture<'a, ()>;
 }
 
 /// Результат работы, которую после перезапуска нельзя безопасно
@@ -264,6 +267,22 @@ impl Inbox {
 
     pub fn is_empty(&self) -> bool {
         self.queue.lock().unwrap().is_empty()
+    }
+
+    /// Очистка разговора: не взятые ходом строки владельца отменяются
+    /// («rejecting a follow-up a conversation clear superseded»), вести
+    /// служб остаются.
+    pub async fn supersede_user(&self) -> Result<(), String> {
+        let ids: Vec<String> = {
+            let mut q = self.queue.lock().unwrap();
+            let (user, rest): (VecDeque<Queued>, VecDeque<Queued>) = q.drain(..).partition(|(_, m)| m.role == Role::User);
+            *q = rest;
+            user.into_iter().filter_map(|(id, _)| id).collect()
+        };
+        match &self.store {
+            Some(s) if !ids.is_empty() => s.abort(&ids).await,
+            _ => Ok(()),
+        }
     }
 
     /// Дождаться, пока что-нибудь дойдёт (для начала нового хода родителя,
