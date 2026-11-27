@@ -167,7 +167,7 @@ const CHAT: [&str; 47] = [
 
 /// П5-1, часть 2 и П5-2: блоки ядра, которые нужны сборке главного текста и
 /// текста подагента.
-const SHARED: [&str; 34] = [
+const SHARED: [&str; 41] = [
     "discretion.md",
     "discretion_alignment_task.md",
     "discretion_trust.md",
@@ -190,13 +190,20 @@ const SHARED: [&str; 34] = [
     "security_authority.md",
     "security_content_markers.md",
     "security_file_uploads.md",
+    "security_gates.md",
     "security_gates_credential_handling.md",
     "security_identifiers.md",
+    "security_precall_checklist.md",
     "security_precall_checklist_credential_handling.md",
     "security_secrets.md",
     "security_social_engineering.md",
     "security_task_alignment.md",
     "subagents.md",
+    "temporal_awareness_window.md",
+    "temporal_guidance_detached.md",
+    "temporal_weekday_clause_exec.md",
+    "temporal_weekday_rule_exec.md",
+    "tool_rules_detached_approvals.md",
     "tool_rules_no_time_guesses.md",
     "tool_rules_reporting_truth.md",
     "tools_intro.md",
@@ -227,32 +234,58 @@ const SUBAGENTS: [&str; 15] = [
     "subagent/transcript_fact.md",
 ];
 
+/// П5-2, часть 2: блоки работника расписаний и фазы итога.
+const SCHEDULER_WORKER: [&str; 2] = [
+    "how_this_run_ends.md",
+    "who_you_are.md",
+];
+
+const SCHEDULER_RESOLUTION: [&str; 5] = [
+    "safety.md",
+    "security_authority.md",
+    "temporal_awareness.md",
+    "tool_call_style.md",
+    "who_you_are.md",
+];
+
 /// П5-2: блоки ядра, которые нужны сборке системного текста подагента.
-const AGENT: [&str; 28] = [
+const AGENT: [&str; 40] = [
     "date_validation_opener.md",
     "environment_artifacts_slot.md",
     "environment_browser.md",
+    "environment_browser_worker.md",
+    "environment_runtime_worker.md",
+    "environment_scheduled_work_worker.md",
     "history_inheritance_alone.md",
     "history_inheritance_inherited.md",
     "history_inheritance_isolated.md",
     "identifier_validation.md",
     "managing_context_opener.md",
+    "managing_context_opener_worker.md",
     "managing_context_retention.md",
+    "managing_context_retention_worker.md",
     "memory.md",
     "memory_read_only.md",
+    "memory_read_only_worker.md",
     "memory_recall_opening.md",
     "person_records.md",
     "reporting_back.md",
     "requester_description.md",
     "runtime_files_list.md",
     "safety_credentials.md",
+    "safety_credentials_worker.md",
     "safety_oversight.md",
+    "safety_oversight_detached.md",
     "security_authority.md",
     "security_sensitive_actions.md",
+    "security_sensitive_actions_worker.md",
+    "security_social_engineering_worker.md",
     "security_standing_risk.md",
+    "security_standing_risk_worker.md",
     "subagent_identity_intro.md",
     "timezones_trust.md",
     "tool_rules.md",
+    "tool_rules_worker.md",
     "who_you_are.md",
     "workspace_files.md",
     "your_environment_intro.md",
@@ -268,6 +301,8 @@ fn every_core_block_is_present() {
         ("prompts/session", &SESSION[..]),
         ("prompts/subagents", &SUBAGENTS[..]),
         ("prompts/agent", &AGENT[..]),
+        ("prompts/scheduler_worker", &SCHEDULER_WORKER[..]),
+        ("prompts/scheduler_resolution", &SCHEDULER_RESOLUTION[..]),
     ] {
         for n in names {
             let p = root().join(dir).join(n);

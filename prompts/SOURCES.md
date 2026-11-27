@@ -928,8 +928,8 @@
 | 19 | `0x290bc228` | проверяющий (`verification`) | agent/cron/src/verification.rs — П5-2 ч.3 | `0x49a180` (4) · `0x9906bc` (7) |
 | 20 | `0x290bc260` | побочный чат (`side_chat`) | П6, П19 | `0x9906e4` (21) · `0x99070e` (44) · `0x990766` (23) |
 | 21 | `0x290bc298` | чат с другими агентами (`peer_chat`) | П19 | `0x990794` (7) · `0x9907a2` (53) · `0x99080c` (23) |
-| 22 | `0x290bc2d0` | работник расписаний (`scheduler_worker`) | agent/cron/src/worker.rs — П5-2 ч.2 | `0x99083a` (13) · `0x4b0fa0` (16) · `0x9905ba` (22) |
-| 23 | `0x290bc308` | итог расписания (`scheduler_resolution`) | agent/cron/src/worker.rs — П5-2 ч.2 | `0x990854` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 22 | `0x290bc2d0` | работник расписаний (`scheduler_worker`) | agent/hamlet/src/scheduler_prompt.rs (П5-2 ч.2) | `0x99083a` (13) · `0x4b0fa0` (16) · `0x9905ba` (22) |
+| 23 | `0x290bc308` | итог расписания (`scheduler_resolution`) | agent/hamlet/src/scheduler_prompt.rs (П5-2 ч.2) | `0x990854` (6) · `0x99059e` (14) · `0x9905ba` (22) |
 | 24 | `0x290bc340` | проверка веб-артефактов (`web_artifacts_inspector`) | П17 | `0x495ba0` (8) · `0x99059e` (14) · `0x9905ba` (22) |
 | 25 | `0x290bc378` | сборщик сайтов (новый) (`spaces_builder_new`) | П17 | `0x990860` (13) · `0x99059e` (14) · `0x9905ba` (22) |
 | 26 | `0x290bc3b0` | сборщик сайтов (правка) (`spaces_builder_edit`) | П17 | `0x99087a` (15) · `0x99059e` (14) · `0x9905ba` (22) |
@@ -1028,3 +1028,59 @@
 **Шаги сохранённых работ** (`workflow`) пока получают `system.md` владельца; их профиль — в части 3 П5-2 вместе с `event_hook` и остальными.
 
 Тест — `agent/hamlet/tests/subagent_prompt.rs`: записи — в порядке блоков профиля 0 (раздел за разделом) без `ABSENT`, и текст каждой стоит в собранном тексте за предыдущей; разделы по набору инструментов; наследование по глубине; подстановки ядра (стек, учение, пустые переменные), ни одной незаполненной `{переменной}`, меток и «muse».
+
+## Системные тексты работника расписаний (П5-2, часть 2)
+
+Сборка — `agent/hamlet/src/scheduler_prompt.rs`, так же, как у подагента (записи подряд, личный вариант меток, края без переводов строки, за текстом — `system.md` владельца). Подключение — `agent/hamlet/src/lib.rs`, `Scheduler::cron_texts`. Раньше работник получал только `system.md` владельца.
+
+**Исполнение** — профиль 22 (`0x290bc2d0`), срез 0 `0x99083a`: `96 95 97 12e 41 339 3c 40 235 133 44 2f 43b`. Это текст фазы исполнения: начало подсказки прогона (`Prefix`).
+
+**Итог** — профиль 23 (`0x290bc308`), срез 0 `0x990854`: `9b 99 98 9a 835 63b`. Это системный текст хода итога (`worker::Kind::Cron { system }`). Собирается на момент прогона, потому что в нём строка года.
+
+**Метка времени** стоит перед сообщением работнику (`Begin::Messages`), как у подагента. Основание — подготовка хода работника muse, `worker_turns/staging.rs`. Без пояса метки нет.
+
+**Переменные:**
+
+| переменная | откуда в ядре | у Hamlet |
+|---|---|---|
+| `time_tag_placement` | `0xcd51dd0`, поле `+0x383` | before |
+| `nearby_dates_reference` | `0xcd52990`: при `exec` — пусто | пусто, `exec` у работника есть |
+| `date_batch_check_guidance` | `0xcd54390` | available |
+| `artifacts_environment_entry` | при артефактах | пусто → П17 |
+| `subagents_section` (работник) | `0xcdc2560`, см. ниже | раздел `3c` не уходит: в наборе работника Hamlet нет `subagent.*` |
+| `prompt_injection_defense` (работник) | раздел `0x33` вариант 1: `0xcd52e60` → таблица `0x290ebc58`[1] = `0x29054388`, длина `0xa23ff0`[1] = 864 байта, то есть 12 записей; без краёв, без обёртки (обёртка `"\n{}\n\n"` — только у `0x35`, `0xcd52fb6`) | 12 блоков: `chat/security_authority`, `agent/security_*_worker` и общие |
+| `prompt_injection_defense` (итог) | раздел `0x35` вариант 8: `0x29055e88`, `0x288` байт, то есть 9 записей (`0xcd5309b`); формат `"\n{}\n\n"` | 9 блоков: `scheduler_resolution/security_authority`, `shared/security_gates`, `shared/security_precall_checklist` и общие |
+| `temporal_awareness_window` (итог) | `0xcdc2380` → `0xcdbf080`, подробно ниже | по коду, вариант с `exec` |
+| `system_prompt_copy_file` | у агентов пусто | пусто |
+| `runtime_facts` (`43b`, `63b`) | `0xcd4ea40` | нет части → П8 |
+
+`subagents_section` по `0xcdc2560`:
+- без `subagent.spawn` — пусто;
+- при глубине больше 0 — учение подагента (`0x290e09d0`);
+- при глубине 0 (корень, например работник) — `## Subagents …` (`0x37c9e5`) и строка `Spawn subagents with \`{имя}\` …` (`0x3aa080`; имя — у записи инструмента, по умолчанию `subagent.spawn`, `0x9ebec5`). Понадобится, когда у работника будут подагенты.
+
+**`temporal_awareness_window`.** Шаблон `0xa147a9` (формат Rust: `\xc0` — аргумент, литерал — длина байтом или `\x80` + u16) лежит в `prompts/shared/temporal_awareness_window.md`. Имена мест — свои: `{year_anchor}`, `{temporal_guidance}`, `{nearby_dates}`, `{weekday_clause}`, `{weekday_rule}`.
+- `{year_anchor}` — «The year is {y}, not {y-1}.» (`0x2e6831`) + `"\n\n"` (`0x414d26`). Дата берётся в поясе, без пояса — `UTC` (`0x26a61690`: свой пояс, запасной, иначе `UTC`, `0x26a616f2`).
+- `{temporal_guidance}` — `shared/temporal_guidance_detached` (`0x290decc8`) без краёв.
+- С `exec` (`0xcdc2479`): `{nearby_dates}` пусто, `{weekday_clause}` — `0xa14246`, `{weekday_rule}` — `0xa14448` (`prompts/shared/temporal_weekday_*_exec.md`, П10: `muse.exec` → `hamlet.exec`). `exec` — в роли `scheduler_cron_resolve`.
+- Без `exec` выбор идёт по полю `+0x384`. Вариант «listed above» перечисляет соседние даты: `0x26a60870`, «Nearby dates (in the user's timezone): » и 7 дней от −3 до +3 через « | » (`0x26a64a30`: `%A, %B %-d, %Y`, `(yesterday)`/`(today)`/`(tomorrow)`). У Hamlet этот вариант не нужен, тексты не взяты.
+
+**Блоки, которых у Hamlet нет:**
+- `agent/environment_chats` → П6;
+- `agent/environment_feed` → П22;
+- `anthropic/cedar/tools_runtime_pointer` — поиск инструментов на стороне поставщика;
+- `shared/discretion_connections` → П19;
+- `shared/runtime` → П8;
+- `scheduler_resolution/tools` («The full tool list … is in the Runtime section below») — раздела `Runtime` нет, П8;
+- `agent/environment_browser_worker` — только при `browser.browse`: у работника Hamlet его нет, окна расписаний — П4к-3;
+- `shared/subagents` — см. выше.
+
+**Тексты:** 26 новых файлов P и ядра. Правки П10: метки, `~/docs/muse.md` → `~/docs/hamlet.md`, «Meta maintains these docs» → «The Hamlet team maintains these docs» (`scheduler_worker/who_you_are`), `Muse` → `Hamlet` (`agent/safety_credentials_worker`: Wallet — П20, упоминание внутри общего правила, как у главного).
+
+**Тест** — `agent/hamlet/tests/scheduler_prompt.rs`:
+- записи обоих профилей идут в порядке блоков ядра без перечисленных, и по собранному тексту;
+- подстановки: стеки, окно времени, строка года по поясу;
+- разделы по набору инструментов;
+- нет `{переменных}`, меток, muse.
+
+Сквозной — `assembly.rs` (`conversation_writes_searches_schedules_and_wakes_on_handoff`): у исполнения текст профиля 22 и метка перед сообщением, у итога — текст профиля 23 со строкой года.

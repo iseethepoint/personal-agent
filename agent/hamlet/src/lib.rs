@@ -25,6 +25,7 @@
 pub mod config;
 pub mod daemon;
 pub mod main_prompt;
+pub mod scheduler_prompt;
 pub mod subagent_prompt;
 pub use agent_loop::roles;
 
@@ -397,7 +398,19 @@ impl Hamlet {
         let cron_tools = roles::Role::get("scheduler_cron_execute").apply(with_workflows(parts.base(None)?));
         let resolve_role = roles::Role::get("scheduler_cron_resolve");
         let resolve_tools: Vec<String> = resolve_role.tool_names().into_iter().filter(|n| cron_tools.get(n).is_some()).collect();
+        // Тексты работника по профилям ядра (`scheduler_prompt`): исполнение —
+        // профиль 22, итог — профиль 23 на момент прогона (строка года);
+        // метка времени — перед сообщением работнику, без пояса — нет.
+        let cron_text = main_prompt::with_owner(scheduler_prompt::worker(&cron_tools), &system);
+        let (res_clock, res_tz, res_owner) = (clock.clone(), t.agent.timezone.clone(), system.clone());
+        let resolve_text: Arc<dyn Fn() -> String + Send + Sync> =
+            Arc::new(move || main_prompt::with_owner(scheduler_prompt::resolution(res_clock.now_ms(), res_tz.as_deref()), &res_owner));
         let mut scheduler = Scheduler::new(core, Arc::new(provider(&cron_plan.worker)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)), system.clone(), Arc::new(cron_tools), spill_dir.clone(), inbox.clone());
+        scheduler.cron_texts(cron_text, resolve_text);
+        if let Some(tz) = t.agent.timezone.clone() {
+            let tag_clock = clock.clone();
+            scheduler.time_tag(Arc::new(move || daemon::time_tag(tag_clock.now_ms(), Some(&tz)).unwrap_or_default()));
+        }
         scheduler.resolve_tools(resolve_tools);
         scheduler.hook_tools(Arc::new(roles::Role::get("execute_resolve_worker").apply(parts.base(None)?)));
         scheduler.resolver(Arc::new(provider(&cron_plan.resolve)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)));

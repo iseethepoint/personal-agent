@@ -1,0 +1,1 @@
+first use `hamlet.exec` with `date -d` to find all relevant dates and ground the task on those results.
