@@ -199,7 +199,12 @@ pub fn assemble(tools: &Tools) -> String {
 /// `system.md` папки агента (своё: у muse такого файла нет; пустой — ничего
 /// не добавляет).
 pub fn main_system(tools: &Tools, owner: &str) -> String {
-    let base = assemble(tools);
+    with_owner(assemble(tools), owner)
+}
+
+/// Собранный текст и дополнения владельца (`system.md`) за ним — у главного
+/// разговора и подагентов.
+pub fn with_owner(base: String, owner: &str) -> String {
     if owner.trim().is_empty() {
         base
     } else {

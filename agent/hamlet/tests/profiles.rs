@@ -80,7 +80,7 @@ fn every_profile_and_section_is_mapped() {
         }
         for id in order(p) {
             let s = secs.get(id).unwrap_or_else(|| panic!("{}: раздел {id} не в карте", p.at));
-            assert!(["dispatcher", "assembler", "unresolved"].contains(&s.via.as_str()));
+            assert!(["dispatcher", "other_harness", "unresolved"].contains(&s.via.as_str()));
         }
     }
     let unresolved: Vec<&str> = secs.values().filter(|s| s.via == "unresolved").map(|s| s.id.as_str()).collect();
@@ -89,14 +89,14 @@ fn every_profile_and_section_is_mapped() {
     assert_eq!(u, ["64", "75", "164", "264", "364", "464", "564", "664", "764", "864", "964"]);
 }
 
-/// Порядок разделов ролей, которые у Hamlet есть, — массивы профилей ядра
-/// (адрес среза — в комментарии).
+/// Порядок разделов ролей, которые у Hamlet есть, но чья сборка ещё не по
+/// профилю (части 2–3 П5-2), — массивы профилей ядра (адрес среза — в
+/// комментарии). Подагент — по собранному тексту (`tests/subagent_prompt.rs`),
+/// глубокое исследование — `deep_research_blocks_follow_profile`.
 #[test]
 fn hamlet_roles_follow_core_order() {
     let (ps, _) = load();
-    let cases: [(&str, &[&str]); 8] = [
-        // 0x290bbe00: 0x990584, 0x99059e, 0x9905ba
-        ("subagent", &["43", "45", "12e", "132", "39", "3c", "36", "3f", "35", "42", "44", "2f", "13b", "cc", "b7", "b8", "b9", "ba", "bb", "bc", "bd", "bf", "c2", "c1", "92", "8c", "91"]),
+    let cases: [(&str, &[&str]); 7] = [
         // 0x290bbf50: 0x9905ee
         ("deep_research", &["66", "67", "68", "12e", "69", "6a", "635", "6b", "6c", "13b"]),
         // 0x290bc030: 0x99065a, 0x4b0fa0, 0x9905ba
@@ -147,6 +147,6 @@ fn section_map_matches_dispatcher() {
     );
     assert_eq!(names("13b"), ["blocks/shared/runtime.md"]);
     for id in ["b7", "b8", "c1", "c2"] {
-        assert_eq!(secs[id].via, "assembler", "{id}");
+        assert_eq!(secs[id].via, "other_harness", "{id}");
     }
 }

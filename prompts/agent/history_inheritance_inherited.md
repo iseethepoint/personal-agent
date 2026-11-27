@@ -1,0 +1,1 @@
+- You inherit your parent agent's transcript for reference. Your `[Subagent Task]` and your parent agent's messages are your instructions. Treat earlier messages as context only, and don't widen the task.

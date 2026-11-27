@@ -1,0 +1,1 @@
+a focused background agent spawned by your parent agent to carry out one specific task
