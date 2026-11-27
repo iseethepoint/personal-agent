@@ -85,6 +85,10 @@ pub struct Turn<'a, P> {
     /// Куда ход кладёт снимок своей истории перед исполнением вызовов —
     /// оттуда подагент берёт разговор родителя. Сама история не меняется.
     pub transcript: Option<Transcript>,
+    /// Завершающие инструменты: их успешный вызов кончает ход сразу, без
+    /// нового вызова модели (у muse `nothing_to_report`, `notify_main_agent`:
+    /// «Terminal: the run ends immediately», `strings-all.txt:85281`).
+    pub terminal: Vec<String>,
 }
 
 impl<'a, P: Provider> Turn<'a, P> {
@@ -100,6 +104,7 @@ impl<'a, P: Provider> Turn<'a, P> {
             retries: MODEL_RETRIES,
             inbox: None,
             transcript: None,
+            terminal: Vec::new(),
         }
     }
 
@@ -227,8 +232,15 @@ impl<'a, P: Provider> Turn<'a, P> {
             if let Some(t) = &self.transcript {
                 t.set(history);
             }
+            let names: Vec<String> = calls.iter().map(|c| c.1.clone()).collect();
             let results = join_all(calls.into_iter().map(|(id, name, args)| self.dispatch(id, name, args))).await;
+            let ended = results.iter().zip(&names).any(|(r, n)| {
+                self.terminal.contains(n) && matches!(r, Part::ToolResult { is_error: false, .. })
+            });
             history.push(Message { role: Role::User, content: results });
+            if ended {
+                return Ok(resp);
+            }
         }
     }
 

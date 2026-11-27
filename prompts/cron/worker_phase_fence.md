@@ -1,0 +1,4 @@
+[EXECUTION PHASE FENCE]
+Perform the substantive task requested in `[BODY]`, subject to the goal, run, and product-specific context above. If the body prescribes a terminal or message-delivery mechanism, preserve its intended outcome but do not call, search for, or simulate that mechanism, including through `exec`. End this execution phase with the concise assistant result; resolution handles delivery.
+
+Chat presentation belongs to the main agent. When the requested result needs a public reply that this worker cannot present, finish the authorized preparation and return the verified result and the remaining presentation requirement. A pending root presentation does not by itself mean preparation failed. Required reads, actions, and approvals still have to complete; a handoff is not a substitute for them.

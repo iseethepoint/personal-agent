@@ -9,9 +9,9 @@
 //! Отличия от muse: имена `hamlet.memory_*` вместо `muse.memory_*` (слово
 //! владельца, план П10); «Past conversations» нет — разговоры ещё не в базе.
 //!
-//! Перед поиском среда применяет забывание (`pending.json`) и сверяет базу с
-//! файлами. Своё: у muse сверка идёт в фоне, и выдача может отставать от
-//! записи файлов («Search results can lag file writes»).
+//! Сверка базы с файлами идёт в фоне (`maintain`, её зовёт служба расписаний),
+//! как у muse: выдача может отставать от записи файлов («Search results can
+//! lag file writes»).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -68,8 +68,12 @@ impl MemoryTools {
         tools.add(Explain(self.clone()));
     }
 
-    /// Применить забывание и сверить базу с файлами.
-    pub async fn refresh(&self) -> Result<(), String> {
+    /// Фоновая работа памяти: применить забывание, если `pending.json`
+    /// остался, и сверить базу с файлами. У muse сверку запускает слежение
+    /// за файлами (`notify::inotify`, `strings-all.txt:344927`; «file watcher
+    /// backend error», `:17841`; `maintenance_reindex trigger=`, `:19814`) и
+    /// запуск службы; у нас — такт службы расписаний (`agent-cron`).
+    pub async fn maintain(&self) -> Result<(), String> {
         let emb = self.embedder.as_deref();
         apply_pending(&self.home, &self.store, emb).await?;
         reindex(&self.home, &self.store, emb).await?;
@@ -164,7 +168,6 @@ impl Tool for Search {
             if !(0.0..=1.0).contains(&min) {
                 return Err(ToolError::InvalidArguments("`minScore` must be between 0 and 1".into()));
             }
-            m.refresh().await.map_err(ToolError::Failed)?;
             let scores = score(m, &queries, max).await.map_err(ToolError::Failed)?;
             let mut hits: Vec<(String, f64)> = scores.into_iter().filter(|(_, s)| *s >= min).collect();
             hits.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
@@ -324,7 +327,6 @@ impl Tool for Explain {
             if id.is_empty() {
                 return Err(ToolError::InvalidArguments("`id` needs a claim id, a memory:// uri, or a citation like MEMORY.md#L7".into()));
             }
-            m.refresh().await.map_err(ToolError::Failed)?;
             let f = |e: String| ToolError::Failed(e);
             // Запись: по адресу, по ссылке или нет (тогда id — утверждение).
             let entry = if id.starts_with("memory://") {
