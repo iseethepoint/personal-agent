@@ -5,4 +5,4 @@ pub mod files;
 pub mod paths;
 
 pub use files::FileTools;
-pub use paths::Roots;
+pub use paths::Home;

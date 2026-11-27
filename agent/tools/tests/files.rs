@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use agent_loop::{spill, Tools, Turn, SPILL_THRESHOLD_BYTES};
 use agent_model::{Message, Part, Role, ToolResultPart};
-use agent_tools::{FileTools, Roots};
+use agent_tools::{FileTools, Home};
 use common::{model, temp_dir, Step, Wire};
 use serde_json::{json, Value};
 
@@ -16,7 +16,7 @@ fn setup(name: &str) -> (PathBuf, PathBuf, Tools) {
     let home = temp_dir(&format!("{name}-home"));
     let tmp = temp_dir(&format!("{name}-tmp"));
     let mut tools = Tools::new();
-    FileTools::new(Roots::new(&home, &tmp)).add_to(&mut tools);
+    FileTools::new(Home::new(&home)).add_to(&mut tools);
     (home, tmp, tools)
 }
 
@@ -123,37 +123,57 @@ async fn edit_without_match_and_with_two() {
 }
 
 #[tokio::test]
-async fn outside_allowed_dirs() {
-    let (home, tmp, tools) = setup("outside");
-    let outside = temp_dir("outside-target");
-    std::fs::write(outside.join("secret.txt"), "секрет").unwrap();
-    #[cfg(unix)]
-    std::os::unix::fs::symlink(&outside, home.join("link")).unwrap();
-    let escapes = [
-        json!({"path": "../outside.txt"}),
-        json!({"path": "~/../../etc/passwd"}),
-        json!({"path": "/etc/passwd"}),
-        json!({"path": outside.join("secret.txt").to_str().unwrap()}),
-        json!({"path": "link/secret.txt"}),
-    ];
-    for a in &escapes {
-        for tool in ["muse.read", "muse.edit"] {
-            let mut args = a.clone();
-            args["old_text"] = json!("секрет");
-            args["new_text"] = json!("x");
-            let err = call(&tools, tool, args).await.unwrap_err();
-            assert!(err.contains("outside the allowed directories"), "{tool} {a}: {err}");
-        }
-        let mut args = a.clone();
-        args["content"] = json!("x");
-        let err = call(&tools, "muse.write", args).await.unwrap_err();
-        assert!(err.contains("outside the allowed directories"), "write {a}: {err}");
-    }
-    assert_eq!(std::fs::read_to_string(outside.join("secret.txt")).unwrap(), "секрет");
-    // Временная папка разрешена.
-    let p = tmp.join("scratch.txt");
-    call(&tools, "muse.write", json!({"path": p.to_str().unwrap(), "content": "ok"})).await.unwrap();
-    assert_eq!(call(&tools, "muse.read", json!({"path": p.to_str().unwrap()})).await.unwrap(), "ok");
+async fn absolute_and_parent_paths() {
+    // Как у muse: абсолютный путь — любой, `..` считается от `~`.
+    let (home, tmp, tools) = setup("abs");
+    let outside = tmp.join("outside.txt");
+    call(&tools, "muse.write", json!({"path": outside.to_str().unwrap(), "content": "снаружи"})).await.unwrap();
+    assert_eq!(call(&tools, "muse.read", json!({"path": outside.to_str().unwrap()})).await.unwrap(), "снаружи");
+    call(&tools, "muse.edit", json!({"path": outside.to_str().unwrap(), "old_text": "снаружи", "new_text": "правка"}))
+        .await
+        .unwrap();
+    assert_eq!(std::fs::read_to_string(&outside).unwrap(), "правка");
+
+    let sibling = home.parent().unwrap().join(format!("{}-sibling.txt", home.file_name().unwrap().to_str().unwrap()));
+    let rel = format!("../{}", sibling.file_name().unwrap().to_str().unwrap());
+    call(&tools, "muse.write", json!({"path": rel, "content": "рядом"})).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&sibling).unwrap(), "рядом");
+    assert_eq!(call(&tools, "muse.read", json!({"path": format!("~/{rel}")})).await.unwrap(), "рядом");
+    // Сторож перезаписи узнаёт файл при любом написании пути.
+    call(&tools, "muse.write", json!({"path": sibling.to_str().unwrap(), "content": "снова"})).await.unwrap();
+    std::fs::remove_file(&sibling).unwrap();
+}
+
+#[tokio::test]
+async fn read_output_capped() {
+    let (home, _tmp, tools) = setup("capped");
+    let body: String = (0..3000).map(|i| format!("{i:05} {}\n", "y".repeat(60))).collect();
+    std::fs::write(home.join("big.txt"), &body).unwrap();
+    let r = call(&tools, "muse.read", json!({"path": "big.txt"})).await.unwrap();
+    let (_, note) = r.rsplit_once("\n\n").unwrap();
+    assert!(note.starts_with("[Read output capped at 100KB for this call. Use offset="), "{note}");
+    let r = call(&tools, "muse.read", json!({"path": "big.txt", "limit": 2900})).await.unwrap();
+    let (_, note) = r.rsplit_once("\n\n").unwrap();
+    assert!(note.starts_with("[Showing lines 1-") && note.contains("of 3000 (100KB limit). Use offset="), "{note}");
+}
+
+#[tokio::test]
+async fn edit_reports_closest_match() {
+    let (home, _tmp, tools) = setup("closest");
+    std::fs::write(home.join("c.rs"), "fn main() {\n    let total = 10;\n    println!(\"{total}\");\n}\n").unwrap();
+    let err = call(
+        &tools,
+        "muse.edit",
+        json!({"path": "c.rs", "old_text": "    let totl = 10;\n    println!(\"{total}\");", "new_text": "x"}),
+    )
+    .await
+    .unwrap_err();
+    assert!(err.contains("old_text was not present\n\nclosest match: similarity 0.98 (threshold 0.80), chars 12..56, lines 2-3"), "{err}");
+    assert!(err.contains("\nsnippet:\n    let total = 10;\n    println!(\"{total}\");\nold_text vs closest match:\n--- old_text\n+++ closest match\n@@\n"), "{err}");
+    assert!(err.contains("-    let totl = 10;\n+    let total = 10;\n     println!"), "{err}");
+    // Совсем непохожее — без ближайшего.
+    let err = call(&tools, "muse.edit", json!({"path": "c.rs", "old_text": "struct Foo;", "new_text": "x"})).await.unwrap_err();
+    assert!(!err.contains("closest match"), "{err}");
 }
 
 #[tokio::test]

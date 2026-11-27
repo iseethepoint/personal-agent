@@ -13,7 +13,7 @@ use agent_model::{Image, ToolResultPart, ToolSpec};
 use base64::Engine;
 use serde_json::{json, Value};
 
-use crate::paths::Roots;
+use crate::paths::Home;
 
 const READ_DESCRIPTION: &str = "Read file contents or list directory contents. If the path is a directory, returns a sorted listing of non-hidden files and directories up to two levels deep. Text files are read as UTF-8 and returned as whole lines only, with optional 1-indexed offset and line limit parameters; output is bounded to avoid oversized responses and may include continuation guidance. For supported images (png/jpeg/gif/webp), injects the image into model context. Document files (PDF, Word, Excel, PowerPoint, OpenDocument, EPUB, RTF) are converted to GitHub-Flavored Markdown and paged like text. For reading a PDF, prefer reviewing pages visually: render them with the documents skill and read the images. Use the extracted text for wording and quick checks, not to understand layout, tables or figures. If you can't render the pages, say what you couldn't check.";
 const READ_PATH: &str = "File or directory path: relative to your working directory, or absolute under /tmp.";
@@ -43,13 +43,13 @@ fn prop(t: &str, d: &str) -> Value {
 /// уже прочитано (сторож перезаписи, `overwrite_guard.rs`).
 #[derive(Clone)]
 pub struct FileTools {
-    roots: Arc<Roots>,
+    home: Arc<Home>,
     read: Arc<Mutex<HashSet<PathBuf>>>,
 }
 
 impl FileTools {
-    pub fn new(roots: Roots) -> Self {
-        FileTools { roots: Arc::new(roots), read: Arc::new(Mutex::new(HashSet::new())) }
+    pub fn new(home: Home) -> Self {
+        FileTools { home: Arc::new(home), read: Arc::new(Mutex::new(HashSet::new())) }
     }
 
     /// Добавить `muse.read`, `muse.write`, `muse.edit` в реестр.
@@ -62,8 +62,13 @@ impl FileTools {
             .get("path")
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::InvalidArguments("`path` (string) is required".into()))?;
-        self.roots.resolve(raw).map_err(ToolError::Failed)
+        self.home.resolve(raw).map_err(ToolError::InvalidArguments)
     }
+}
+
+/// Ключ сторожа перезаписи: один файл — один ключ при любом написании пути.
+fn key(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 fn text(t: String) -> Result<Vec<ToolResultPart>, ToolError> {
@@ -105,7 +110,7 @@ impl Tool for Read {
             let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
             let bytes = tokio::fs::read(&path).await.map_err(|e| io(&path, e))?;
             if let Some(media_type) = image_type(&ext) {
-                self.0.read.lock().unwrap().insert(path);
+                self.0.read.lock().unwrap().insert(key(&path));
                 let data_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
                 return Ok(vec![ToolResultPart::Image(Image { media_type: media_type.into(), data_base64 })]);
             }
@@ -118,7 +123,7 @@ impl Tool for Read {
                 .map_err(|_| ToolError::Failed(format!("{} is not UTF-8 text", path.display())))?;
             let offset = args.get("offset").and_then(Value::as_u64).unwrap_or(1).max(1) as usize;
             let limit = args.get("limit").and_then(Value::as_u64).map(|n| n as usize);
-            self.0.read.lock().unwrap().insert(path);
+            self.0.read.lock().unwrap().insert(key(&path));
             text(page(&body, offset, limit))
         })
     }
@@ -138,7 +143,11 @@ fn image_type(ext: &str) -> Option<&'static str> {
 
 /// Целые строки с `offset` (с 1), не больше `limit` строк и не больше
 /// `READ_CAP_BYTES`; дальше — указание muse, с какой строки продолжить
-/// (строки ядра 0x404d1d, 0x404d66).
+/// (строки ядра 0x404d1d, 0x404d66, 0x3780c0). Упор в предел байтов у muse
+/// печатается двумя текстами — выбор в функции 0x26e00e60 по седьмому
+/// аргументу (`[rsp+0x250]`): с ним — «Showing lines …», без него — «Read
+/// output capped …». Что это за аргумент, по разбору не видно; здесь это
+/// «задан `limit`».
 pub fn page(body: &str, offset: usize, limit: Option<usize>) -> String {
     let lines: Vec<&str> = body.lines().collect();
     let total = lines.len();
@@ -162,8 +171,11 @@ pub fn page(body: &str, offset: usize, limit: Option<usize>) -> String {
     }
     if end < total {
         let next = end + 1;
-        let note = if capped {
-            format!("[Showing lines {start}-{end} of {total} ({}KB limit). Use offset={next} to continue.]", READ_CAP_BYTES / 1024)
+        let kb = READ_CAP_BYTES / 1024;
+        let note = if capped && limit.is_some() {
+            format!("[Showing lines {start}-{end} of {total} ({kb}KB limit). Use offset={next} to continue.]")
+        } else if capped {
+            format!("[Read output capped at {kb}KB for this call. Use offset={next} to continue.]")
         } else {
             format!("[{} more lines in file. Use offset={next} to continue.]", total - end)
         };
@@ -246,7 +258,7 @@ impl Tool for Write {
                 f.write_all(content.as_bytes()).await.map_err(|e| io(&path, e))?;
             } else {
                 let has_content = tokio::fs::metadata(&path).await.map(|m| m.len() > 0).unwrap_or(false);
-                if has_content && !self.0.read.lock().unwrap().contains(&path) {
+                if has_content && !self.0.read.lock().unwrap().contains(&key(&path)) {
                     return Err(ToolError::Failed(format!(
                         "{} already has content and was not read in this conversation: read it with `muse.read` before overwriting, or use `muse.edit` or mode=\"append\"",
                         path.display()
@@ -255,7 +267,7 @@ impl Tool for Write {
                 tokio::fs::write(&path, content).await.map_err(|e| io(&path, e))?;
             }
             // Записанное нами считается известным: можно перезаписать дальше.
-            self.0.read.lock().unwrap().insert(path.clone());
+            self.0.read.lock().unwrap().insert(key(&path));
             text(format!("Wrote {} bytes to {}", content.len(), path.display()))
         })
     }
@@ -294,10 +306,12 @@ impl Tool for Edit {
             let at: Vec<usize> = body.match_indices(old).map(|(i, _)| i).collect();
             let Some(&first) = at.first() else {
                 // Текст muse, `strings-all.txt:30812`.
-                return Err(ToolError::Failed(format!(
-                    "text not found in '{}': old_text was not present",
-                    path.display()
-                )));
+                let mut msg = format!("text not found in '{}': old_text was not present", path.display());
+                if let Some(c) = closest_match(&body, old) {
+                    msg.push_str("\n\n");
+                    msg.push_str(&c);
+                }
+                return Err(ToolError::Failed(msg));
             };
             let edited = format!("{}{new}{}", &body[..first], &body[first + old.len()..]);
             tokio::fs::write(&path, &edited).await.map_err(|e| io(&path, e))?;
@@ -314,4 +328,115 @@ impl Tool for Edit {
             text(out)
         })
     }
+}
+
+/// Порог похожести ближайшего совпадения — 0.8 (ядро, 0x4a3e30), с
+/// допуском 1e-9 (0x49e488); функция подбора около 0xbbbc1f0.
+pub const CLOSEST_MATCH_THRESHOLD: f64 = 0.8;
+const EPS: f64 = 1e-9;
+/// Пределы снимка и diff в ответе — своих чисел в разборе не видно.
+const SNIPPET_MAX: usize = 2000;
+const DIFF_MAX: usize = 4000;
+
+/// Ближайшее к `old` место файла — по форме muse: окна из целых строк
+/// числом, как в `old`; грубый отсев по гистограмме байтов и разнице длин
+/// (нижняя граница расстояния), затем похожесть 1 − расстояние/длина
+/// большего (у muse её считает внешняя функция 0x29aded88 — здесь
+/// расстояние Левенштейна по байтам). Ниже порога — ничего.
+fn closest_match(body: &str, old: &str) -> Option<String> {
+    let starts: Vec<usize> = std::iter::once(0).chain(body.match_indices('\n').map(|(i, _)| i + 1)).collect();
+    let n = old.trim_end_matches('\n').matches('\n').count() + 1;
+    let ob = old.as_bytes();
+    let mut oh = [0i64; 256];
+    for &b in ob {
+        oh[b as usize] += 1;
+    }
+    let mut best: Option<(f64, usize, usize)> = None;
+    for (k, &a) in starts.iter().enumerate() {
+        if a >= body.len() {
+            break;
+        }
+        let end = starts.get(k + n).map(|&s| s - 1).unwrap_or(body.len());
+        let w = &body.as_bytes()[a..end];
+        let mut h = oh;
+        for &b in w {
+            h[b as usize] -= 1;
+        }
+        let hist: i64 = h.iter().map(|c| c.abs()).sum();
+        let lb = ((hist / 2) as usize).max(w.len().abs_diff(ob.len()));
+        let longest = w.len().max(ob.len()).max(1);
+        let upper = 1.0 - lb as f64 / longest as f64 + EPS;
+        if best.is_some_and(|(s, _, _)| s > upper) {
+            continue;
+        }
+        let sim = 1.0 - levenshtein(w, ob) as f64 / longest as f64;
+        if best.is_none_or(|(s, _, _)| sim > s + EPS) {
+            best = Some((sim, a, end));
+        }
+    }
+    let (sim, a, end) = best?;
+    if sim + EPS < CLOSEST_MATCH_THRESHOLD {
+        return None;
+    }
+    let window = &body[a..end];
+    let (c0, c1) = (body[..a].chars().count(), body[..end].chars().count());
+    let (l0, l1) = (body[..a].matches('\n').count() + 1, body[..end].matches('\n').count() + 1);
+    let snippet = cut(window, SNIPPET_MAX, "\n\n[snippet truncated]\n");
+    let diff = cut(&line_diff(old, window), DIFF_MAX, "\n[diff truncated]\n");
+    // Текст muse — строка ядра 0x93eedb; четвёртое поле (после chars) в
+    // разборе не видно — здесь это строки.
+    Some(format!(
+        "closest match: similarity {sim:.2} (threshold {CLOSEST_MATCH_THRESHOLD:.2}), chars {c0}..{c1}, lines {l0}-{l1}\n\nsnippet:\n{snippet}\nold_text vs closest match:\n--- old_text\n+++ closest match\n@@\n{diff}"
+    ))
+}
+
+fn cut(s: &str, max: usize, tail: &str) -> String {
+    if s.len() <= max {
+        return s.to_string();
+    }
+    let mut i = max;
+    while !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    format!("{}{tail}", &s[..i])
+}
+
+fn levenshtein(a: &[u8], b: &[u8]) -> usize {
+    let mut prev: Vec<usize> = (0..=b.len()).collect();
+    let mut cur = vec![0; b.len() + 1];
+    for (i, &x) in a.iter().enumerate() {
+        cur[0] = i + 1;
+        for (j, &y) in b.iter().enumerate() {
+            cur[j + 1] = (prev[j] + usize::from(x != y)).min(prev[j + 1] + 1).min(cur[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut cur);
+    }
+    prev[b.len()]
+}
+
+/// Построчный diff: «-» — только в old_text, «+» — только в найденном, « » — общее.
+fn line_diff(old: &str, new: &str) -> String {
+    let a: Vec<&str> = old.lines().collect();
+    let b: Vec<&str> = new.lines().collect();
+    let mut lcs = vec![vec![0usize; b.len() + 1]; a.len() + 1];
+    for i in (0..a.len()).rev() {
+        for j in (0..b.len()).rev() {
+            lcs[i][j] = if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
+        }
+    }
+    let (mut i, mut j, mut out) = (0, 0, String::new());
+    while i < a.len() || j < b.len() {
+        if i < a.len() && j < b.len() && a[i] == b[j] {
+            out.push_str(&format!(" {}\n", a[i]));
+            i += 1;
+            j += 1;
+        } else if i < a.len() && (j == b.len() || lcs[i + 1][j] >= lcs[i][j + 1]) {
+            out.push_str(&format!("-{}\n", a[i]));
+            i += 1;
+        } else {
+            out.push_str(&format!("+{}\n", b[j]));
+            j += 1;
+        }
+    }
+    out
 }
