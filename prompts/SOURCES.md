@@ -70,22 +70,16 @@
 |---|---|---|
 | `browser/system.md` | `system.md` | убраны абзац о трёх специалистах (вход, оплата, проверки ботов) и «and the specialists», строки инструментов `browser.files`, `browser.cooldown`, `browser.bot_challenge`/`login`/`pay`, `browser.specialists`/`steer_specialist`/`kill_specialist`, шаг 3 о специалистах (шаг 4 стал 3) — П4к-2…4 |
 | `browser/pages.md` | `pages.md` | убрано «Observe again after another agent returns…» (специалистов нет) |
-| `browser/presentation_language.md` | `presentation_language.md` | без правок; `{locale}` подставляет код |
+| `browser/presentation_language.md` | `presentation_language.md` | без правок; идёт не в системный текст, а в задание и продолжение после «\n\nLanguage:\n», края обрезаны, `{locale}` подставлен (`0x8b1f920`, П5-2 часть 4) |
+| задание и продолжение окна (`planner.rs`) | ядро: `0x8b1f310`, строки `0x539613`, `0x539652`, литерал «\n\nLanguage:\n» (`0x8b1f3af`) | «Muse's new instruction» → «Hamlet's new instruction» (П10) |
 | `browser/completion_gate/report_required.md` | `completion_gate/report_required.md` | без правок |
-| `browser/instructions/assignment.md` | `instructions/assignment.md` | убрано предложение о передаче работы специалистам |
-| `browser/instructions/browsing.md` | `instructions/browsing.md` | убраны «a route in the site's guide» и абзац о гайдах сайтов (П4к-3) |
-| `browser/instructions/obstacles.md` | `instructions/obstacles.md` | убрано «Sign-in, checkout and bot checks belong to the specialists.» |
-| `browser/instructions/asking.md` | `instructions/asking.md` | убраны обзор корзины и карта из кошелька (покупки — П4к-4) |
-| `browser/instructions/reporting.md` | `instructions/reporting.md` | убраны находки специалистов и абзац о результате покупки |
-| `browser/instructions/privacy.md` | `instructions/privacy.md` | убраны служба входа и абзац о файлах (`browser.files` нет) |
-| `browser/instructions/{conduct,facts,commitments}.md` | те же | без правок, кроме общих |
 | `browser/tools/observe.{json,md}` | `tools/observe.*` | убраны поля `image` (осмотр и разметка снимков) и `listen` (звук) и их абзацы; «inspections of saved images» и `look` в последнем абзаце убраны |
 | `browser/tools/act.{json,md}` | `tools/act.*` | виды действий — без `drag`, `hold`, `mouse_*`, `program`; поля `look`, `within`, `from_*`, `to_*`, `duration_ms`, `dx`, `dy`, `source` и их абзацы убраны (наведение по описанию и модель наведения — позже); описание `ref` и `timeout_ms` сокращено под это; из кодов отказа убраны `page_busy`, `site_in_use`, `entry_unsupported`, `picker_unavailable`, `pointer_*`; пример `needs_reference` — «choosing an option, ticking a box or scrolling inside an area»; модификатор `Meta` оставлен как у muse — имя клавиши, а не компании; в тесте П10 разрешён белым списком ровно здесь и в `window.rs` (слово ревизора, П4к-1б) |
 | `browser/tools/tabs.{json,md}` | `tools/tabs.*` | без правок |
 | `browser/tools/report.{json,md}` | `tools/report.*` | убраны поле `artifacts`, абзацы о специалистах и о результате покупки, «preserve useful findings … from agents you called» |
 | `browser/tools/request_input.{json,md}` | `tools/request_input.*` | убраны обзор корзины, оплата, абзац об одноразовых кодах и `login.advance` (П4к-2) |
 
-Своё в коде (`agent/browser/src/window.rs`, `planner.rs`; разметки вида у muse в разборе нет — её собирает отдельный «browser broker»): строки вида `- роль "имя" @eN [состояния]` из дерева доступности Chromium; предел текста вида 30 000 знаков; снимок JPEG; склейка фраз результата действий из строк ядра; ответ на `browser.request_input` («The main agent answered:»); порядок блоков системного текста. Модель исполнителя — назначение `BrowserAgent`.
+Своё в коде (`agent/browser/src/window.rs`, `planner.rs`; разметки вида у muse в разборе нет — её собирает отдельный «browser broker»): строки вида `- роль "имя" @eN [состояния]` из дерева доступности Chromium; предел текста вида 30 000 знаков; снимок JPEG; склейка фраз результата действий из строк ядра; ответ на `browser.request_input` («The main agent answered:»). Порядок системного текста — по профилю 1 (П5-2 часть 4). Модель исполнителя — назначение `BrowserAgent`.
 
 Прослойка `openai_compat` (П4к-1а): картинки из результата инструмента уходят следом сообщением `user` с пометкой `[картинки результата инструмента <id>]` — роль `tool` в Chat Completions несёт только текст; у muse для Chat Completions свой модуль медиа (`kimi_chat_completions/prompt/media.rs`, `source-files.txt:5303`), вид пометки — своё.
 
@@ -890,7 +884,7 @@
 **Раздел → блоки.** Функция-диспетчер `0xa9b9dc0` (таблица переходов `0x786d40`, 203 ветки; номера меньше `0x25` уходят в реестр `user_chat` `0xa9511e0`, `0x26` — в `0xd32dc40`, это `blocks/background/*`) по номеру раздела возвращает список записей блоков (запись — 72 байта: имя, переменные, варианты, текст, вид). Функция зависит только от номера, поэтому список снят прогоном: свой маленький эмулятор x86-64 по тексту objdump (рабочий скрипт, в репозиторий не идёт) для каждого из 352 номеров всех профилей. Итог — `prompts/profiles/sections.toml`: по разделу — блоки по порядку, переменные, где текст (вшит в ядро — адрес, или файл `P/…`), записи без имени — вставки (`"\n"`, `{commentary_visibility}`).
 
 Что карта ещё не закрывает:
-- `via = "other_harness"` — диспетчер возвращает None (`b7`–`c4`, `c6`–`c9`, `12`, `23`, `24`, `82`, `224`). Все они стоят только в срезе 1 профилей: это разделы другой обвязки (флаг `system_prompt_harness_overrides`, срез отдают `0xcdb6520` / `0xcdb1920`); отрисовщик системного текста `0xcd56910` читает только срез 0 — в текст стандартной обвязки они не идут. (В первой версии карты здесь стояло «assembler» — ошибка, поправлено в продолжении части 1.) Стек безопасности — не отдельные разделы, а значение переменной `{prompt_injection_defense}` блока `shared/safety_security_policy.md` (см. «Системный текст подагента»).
+- `via = "flag"` — диспетчер возвращает None (`b7`–`c4`, `c6`–`c9`, `12`, `23`, `24`, `82`, `224`): у раздела нет текста. Все они стоят в срезе 1 профилей; ядро проверяет, есть ли такой раздел в срезе, и по этому выводит другие разделы (П5-2 часть 4). (Раньше здесь стояло «assembler», потом «other_harness» — оба вывода неверны, поправлено в части 4.) Стек безопасности — не отдельные разделы, а значение переменной `{prompt_injection_defense}` блока `shared/safety_security_policy.md` (см. «Системный текст подагента»).
 - `via = "unresolved"` — `0x64` (варианты 0–9) и `0x75`: ветка зовёт функцию через `0x29ace370` / `0x29ace378`; это профили 1–5 («не опознан»).
 - Разделы `d0` с вариантами 0–`15` — заметки хода (`turn_directives/*`), в системный текст не идут.
 - Правила отрисовки (когда блок `anthropic/cedar/*` вместо обычного; `agent/memory.md` и `agent/memory_read_only.md` в одном разделе) — в сборщике, следующая часть.
@@ -1131,8 +1125,6 @@
 
 Профиль 1 у Hamlet — `agent/browser/src/planner.rs`; тест порядка `browser_planner_follows_profile` (`agent/hamlet/tests/profiles.rs`) проверяет, что `system.md` стоит перед `pages.md`. Профили 2–5 → П4к-2/П4к-3/П4к-4. В `prompts/profiles/sections.toml` разделы `64`–`964` — `via = "browser_table"` с блоками. «Не опознан» остаётся только `0x75`.
 
-Открытый вопрос (передан ревизору). Системный текст исполнителя у Hamlet (П4к-1) сейчас: `system.md`, затем 9 файлов `instructions/*`, затем `pages.md`, затем `presentation_language.md`. Профиль 1 рисует только `system.md` и `pages.md`. `instructions/*` стоят в срезе 1, то есть в другой обвязке, по тому же правилу, что у главного. Где у muse в стандартной обвязке `instructions/*` и `presentation_language.md`, по ядру не найдено (`0xcdb6520` отдаёт срез 1 по `0xc468b20`, без профиля — набор `0xa13f88`). Сборку исполнителя в этом срезе не менял.
-
 **Блоки, которые уходят целиком, хотя части, о которых они говорят, у Hamlet появятся позже** (правило П5-1: блок целиком):
 - `shared/tool_rules_detached_approvals` (работник расписаний) — согласия на вызовы → П20;
 - `agent/safety_credentials`, `agent/safety_credentials_worker`, `shared/safety_credentials_detached_worker`, `shared/safety_credentials_transient_limits` — Secure Vault, ссылки `[credential:…]` → П18, Wallet → П20;
@@ -1146,3 +1138,54 @@
 - `assembly.rs` — у наблюдателя, проверяющего и сброса в запросах свои тексты;
 - `agent/cron/tests/hooks.rs` — текст работника наблюдателя берётся на момент прогона;
 - `profiles.rs` — браузер; список констант порядка удалён, все роли проверяются по тексту.
+
+## П5-2, часть 4: срез 1 профиля и браузер
+
+**Где выводится срез 1.** Срез 1 — не «другая обвязка» (так было записано в частях 1–3; это неверно).
+- `0xcdbf740` берёт срез 1 через `0xcdb6520` и выводит его разделы по одному через `0xcd54d80` → диспетчер `0xa9b9dc0`. Строки этой функции — «embedded developer template render», «hot-swap prompt has a missing section» (`0x9ec45e`). Это текст developer-сообщения. Его место в разговоре разбирается в части 5.
+- Кто зовёт `0xcdbf740`: ход `0xca92e40` (`0xcaaf2c9`, итог в поле `+0x8f90`) и голосовые ходы через `0xcdbf700` (`0xd8d0570`, `0xdb24e50`, `0xdcd3df0`, `0xddc2a30`).
+- Другие обходы целого списка берут срез 0 (`0xcd56910`, `0xc4799e0`, `0xa9f0650`) или срез 2 — `turn_directives` (`0xcd552d0`, его зовут из `0xcdb67c0` и `0xcaa6bdb`).
+- Остальные места, где читается срез 1 (`0xcdb6520` и `0xcdb1920`), только проверяют, есть ли в нём раздел (сравнение `0xabfb5d0`). По такой проверке выводятся отдельные разделы:
+  - `0xf` — `0xb39a370`, при `0x325` или `0xc`;
+  - `0x3b` — `0xcdb9b00`, при `0xc8`;
+  - `0xcb` — `0xcdbf740`;
+  - `0x88`, `0x8c`, `0x28`, `0x29`, `0x65`, `0x8f`, `0xcf` — `0xcdb57c0`, `0xcdb6960`, `0xcdb6cb0`.
+
+**Условие** (`0xca92e40`):
+- флаг `+0x8ecc` = `cfg.0x72e0 > 0` или `cfg.0x26e8 == 7` (`0xca97512`–`0xca97554`). Если он стоит, срез 1 не выводится;
+- иначе, если готов текст `+0x3270`, берётся он;
+- иначе, если контекста `+0xe60` нет, текста нет;
+- иначе срез 1 выводится (`0xcaaf241`–`0xcaaf2c9`).
+
+Это те же поля, что решают ветку в `0xcdb1920` (`+0x60` = `cfg.0x72e0`, `+0x50` = `&cfg.0x26e8`; сборка структуры — `0xca98a5a`, `0xca98b05`). При `+0x60 > 0` профиль выбирается по виду (таблица `0x9d842c`: вид 6 → подагент, 8–12 → браузер, 13 → глубокое исследование, 14 → профиль 7, 1–5 → 24–28), при виде 7 — индекс `0x1e`. Итог: у профилей по виду срез 1 не выводится. У профилей по роли (`0xc468b20`) выводится:
+- главный (индекс 0);
+- индексы `0x9`–`0x18`, то есть профили 8–23: наблюдатель, проверяющий, работник и итог расписаний и другие;
+- если роль не нашлась — набор `0xa13f88`.
+
+Индексы 1–6 (подагент и браузер) `0xc468b20` не отдаёт. Developer-сообщение по срезу 1 у главного и ролей по роли — часть 5.
+
+**Браузер.** Тексты `browser/instructions/*` и `presentation_language.md` в ядре дословно не лежат: muse читает их с диска по пути. Ниже — все обращения к описаниям этих файлов (путь, длина, вид). Кроме них, пути лежат в реестре файлов подсказок (записи `inventory`: таблицы методов `0x29065338` и `0x28ed1178`) — это регистрация, не чтение.
+- `assignment`, `browsing`, `obstacles`, `asking`, `commitments`, `facts`, `privacy`, `conduct`, `reporting`. Читает только диспетчер (`0xa9baa48`, раздел `0x64` в.1), то есть срез 1 профиля 1, а он не выводится. Файлы убраны из `prompts/browser/instructions/` и из `planner.rs`.
+- `presentation_language.md` (описание `0x28ed1410`). Читает `0x8b1f920`: обрезает края (`0xf76f820`) и подставляет `{locale}` (`0x498590`). Его зовёт сборка задания `0x8b1f310`: строка начала или продолжения, затем задание, «\n\nLanguage:\n» и язык. Сборку зовут `0x97cf670`, `0xa85d260`, `0xc24b8b0`, `0xc252630`. Ещё файл читает итоговая сводка задачи hatch-server (`0x18748550`, `0x1c85b040`) — её у Hamlet нет. У Hamlet язык перенесён в `assignment_message` и `update_message`.
+- Системный текст исполнителя — записи `system.md` и `pages.md` подряд (`0x64` в.0, профиль 1), личный вариант меток, края без переводов строки.
+
+**Остальные `instructions/*`** — придут с П4к-2…4, читают:
+
+| файл | кто читает |
+|---|---|
+| `popup_open`, `popup_tab`, `popup_pending`, `passkey_refused`, `personal_agent_protocol`, `personal_agent_protocol_poppy_reported`, `personal_agent_protocol_specialist`, `ucp_merchant_purchases` | `0x8a96ad0` |
+| `site_not_found`, `site_unreachable` | `0x8a90400`, `0x8a908b0` |
+| `session_unavailable` | `0x8a908b0`, `0x8a959c0`, `0x9b01140`, `0x9bfc000`, `0xb249940`, `0xcc65190`, `0xd52f7f0` |
+| `personal_agent_protocol_poppy_started`, `_poppy_started_open`, `_browsing_disabled` | `0x8a906a0`, `0x8a90790`, `0x990bdf0`, `0xcbf0730` |
+| `personal_agent_protocol_poppy_working` | `0x8a900c0`, `0x8a90340`, `0x8a90820` |
+| `personal_agent_protocol_joined`, `_joined_guest`, `_join_failed`, `_suggested_page` | `0x9b22d70`, `0xa364ab0`, `0xa364b00`, `0xcc86900` |
+| `control_return` и `control_return/*` | `0xa1f6470`; `timed_out` — ещё `0xaac4aa0` |
+| `checkout_resumed` | `0xa148d40`, `0xa149260` |
+| `relocated` | `0xaa39fb0` |
+| `cookies_cleared` | `0xbbad120`, `0xc0a3ba0` |
+| `site_requeued` | `0xbbad120`, `0xc390f90` |
+| `checkpoint_required` | `0xd530240` |
+| `site_concurrency` | `0x922e740`, `0xca24340` |
+| `bot_checks`, `specialists`, `specialist_assignment`, `login`, `verification_codes`, `checkout`, `challenges`, `poppy` | только таблица `0x2906bd30` (срез 1 профилей 1–5, в.1/3/5/7/9) — не выводятся |
+
+**Тесты:** `agent/browser/tests/planner_text.rs` — системный текст исполнителя равен `system.md` + `pages.md` по форме профиля, без `instructions/*` и без языка; первое сообщение и продолжение — побайтно по форме `0x8b1f310` с подставленным `locale`. `agent/hamlet/tests/profiles.rs` — `via = "flag"`.

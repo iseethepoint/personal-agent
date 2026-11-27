@@ -53,9 +53,9 @@ async fn planner_completes_order_through_loop() {
             true,
         );
         let owner = Arc::new(Owner(Mutex::new(vec![])));
-        let planner = Planner { provider: Arc::new(provider), window: window.clone(), asker: owner.clone(), locale: "en-US".into(), spill_dir: temp_dir("browser-spill"), updates: None, record: None };
+        let planner = Planner { provider: Arc::new(provider), window: window.clone(), asker: owner.clone(), spill_dir: temp_dir("browser-spill"), updates: None, record: None };
         let mut history = vec![];
-        let report = planner.run(&mut history, Some(assignment_message(&format!("Order a blue mug at {base}/ for Ann Lee.")))).await.unwrap();
+        let report = planner.run(&mut history, Some(assignment_message(&format!("Order a blue mug at {base}/ for Ann Lee."), "en-US"))).await.unwrap();
         assert_eq!(report.status, "completed", "{wire:?}");
         assert_eq!(report.summary, "Order A-1042 placed for a blue mug.");
         assert_eq!(owner.0.lock().unwrap()[0].question, "Which name and color?");
