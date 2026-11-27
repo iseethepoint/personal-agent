@@ -165,7 +165,9 @@ fn prompts_have_no_muse_or_meta() {
     }
     assert!(seen >= 8, "тексты prompts/ не найдены");
     assert_clean("summarization_prompt", &summarization_prompt(), &mut bad);
-    assert_clean("first_message", &first_message("задача"), &mut bad);
+    assert_clean("first_message", &first_message("задача", 1, true), &mut bad);
+    assert_clean("first_message depth 2", &first_message("задача", 2, false), &mut bad);
+    assert_clean("spawning_prefix", &format!("{:?}", agent_loop::spawning_prefix(Prefix { system: String::new(), tools: vec![] })), &mut bad);
     assert_clean("worker_message", &agent_cron::worker_message("job", "task", Some("t"), "тело", None, None), &mut bad);
     assert_clean("heartbeat worker_message", &agent_cron::worker_message("heartbeat", "heartbeat", None, "тело", Some(agent_cron::HEARTBEAT_TEMPLATE), None), &mut bad);
     assert_clean("hook worker system", &agent_cron::hooks::worker_system(""), &mut bad);

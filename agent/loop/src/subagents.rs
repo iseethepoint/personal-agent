@@ -5,8 +5,12 @@
 //! инструментов. Подагент глубины 1 наследует разговор родителя, глубже —
 //! изолирован («Any subagents you spawn deeper than 1 start in isolated
 //! mode», `subagent_history_inheritance_inherited.md`;
-//! `subagent_context_depth_one_spawn_inheritance.md`): у нас глубина одна,
-//! поэтому наследуют все. Наследуется вся видимая модели история родителя
+//! `subagent_context_depth_one_spawn_inheritance.md`). Глубин две, как у
+//! ролей ядра: у `owner_subagent_depth1` есть `subagent.*`, у
+//! `owner_subagent_depth2` нет (`prompts/roles/`); итог подагента глубины 2
+//! приходит его родителю, а не корню («Your sub-agents will announce their
+//! results back to you automatically (not to your parent agent)»,
+//! `subagent_spawning.md`). Наследуется вся видимая модели история родителя
 //! на момент вызова (у muse — от `root_prompt_floor_seq`, то есть после
 //! сжатия; `strings-all.txt:84153`): копия, история родителя не меняется.
 //! За ней — заметка muse «Above is the conversation history…»
@@ -44,8 +48,10 @@ use crate::turn::{Turn, TurnError};
 /// опись, таблица 4.2).
 pub const CONTROL_TIMEOUT: Duration = Duration::from_secs(90);
 
-/// Глубина: подагенты своих подагентов не заводят.
-pub const MAX_SPAWN_DEPTH: u32 = 1;
+/// Предельная глубина — из ролей ядра: у `owner_subagent_depth2` нет
+/// `subagent.*` (отказ ядра на глубине «Agent depth limit reached. Solve the
+/// task yourself.», `0x883b6b`, не нужен: инструмента там нет).
+pub const MAX_SPAWN_DEPTH: u32 = 2;
 
 /// Тексты muse, перенесены как есть (`prompts/subagent/`).
 pub const USER_MESSAGE_MD: &str = include_str!("../../../prompts/subagent/subagent_context_user_message.md");
@@ -56,6 +62,13 @@ pub const INHERITED_MD: &str = include_str!("../../../prompts/subagent/subagent_
 pub const PARENT_BACKGROUND_MD: &str = include_str!("../../../prompts/subagent/subagent_context_parent_background.md");
 pub const ACTIVE_TURN_MD: &str =
     include_str!("../../../prompts/subagent/active_turn_subagent_history_developer_message.md");
+pub const ISOLATED_MD: &str = include_str!("../../../prompts/subagent/subagent_history_inheritance_isolated.md");
+pub const DEPTH_ONE_COORDINATOR_MD: &str = include_str!("../../../prompts/subagent/subagent_context_depth_one_coordinator.md");
+pub const DEPTH_ONE_SPAWN_INHERITANCE_MD: &str =
+    include_str!("../../../prompts/subagent/subagent_context_depth_one_spawn_inheritance.md");
+/// Раздел системного текста подагента, который может заводить своих
+/// (`subagent_spawning_section` при `can_spawn` в шаблоне ядра).
+pub const SPAWNING_MD: &str = include_str!("../../../prompts/subagent/subagent_spawning.md");
 
 /// Описания инструментов — строки ядра muse (0x2cdb1b3–0x2cdd367), полные
 /// варианты: первая строка и абзацы через пустую строку. Правка (П10): в
@@ -197,6 +210,10 @@ pub trait SubagentStore: Send + Sync {
     fn child<'a>(&'a self, id: &'a str) -> MailboxFuture<'a, Arc<dyn ChildRecord>>;
     /// Новое состояние; `result` — итог законченной работы.
     fn status<'a>(&'a self, id: &'a str, status: Status, result: Option<&'a str>) -> MailboxFuture<'a, ()>;
+    /// Хранилище подагентов подагента `parent` — на глубину ниже.
+    fn nested(&self, parent: &str) -> Arc<dyn SubagentStore>;
+    /// Ящик подагента `id` (`agent.message_mailbox` по его `agent_id`).
+    fn mailbox(&self, id: &str) -> Arc<dyn Mailbox>;
 }
 
 impl Inbox {
@@ -207,9 +224,14 @@ impl Inbox {
     /// Ящик с хранилищем; непринятые до перезапуска вести — снова в очереди.
     pub async fn persistent(store: Arc<dyn Mailbox>) -> Result<Self, String> {
         let pending = store.pending().await?;
+        Ok(Self::with(store, pending))
+    }
+
+    /// Ящик с хранилищем и уже поднятыми непринятыми вестями.
+    pub fn with(store: Arc<dyn Mailbox>, pending: Vec<(String, Message)>) -> Self {
         let inbox = Inbox { store: Some(store), ..Default::default() };
         inbox.queue.lock().unwrap().extend(pending.into_iter().map(|(id, m)| (Some(id), m)));
-        Ok(inbox)
+        inbox
     }
 
     /// Положить заметку для родителя (итог подагента, итог фоновой команды).
@@ -389,7 +411,7 @@ pub struct KindRecord {
     pub owner: String,
 }
 
-struct Agent {
+struct Agent<P> {
     id: String,
     task: String,
     status: Status,
@@ -399,6 +421,8 @@ struct Agent {
     handle: tokio::task::JoinHandle<()>,
     /// Итог особого подагента при закрытии.
     finish: Option<Finish>,
+    /// Подагенты этого подагента (глубже); итоги — в их ящик.
+    nested: Option<Subagents<P>>,
 }
 
 /// Начало сессии обычного подагента.
@@ -414,6 +438,8 @@ struct Start {
     first: Option<Input>,
     status: Status,
     result: Option<String>,
+    /// Вести ящика подагента, не взятые до перезапуска.
+    pending: Vec<(String, Message)>,
 }
 
 struct Inner<P> {
@@ -423,13 +449,19 @@ struct Inner<P> {
     spill_dir: std::path::PathBuf,
     inbox: Inbox,
     parent: Transcript,
-    agents: Mutex<Vec<Agent>>,
-    /// Номер следующего подагента (`agent-<n>`).
-    next: std::sync::atomic::AtomicUsize,
+    agents: Mutex<Vec<Agent<P>>>,
+    /// Номер следующего подагента (`agent-<n>`) — один на всё дерево: id
+    /// подагентов разных глубин не совпадают.
+    next: Arc<std::sync::atomic::AtomicUsize>,
     store: std::sync::OnceLock<Arc<dyn SubagentStore>>,
     /// Монитор промежуточных событий (`SubagentMonitor`); без него —
     /// только итоги.
     monitor: std::sync::OnceLock<WatchFactory>,
+    /// Глубина подагентов этого родителя (у корня — 1).
+    depth: u32,
+    /// Набор и начало подсказки подагентов следующей глубины; есть — подагенты
+    /// этого родителя заводят своих.
+    deeper: std::sync::OnceLock<(Arc<Tools>, Prefix)>,
 }
 
 /// Подагенты одного родителя. Инструменты `subagent.*` — из `tools()`.
@@ -444,22 +476,41 @@ impl<P> Clone for Subagents<P> {
 }
 
 /// Первое сообщение подагента — `subagent_context_user_message.md` muse,
-/// личный вариант. Подагент наследует разговор родителя: блок родителя —
-/// `subagent_context_parent_background.md` и `…_inheritance_inherited.md`;
-/// глубже он не спавнит (`MAX_SPAWN_DEPTH` = 1), поэтому блоки глубины пусты.
-pub fn first_message(task: &str) -> String {
+/// личный вариант. Подагент глубины 1 наследует разговор родителя: блок
+/// родителя — `subagent_context_parent_background.md` и
+/// `…_inheritance_inherited.md`; глубже — изолирован:
+/// `…_inheritance_isolated.md`, без заметки о разговоре родителя (его нет).
+/// Блоки глубины 1 (`…_depth_one_coordinator.md`,
+/// `…_depth_one_spawn_inheritance.md`) — только у того, кто сам заводит
+/// подагентов (имена блоков ядра; условие `can_spawn` — своё прочтение).
+pub fn first_message(task: &str, depth: u32, can_spawn: bool) -> String {
+    let one = depth == 1 && can_spawn;
+    let block = |text: &str| if one { format!("{}\n", personal(text).trim_end()) } else { String::new() };
     let standard = personal(STANDARD_MD)
-        .replace("{{DEPTH_ONE_COORDINATOR_BLOCK}}\n", "")
-        .replace("{{DEPTH_ONE_SPAWN_INHERITANCE_BLOCK}}\n", "");
+        .replace("{{DEPTH_ONE_COORDINATOR_BLOCK}}\n", &block(DEPTH_ONE_COORDINATOR_MD))
+        .replace("{{DEPTH_ONE_SPAWN_INHERITANCE_BLOCK}}\n", &block(DEPTH_ONE_SPAWN_INHERITANCE_MD));
+    let parent = if depth == 1 {
+        format!("{}\n{}", personal(PARENT_BACKGROUND_MD).trim_end(), personal(INHERITED_MD).trim_end())
+    } else {
+        personal(ISOLATED_MD).trim_end().to_string()
+    };
     personal(USER_MESSAGE_MD)
-        .replace("{{CHILD_DEPTH}}", "1")
+        .replace("{{CHILD_DEPTH}}", &depth.to_string())
         .replace("{{MAX_SPAWN_DEPTH}}", &MAX_SPAWN_DEPTH.to_string())
-        .replace("{{PARENT_CONTEXT_BLOCK}}", &format!("{}\n{}", personal(PARENT_BACKGROUND_MD).trim_end(), personal(INHERITED_MD).trim_end()))
+        .replace("{{PARENT_CONTEXT_BLOCK}}", &parent)
         .replace("{{STANDARD_SUBAGENT_BLOCK}}", &standard)
         .replace("{{PERSISTENT_SESSION_BLOCK}}", &personal(PERSISTENT_SESSION_MD))
         .replace("{{SESSION_LINES}}\n", "")
         .replace("{{METADATA_BLOCK}}\n", "")
         .replace("{{TASK_INPUT_START}}", task)
+}
+
+/// Начало подсказки подагента, который заводит своих: к системному тексту —
+/// раздел `subagent_spawning.md`, к описаниям — `subagent.*`.
+pub fn spawning_prefix(mut prefix: Prefix) -> Prefix {
+    prefix.system = format!("{}\n\n{}", prefix.system.trim_end(), personal(SPAWNING_MD).trim_end());
+    prefix.tools.extend([Op::Spawn, Op::Send, Op::List, Op::Close, Op::Resume].into_iter().map(spec));
+    prefix
 }
 
 /// Итог подагента для родителя. Формы заметки muse в разборе нет — своя.
@@ -517,9 +568,11 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 inbox,
                 parent,
                 agents: Mutex::new(Vec::new()),
-                next: std::sync::atomic::AtomicUsize::new(1),
+                next: Arc::new(std::sync::atomic::AtomicUsize::new(1)),
                 store: std::sync::OnceLock::new(),
                 monitor: std::sync::OnceLock::new(),
+                depth: 1,
+                deeper: std::sync::OnceLock::new(),
             }),
         }
     }
@@ -532,6 +585,13 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
     pub fn set_monitor<M: Provider + Send + Sync + 'static>(&self, m: Arc<crate::monitor::Monitor<M>>) {
         let f: WatchFactory = Arc::new(move |id, task, inbox, running| m.watch(id, task, inbox, running));
         let _ = self.inner.monitor.set(f);
+    }
+
+    /// Подагенты этого родителя заводят своих — на глубину ниже, с набором
+    /// `tools` и началом `prefix` (роль следующей глубины). Начало самих
+    /// подагентов должно уже нести `subagent.*` (`spawning_prefix`).
+    pub fn set_deeper(&self, tools: Arc<Tools>, prefix: Prefix) {
+        let _ = self.inner.deeper.set((tools, prefix));
     }
 
     /// Инструменты `subagent.spawn/send/list/close/resume` для родителя.
@@ -565,7 +625,8 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
     /// `spawn`, но итог перед отправкой родителю проходит через `after`.
     pub fn spawn_then(&self, task: &str, after: Option<AfterDone>) -> String {
         let id = self.next_id();
-        let mut history = inherited_history(&self.inner.parent.snapshot());
+        // Глубже 1 — изолированно: без разговора родителя.
+        let mut history = if self.inner.depth == 1 { inherited_history(&self.inner.parent.snapshot()) } else { Vec::new() };
         if !history.is_empty() {
             history.push(Message { role: Role::Developer, content: vec![Part::Text { text: personal(ACTIVE_TURN_MD).trim_end().to_string() }] });
         }
@@ -576,9 +637,10 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
             record: None,
             fresh: true,
             after,
-            first: Some(Input::Message(first_message(task))),
+            first: Some(Input::Message(first_message(task, self.inner.depth, self.inner.deeper.get().is_some()))),
             status: Status::Running,
             result: None,
+            pending: Vec::new(),
         });
         self.inner.agents.lock().unwrap().push(agent);
         id
@@ -602,7 +664,29 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
 
     /// Сессия обычного подагента: очередь работы, ход за ходом; с
     /// хранилищем — история, точка перезапуска и состояние в базе.
-    fn start(&self, s: Start) -> Agent {
+    /// Подагенты одного подагента — следующая глубина; `None`, если глубже
+    /// заводить нельзя.
+    fn nested(&self, inbox: Inbox) -> Option<Subagents<P>> {
+        let (tools, prefix) = self.inner.deeper.get()?.clone();
+        Some(Subagents {
+            inner: Arc::new(Inner {
+                provider: self.inner.provider.clone(),
+                tools,
+                prefix,
+                spill_dir: self.inner.spill_dir.clone(),
+                inbox,
+                parent: Transcript::new(),
+                agents: Mutex::new(Vec::new()),
+                next: self.inner.next.clone(),
+                store: std::sync::OnceLock::new(),
+                monitor: std::sync::OnceLock::new(),
+                depth: self.inner.depth + 1,
+                deeper: std::sync::OnceLock::new(),
+            }),
+        })
+    }
+
+    fn start(&self, s: Start) -> Agent<P> {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let interrupt = Arc::new(Notify::new());
         if let Some(first) = s.first {
@@ -614,6 +698,28 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         let watch = self.watch(&s.id, &s.task);
         let (task, after, fresh) = (s.task.clone(), s.after, s.fresh);
         let (mut state, mut record) = (s.state, s.record);
+        // Свои подагенты: их инструменты — к общему набору, их итоги — в свой
+        // ящик, который ход забирает между шагами. С хранилищем ящик — в
+        // `agent.message_mailbox` под id подагента, как у корня.
+        let inbox = match self.inner.store.get() {
+            Some(st) => Inbox::with(st.mailbox(&s.id), s.pending),
+            None => Inbox::new(),
+        };
+        let nested = self.nested(inbox);
+        let tools = match &nested {
+            Some(n) => {
+                let mut t = (*self.inner.tools).clone();
+                for x in n.tools() {
+                    t.add(x);
+                }
+                Arc::new(t)
+            }
+            None => self.inner.tools.clone(),
+        };
+        if let (Some(n), Some(st)) = (&nested, self.inner.store.get()) {
+            let _ = n.inner.store.set(st.nested(&s.id));
+        }
+        let own = nested.clone();
         let handle = tokio::spawn(async move {
             let store = inner.store.get().cloned();
             if let (true, Some(st)) = (fresh, &store) {
@@ -623,7 +729,20 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 }
             }
             let mut turns = 0u64;
-            while let Some(input) = rx.recv().await {
+            loop {
+                // Работа — новая задача родителя или итог своего подагента в
+                // ящике (ход забирает его сам).
+                let input = match &own {
+                    Some(n) if rx.is_empty() && !n.inner.inbox.is_empty() => Input::Resume,
+                    // Сначала очередь работы: иначе продолжение после
+                    // перезапуска осталось бы в ней и дало лишний ход.
+                    Some(n) => tokio::select! {
+                        biased;
+                        i = rx.recv() => match i { Some(i) => i, None => break },
+                        _ = n.inner.inbox.wait() => Input::Resume,
+                    },
+                    None => match rx.recv().await { Some(i) => i, None => break },
+                };
                 // Законченный до перезапуска — история из базы по первой работе.
                 if state.is_none() {
                     let loaded = match &record {
@@ -653,14 +772,23 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                         eprintln!("subagent checkpoint: {e}");
                     }
                 }
-                let mut turn = Turn::from_prefix(&*inner.provider, &inner.tools, prefix, inner.spill_dir.clone());
+                let mut turn = Turn::from_prefix(&*inner.provider, &tools, prefix, inner.spill_dir.clone());
                 turn.on_step = watch.clone();
+                turn.inbox = own.as_ref().map(|n| n.inner.inbox.clone());
+                turn.turn_id = Some(turn_id.clone());
                 turn.record = record.clone().map(|r| r as Arc<dyn crate::turn::Record>);
                 let mut quiet = |_: &str| {};
                 let outcome = tokio::select! {
                     r = turn.run(history, &mut quiet) => Some(r),
                     _ = stop.notified() => None,
                 };
+                // Вести ящика, взятые ходом, закрываются по его итогу (как у
+                // корня); прерванный ход их уже записал в историю.
+                if let Some(n) = &own {
+                    if let Err(e) = n.inner.inbox.complete(&turn_id, !matches!(outcome, Some(Err(_)))).await {
+                        eprintln!("mailbox complete: {e}");
+                    }
+                }
                 let Some(outcome) = outcome else {
                     // Прервано `send` с `interrupt`: новая работа уже в очереди.
                     close_dangling_calls(history);
@@ -693,53 +821,66 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 inner.inbox.push(handoff(&agent_id, status, &text)).await;
             }
         });
-        Agent { id: s.id, task: s.task, status: s.status, result: s.result, tx, interrupt, handle, finish: None }
+        Agent { id: s.id, task: s.task, status: s.status, result: s.result, tx, interrupt, handle, finish: None, nested }
     }
 
     /// Подагенты из базы (после перезапуска): законченные — снова в списке;
     /// с точкой `before_inference` — ход продолжается; прочие незаконченные
     /// — `errored`, родителю итог с текстом ядра. Дальше состояние пишется
     /// в `store`. Возвращает id продолживших.
-    pub async fn persistent(&self, store: Arc<dyn SubagentStore>) -> Result<Vec<String>, String> {
-        let saved = store.saved().await?;
-        let _ = self.inner.store.set(store.clone());
-        let mut resumed = vec![];
-        for sv in saved {
-            if let Some(n) = sv.id.strip_prefix("agent-").and_then(|n| n.parse::<usize>().ok()) {
-                self.inner.next.fetch_max(n + 1, std::sync::atomic::Ordering::SeqCst);
-            }
-            let record = store.child(&sv.id).await?;
-            let mut start = Start {
-                id: sv.id.clone(),
-                task: sv.task.clone(),
-                state: None,
-                record: Some(record.clone()),
-                fresh: false,
-                after: None,
-                first: None,
-                status: sv.status,
-                result: sv.result.clone(),
-            };
-            if !sv.completed {
-                if !sv.finish_hook && record.interrupted().await?.is_some() {
-                    let (prefix, mut history) = record.load().await?;
-                    close_interrupted(&mut history);
-                    record.record(&history).await?;
-                    start.state = Some((prefix, history));
-                    start.first = Some(Input::Resume);
-                    start.status = Status::Running;
-                    resumed.push(sv.id.clone());
-                } else {
-                    store.status(&sv.id, Status::Failed, Some(WORK_NOT_RESUMABLE)).await?;
-                    self.inner.inbox.push(handoff(&sv.id, Status::Failed, WORK_NOT_RESUMABLE)).await;
-                    start.status = Status::Failed;
-                    start.result = Some(WORK_NOT_RESUMABLE.to_string());
+    pub fn persistent(&self, store: Arc<dyn SubagentStore>) -> futures_util::future::BoxFuture<'_, Result<Vec<String>, String>> {
+        Box::pin(async move {
+            let saved = store.saved().await?;
+            let _ = self.inner.store.set(store.clone());
+            let mut resumed = vec![];
+            for sv in saved {
+                if let Some(n) = sv.id.strip_prefix("agent-").and_then(|n| n.parse::<usize>().ok()) {
+                    self.inner.next.fetch_max(n + 1, std::sync::atomic::Ordering::SeqCst);
+                }
+                let record = store.child(&sv.id).await?;
+                let mut start = Start {
+                    id: sv.id.clone(),
+                    task: sv.task.clone(),
+                    state: None,
+                    record: Some(record.clone()),
+                    fresh: false,
+                    after: None,
+                    first: None,
+                    status: sv.status,
+                    result: sv.result.clone(),
+                    // Ящик подагента: итоги его подагентов, не взятые до
+                    // перезапуска, — снова в очереди.
+                    pending: match self.inner.deeper.get() {
+                        Some(_) => store.mailbox(&sv.id).pending().await?,
+                        None => Vec::new(),
+                    },
+                };
+                if !sv.completed {
+                    if !sv.finish_hook && record.interrupted().await?.is_some() {
+                        let (prefix, mut history) = record.load().await?;
+                        close_interrupted(&mut history);
+                        record.record(&history).await?;
+                        start.state = Some((prefix, history));
+                        start.first = Some(Input::Resume);
+                        start.status = Status::Running;
+                        resumed.push(sv.id.clone());
+                    } else {
+                        store.status(&sv.id, Status::Failed, Some(WORK_NOT_RESUMABLE)).await?;
+                        self.inner.inbox.push(handoff(&sv.id, Status::Failed, WORK_NOT_RESUMABLE)).await;
+                        start.status = Status::Failed;
+                        start.result = Some(WORK_NOT_RESUMABLE.to_string());
+                    }
+                }
+                let agent = self.start(start);
+                // Дерево: подагенты подагента — из базы под ним.
+                let nested = agent.nested.clone();
+                self.inner.agents.lock().unwrap().push(agent);
+                if let Some(n) = nested {
+                    resumed.extend(n.persistent(store.nested(&sv.id)).await?);
                 }
             }
-            let agent = self.start(start);
-            self.inner.agents.lock().unwrap().push(agent);
-        }
-        Ok(resumed)
+            Ok(resumed)
+        })
     }
 
     /// Запустить особого подагента (`Kind`); дополнения — тем же
@@ -817,21 +958,36 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 }
             }
         });
-        agents.push(Agent { id: id.clone(), task: kind.task, status: Status::Running, result: None, tx, interrupt, handle, finish: Some(finish) });
+        agents.push(Agent { id: id.clone(), task: kind.task, status: Status::Running, result: None, tx, interrupt, handle, finish: Some(finish), nested: None });
         id
     }
 
     pub fn send(&self, id: &str, message: &str, interrupt: bool) -> Result<(), String> {
+        self.send_in(id, message, interrupt, false)
+    }
+
+    /// `send` с `scope`: `descendants` — цель ищется во всём поддереве.
+    pub fn send_in(&self, id: &str, message: &str, interrupt: bool, descendants: bool) -> Result<(), String> {
         let agents = self.inner.agents.lock().unwrap();
-        let a = agents.iter().find(|a| a.id == id).ok_or_else(|| unknown(id))?;
-        if a.status == Status::Closed {
-            return Err(format!("agent {id} is closed"));
+        if let Some(a) = agents.iter().find(|a| a.id == id) {
+            if a.status == Status::Closed {
+                return Err(format!("agent {id} is closed"));
+            }
+            a.tx.send(Input::Message(message.to_string())).map_err(|_| format!("agent {id} is gone"))?;
+            if interrupt {
+                a.interrupt.notify_one();
+            }
+            return Ok(());
         }
-        a.tx.send(Input::Message(message.to_string())).map_err(|_| format!("agent {id} is gone"))?;
-        if interrupt {
-            a.interrupt.notify_one();
+        if descendants {
+            for n in agents.iter().filter_map(|a| a.nested.as_ref()) {
+                match n.send_in(id, message, interrupt, true) {
+                    Err(e) if e == unknown(id) => {}
+                    r => return r,
+                }
+            }
         }
-        Ok(())
+        Err(unknown(id))
     }
 
     pub fn resume(&self, id: &str) -> Result<(), String> {
@@ -849,15 +1005,20 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
     /// Остановить подагента и дождаться конца его работы — не дольше срока
     /// команды.
     pub async fn close(&self, id: &str) -> Result<(), String> {
-        let (handle, finish) = {
+        let (handle, finish, nested) = {
             let mut agents = self.inner.agents.lock().unwrap();
             let a = agents.iter_mut().find(|a| a.id == id).ok_or_else(|| unknown(id))?;
             let was_running = a.status == Status::Running;
             a.status = Status::Closed;
             a.handle.abort();
             let finish = if was_running { a.finish.clone() } else { None };
-            (std::mem::replace(&mut a.handle, tokio::spawn(async {})), finish)
+            (std::mem::replace(&mut a.handle, tokio::spawn(async {})), finish, a.nested.clone())
         };
+        // Работа подагента — и работа его подагентов: они тоже
+        // останавливаются (своё: в разборе не видно).
+        if let Some(n) = nested {
+            n.shutdown().await;
+        }
         if let Some(f) = finish {
             let note = f(Status::Closed, "stopped by subagent.close".into()).await;
             self.inner.inbox.push(note).await;
@@ -873,26 +1034,72 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         }
     }
 
+    /// Остановить всех подагентов этого родителя и их поддеревья.
+    fn shutdown(&self) -> futures_util::future::BoxFuture<'_, ()> {
+        Box::pin(async move {
+            let stopped: Vec<(String, Option<Subagents<P>>)> = {
+                let mut agents = self.inner.agents.lock().unwrap();
+                agents
+                    .iter_mut()
+                    .filter(|a| a.status != Status::Closed)
+                    .map(|a| {
+                        a.status = Status::Closed;
+                        a.handle.abort();
+                        (a.id.clone(), a.nested.clone())
+                    })
+                    .collect()
+            };
+            for (id, nested) in stopped {
+                if let Some(n) = nested {
+                    n.shutdown().await;
+                }
+                if let Some(st) = self.inner.store.get() {
+                    if let Err(e) = st.status(&id, Status::Closed, None).await {
+                        eprintln!("subagent store: {e}");
+                    }
+                }
+            }
+        })
+    }
+
     /// Сколько подагентов сейчас работает.
     pub fn running(&self) -> usize {
         self.inner.agents.lock().unwrap().iter().filter(|a| a.status == Status::Running).count()
     }
 
     pub fn list(&self, limit: usize) -> Value {
+        self.list_in(limit, false)
+    }
+
+    /// `list` с `scope`: `descendants` — всё поддерево; у записи поддерева
+    /// — `parent_agent_id` (своё имя поля, по столбцу `subagent_spawns`).
+    pub fn list_in(&self, limit: usize, descendants: bool) -> Value {
+        let mut entries = vec![];
+        self.collect(descendants, None, &mut entries);
+        let (active, recent): (Vec<_>, Vec<_>) = entries.into_iter().partition(|(running, _)| *running);
+        json!({
+            "active": active.into_iter().take(limit).map(|e| e.1).collect::<Vec<_>>(),
+            "recent": recent.into_iter().take(limit).map(|e| e.1).collect::<Vec<_>>(),
+        })
+    }
+
+    fn collect(&self, descendants: bool, parent: Option<&str>, out: &mut Vec<(bool, Value)>) {
         let agents = self.inner.agents.lock().unwrap();
-        let entry = |a: &Agent| {
-            json!({
+        for a in agents.iter() {
+            let mut e = json!({
                 "agent_id": a.id,
                 "status": a.status.as_str(),
                 "task": preview(&a.task),
                 "result": a.result.as_deref().map(preview),
-            })
-        };
-        let (active, recent): (Vec<&Agent>, Vec<&Agent>) = agents.iter().partition(|a| a.status == Status::Running);
-        json!({
-            "active": active.into_iter().take(limit).map(entry).collect::<Vec<_>>(),
-            "recent": recent.into_iter().take(limit).map(entry).collect::<Vec<_>>(),
-        })
+            });
+            if let Some(p) = parent {
+                e["parent_agent_id"] = p.into();
+            }
+            out.push((a.status == Status::Running, e));
+            if let (true, Some(n)) = (descendants, &a.nested) {
+                n.collect(true, Some(&a.id), out);
+            }
+        }
     }
 }
 
@@ -927,44 +1134,49 @@ fn prop(d: &str, t: &str) -> Value {
     json!({"type": t, "description": d})
 }
 
+/// Описание инструмента `subagent.*`.
+fn spec(op: Op) -> ToolSpec {
+    let (name, description, props, required) = match op {
+        Op::Spawn => ("subagent.spawn", SPAWN_DESCRIPTION, json!({"message": prop(SPAWN_MESSAGE, "string")}), json!(["message"])),
+        Op::Send => (
+            "subagent.send",
+            SEND_DESCRIPTION,
+            json!({
+                "agent_id": prop(TARGET_ID, "string"),
+                "message": prop(SEND_MESSAGE, "string"),
+                "scope": {"type": "string", "enum": ["direct", "descendants"], "description": SEND_SCOPE},
+                "interrupt": prop(SEND_INTERRUPT, "boolean"),
+            }),
+            json!(["agent_id", "message"]),
+        ),
+        Op::List => (
+            "subagent.list",
+            LIST_DESCRIPTION,
+            json!({
+                "scope": {"type": "string", "enum": ["direct", "descendants"], "description": LIST_SCOPE},
+                "limit": prop(LIST_LIMIT, "integer"),
+            }),
+            json!([]),
+        ),
+        Op::Close => ("subagent.close", CLOSE_DESCRIPTION, json!({"agent_id": prop(TARGET_ID, "string")}), json!(["agent_id"])),
+        Op::Resume => ("subagent.resume", RESUME_DESCRIPTION, json!({"agent_id": prop(TARGET_ID, "string")}), json!(["agent_id"])),
+    };
+    let mut props = props;
+    for p in props.as_object_mut().unwrap().values_mut() {
+        if let Some(d) = p.get("description").and_then(Value::as_str) {
+            p["description"] = personal(d).into();
+        }
+    }
+    ToolSpec {
+        name: name.into(),
+        description: personal(description),
+        input_schema: json!({"type": "object", "properties": props, "required": required}),
+    }
+}
+
 impl<P: Provider + Send + Sync + 'static> Tool for SubagentTool<P> {
     fn spec(&self) -> ToolSpec {
-        let (name, description, props, required) = match self.op {
-            Op::Spawn => ("subagent.spawn", SPAWN_DESCRIPTION, json!({"message": prop(SPAWN_MESSAGE, "string")}), json!(["message"])),
-            Op::Send => (
-                "subagent.send",
-                SEND_DESCRIPTION,
-                json!({
-                    "agent_id": prop(TARGET_ID, "string"),
-                    "message": prop(SEND_MESSAGE, "string"),
-                    "scope": {"type": "string", "enum": ["direct", "descendants"], "description": SEND_SCOPE},
-                    "interrupt": prop(SEND_INTERRUPT, "boolean"),
-                }),
-                json!(["agent_id", "message"]),
-            ),
-            Op::List => (
-                "subagent.list",
-                LIST_DESCRIPTION,
-                json!({
-                    "scope": {"type": "string", "enum": ["direct", "descendants"], "description": LIST_SCOPE},
-                    "limit": prop(LIST_LIMIT, "integer"),
-                }),
-                json!([]),
-            ),
-            Op::Close => ("subagent.close", CLOSE_DESCRIPTION, json!({"agent_id": prop(TARGET_ID, "string")}), json!(["agent_id"])),
-            Op::Resume => ("subagent.resume", RESUME_DESCRIPTION, json!({"agent_id": prop(TARGET_ID, "string")}), json!(["agent_id"])),
-        };
-        let mut props = props;
-        for p in props.as_object_mut().unwrap().values_mut() {
-            if let Some(d) = p.get("description").and_then(Value::as_str) {
-                p["description"] = personal(d).into();
-            }
-        }
-        ToolSpec {
-            name: name.into(),
-            description: personal(description),
-            input_schema: json!({"type": "object", "properties": props, "required": required}),
-        }
+        spec(self.op)
     }
 
     fn call(&self, args: Value) -> ToolFuture<'_> {
@@ -980,12 +1192,13 @@ impl<P: Provider + Send + Sync + 'static> Tool for SubagentTool<P> {
                 Op::Send => {
                     let interrupt = args.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
                     let id = need("agent_id")?;
-                    self.agents.send(id, need("message")?, interrupt).map_err(ToolError::Failed)?;
+                    let descendants = s("scope") == Some("descendants");
+                    self.agents.send_in(id, need("message")?, interrupt, descendants).map_err(ToolError::Failed)?;
                     text(json!({"agent_id": id, "submitted": true}))
                 }
                 Op::List => {
                     let limit = args.get("limit").and_then(Value::as_u64).unwrap_or(20).clamp(1, 200) as usize;
-                    text(self.agents.list(limit))
+                    text(self.agents.list_in(limit, s("scope") == Some("descendants")))
                 }
                 Op::Close => {
                     let id = need("agent_id")?;

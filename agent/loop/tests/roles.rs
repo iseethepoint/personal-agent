@@ -19,7 +19,7 @@ impl Tool for Named {
 
 #[test]
 fn every_role_parses() {
-    for id in ["browser_task", "foreground_root", "owner_subagent_depth1", "workflow_subagent_depth1", "scheduler_cron_execute", "scheduler_cron_resolve", "execute_resolve_worker", "verifier", "memory_flush"] {
+    for id in ["browser_task", "foreground_root", "owner_subagent_depth1", "owner_subagent_depth2", "workflow_subagent_depth1", "scheduler_cron_execute", "scheduler_cron_resolve", "execute_resolve_worker", "verifier", "memory_flush"] {
         let r = Role::get(id);
         assert_eq!(r.id, id);
         assert!(!r.tools.is_empty(), "{id}");
@@ -47,4 +47,16 @@ fn browser_task_role_keeps_window_tools_only() {
     }
     let names: Vec<String> = Role::get("browser_task").apply(t).specs().into_iter().map(|s| s.name).collect();
     assert_eq!(names, ["browser.act", "browser.observe", "browser.report"]);
+}
+
+/// П3з-2: предел глубины — из ролей: подагент глубины 1 заводит своих,
+/// глубины 2 — нет.
+#[test]
+fn depth_limit_comes_from_roles() {
+    let (one, two) = (Role::get("owner_subagent_depth1"), Role::get("owner_subagent_depth2"));
+    for op in ["subagent.spawn", "subagent.send", "subagent.list", "subagent.close", "subagent.resume"] {
+        assert!(one.allows(op) && !two.allows(op), "{op}");
+    }
+    assert!(two.allows("hamlet.exec") && two.allows("browser.search"));
+    assert_eq!(agent_loop::MAX_SPAWN_DEPTH, 2);
 }

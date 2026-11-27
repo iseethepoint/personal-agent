@@ -611,6 +611,141 @@ async fn subagents_survive_restart() {
     }
 }
 
+/// П3з-2: дерево подагентов переживает перезапуск. Подагент глубины 1
+/// (начало с `subagent_spawning.md`) заводит внука; внук оборван
+/// перезапуском посреди команды. В базе внук — глубина 2 под подагентом;
+/// после старта внук продолжает ход из своей истории, его итог будит
+/// подагента, корню — итог подагента; поддерево снова в списке.
+#[tokio::test]
+async fn subagent_tree_survives_restart() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let steps = vec![
+            Step::Calls(vec![("c1", "subagent.spawn", json!({"message": "grand work: count the logs"})), ("c2", "hamlet.exec", json!({"command": "sleep 0.5"}))]),
+            Step::Calls(vec![("g1", "hamlet.exec", json!({"command": "sleep 30"}))]),
+            Step::Text("Delegated to a grandchild."),
+        ];
+        let (s1, _p) = model(wire, steps, true);
+        let s1 = Arc::new(s1);
+        let dir = agent_dir("subtree", wire, &s1);
+        let (d, server) = (dir.clone(), s1.clone());
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let h1 = build(&d, FakeClock::at(t0())).await;
+                assert_eq!(h1.subagents.spawn("split the work"), "agent-1");
+                // Подагент отдал итог, внук — посреди команды.
+                for _ in 0..300 {
+                    if !h1.inbox.is_empty() && server.requests().len() >= 3 {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            });
+            drop(rt);
+        })
+        .join()
+        .unwrap();
+        let r = s1.requests();
+        let (child, grand) = (request_start(wire, &r[0]), r[1].to_string());
+        assert!(child.contains("## Sub-Agent Spawning") && child.contains("\"subagent.spawn\""), "{wire:?}: {child}");
+        assert!(grand.contains("(depth 2/2)") && grand.contains("isolated mode") && !grand.contains("split the work"), "{wire:?}: {grand}");
+        assert!(!request_start(wire, &r[1]).contains("\"subagent.spawn\""), "{wire:?}: у внука нет subagent.*");
+
+        let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
+        let (depth, parent): (i32, Option<String>) = sqlx::query_as("select depth, parent_agent_id from agent.agents where id = 'agent-2'").fetch_one(&pool).await.unwrap();
+        assert_eq!((depth, parent.as_deref()), (2, Some("agent-1")), "{wire:?}");
+        let (sp_parent, sp_depth): (String, i32) = sqlx::query_as("select parent_agent_id, child_depth from agent.subagent_spawns where child_agent_id = 'agent-2'").fetch_one(&pool).await.unwrap();
+        assert_eq!((sp_parent.as_str(), sp_depth), ("agent-1", 2), "{wire:?}");
+
+        let (s2, _p) = model(wire, vec![Step::Text("Grandchild: 12 logs."), Step::Text("Child: 12 logs in total.")], true);
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        let mut notes = Vec::new();
+        for _ in 0..300 {
+            notes.extend(h2.inbox.drain().into_iter().map(|m| m.text()));
+            if notes.iter().any(|n| n.contains("Child: 12 logs")) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let r = s2.requests();
+        assert!(r[0].to_string().contains("grand work: count the logs"), "{wire:?}: история внука из базы");
+        let woken = r[1].to_string();
+        assert!(woken.contains("[Subagent Result] agent_id: agent-2, status: done") && woken.contains("Grandchild: 12 logs."), "{wire:?}: {woken}");
+        assert!(notes.iter().any(|n| n.contains("agent_id: agent-1, status: done") && n.contains("Child: 12 logs in total.")), "{wire:?}: {notes:?}");
+        assert!(notes.iter().all(|n| !n.contains("agent_id: agent-2")), "{wire:?}: итог внука — не корню: {notes:?}");
+        let list = h2.subagents.list_in(20, true).to_string();
+        assert!(list.contains("\"agent_id\":\"agent-2\"") && list.contains("\"parent_agent_id\":\"agent-1\""), "{wire:?}: {list}");
+        assert!(!h2.subagents.list(20).to_string().contains("agent-2"), "{wire:?}");
+        h2.browsers.shutdown().await;
+        // Номер нового — после всего дерева.
+        let h3 = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(h3.subagents.spawn("more work"), "agent-3", "{wire:?}");
+        h3.browsers.shutdown().await;
+    }
+}
+
+/// П3з-2: ящик подагента — в базе под его id, как у корня. Внук закончил,
+/// пока подагент занят командой, — итог лежит в `agent.message_mailbox`
+/// принятым и не взятым; перезапуск — итог поднимается из базы и доходит
+/// до подагента в его ходе, весть закрывается `completed`.
+#[tokio::test]
+async fn subagent_mailbox_survives_restart() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let steps = vec![
+            Step::Calls(vec![("c1", "subagent.spawn", json!({"message": "grand work: count the logs"})), ("c2", "hamlet.exec", json!({"command": "sleep 30"}))]),
+            Step::Text("Grandchild: 12 logs."),
+        ];
+        let (s1, _p) = model(wire, steps, true);
+        let s1 = Arc::new(s1);
+        let dir = agent_dir("submailbox", wire, &s1);
+        let url = db_url(&dir);
+        let d = dir.clone();
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let h1 = build(&d, FakeClock::at(t0())).await;
+                assert_eq!(h1.subagents.spawn("split the work"), "agent-1");
+                let pool = sqlx::PgPool::connect(&url).await.unwrap();
+                for _ in 0..300 {
+                    let n: i64 = sqlx::query_scalar("select count(*) from agent.message_mailbox where agent_id = 'agent-1' and state = 'accepted'").fetch_one(&pool).await.unwrap();
+                    if n > 0 {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            });
+            // Перезапуск: подагент посреди команды, итог внука не взят.
+            drop(rt);
+        })
+        .join()
+        .unwrap();
+        let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
+        let (kind, body): (String, String) = sqlx::query_as("select submission_kind, submission_json from agent.message_mailbox where agent_id = 'agent-1' and state = 'accepted'").fetch_one(&pool).await.unwrap();
+        assert_eq!(kind, "notice", "{wire:?}");
+        assert!(body.contains("agent_id: agent-2, status: done") && body.contains("Grandchild: 12 logs."), "{wire:?}: {body}");
+
+        let (s2, _p) = model(wire, vec![Step::Text("Child: 12 logs in total.")], true);
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        let mut notes = Vec::new();
+        for _ in 0..300 {
+            notes.extend(h2.inbox.drain().into_iter().map(|m| m.text()));
+            if notes.iter().any(|n| n.contains("Child: 12 logs")) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let req = s2.requests()[0].to_string();
+        assert!(req.contains("[Subagent Result] agent_id: agent-2, status: done") && req.contains("Grandchild: 12 logs."), "{wire:?}: {req}");
+        assert!(notes.iter().any(|n| n.contains("agent_id: agent-1, status: done") && n.contains("Child: 12 logs in total.")), "{wire:?}: {notes:?}");
+        let states: Vec<String> = sqlx::query_scalar("select state from agent.message_mailbox where agent_id = 'agent-1'").fetch_all(&pool).await.unwrap();
+        assert_eq!(states, vec!["completed".to_string()], "{wire:?}");
+        h2.browsers.shutdown().await;
+    }
+}
+
 /// П3е-5: прогон расписания, оборванный перезапуском посреди команды
 /// работника, продолжается с записанного: вызов без результата закрыт
 /// текстом ядра, за ним — заметка ядра «the run continues from what it

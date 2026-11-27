@@ -14,10 +14,11 @@ use crate::tool::Tools;
 use serde::Deserialize;
 
 /// Определения ядра.
-const ROLES: [(&str, &str); 9] = [
+const ROLES: [(&str, &str); 10] = [
     ("browser_task", include_str!("../../../prompts/roles/browser_task.toml")),
     ("foreground_root", include_str!("../../../prompts/roles/foreground_root.toml")),
     ("owner_subagent_depth1", include_str!("../../../prompts/roles/owner_subagent_depth1.toml")),
+    ("owner_subagent_depth2", include_str!("../../../prompts/roles/owner_subagent_depth2.toml")),
     ("workflow_subagent_depth1", include_str!("../../../prompts/roles/workflow_subagent_depth1.toml")),
     ("scheduler_cron_execute", include_str!("../../../prompts/roles/scheduler_cron_execute.toml")),
     ("scheduler_cron_resolve", include_str!("../../../prompts/roles/scheduler_cron_resolve.toml")),

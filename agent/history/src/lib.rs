@@ -787,17 +787,22 @@ fn status_of(s: Option<&str>) -> Status {
 ///
 /// Своё (в разборе не видно): `metadata_json` — `{"finish_hook": true}`, если
 /// итог проходит через крючок родителя; `seen_at` не ведётся (итог сразу
-/// уходит в ящик родителя); глубина подагента — 1.
+/// уходит в ящик родителя). Глубина подагента — `agents.depth` (у детей
+/// корня 1, у их детей 2); дерево после перезапуска собирается по
+/// `subagent_spawns.parent_agent_id`. Таблица `agent_ancestors` ядра не
+/// взята: поддерево читается из памяти родителя.
 pub struct AgentSubagents {
     store: Store,
     parent: String,
     model: String,
     now: Now,
+    depth: i32,
 }
 
 impl AgentSubagents {
+    /// Подагенты корня `parent` (глубина 1).
     pub fn new(store: &Store, parent: &str, model: &str, now: Now) -> AgentSubagents {
-        AgentSubagents { store: store.clone(), parent: parent.into(), model: model.into(), now }
+        AgentSubagents { store: store.clone(), parent: parent.into(), model: model.into(), now, depth: 1 }
     }
 
     async fn open(&self, id: &str) -> Result<Arc<dyn ChildRecord>, String> {
@@ -835,12 +840,13 @@ impl SubagentStore for AgentSubagents {
             let now = (self.now)() / 1000;
             sqlx::query(
                 "insert into agent.agents (agent_id, id, session_id, kind, parent_id, parent_agent_id, root_session_id, depth, created_at, updated_at, model, status, last_assistant_message) \
-                 values ($1, $1, null, 'subagent', $2, $2, null, 1, $3, $3, $4, 'running', null) on conflict (agent_id) do nothing",
+                 values ($1, $1, null, 'subagent', $2, $2, null, $5, $3, $3, $4, 'running', null) on conflict (agent_id) do nothing",
             )
             .bind(id)
             .bind(&self.parent)
             .bind(now)
             .bind(&self.model)
+            .bind(self.depth)
             .execute(&self.store.pool)
             .await
             .map_err(db)?;
@@ -865,6 +871,14 @@ impl SubagentStore for AgentSubagents {
 
     fn child<'a>(&'a self, id: &'a str) -> Fut<'a, Arc<dyn ChildRecord>> {
         Box::pin(self.open(id))
+    }
+
+    fn mailbox(&self, id: &str) -> Arc<dyn agent_loop::Mailbox> {
+        Arc::new(AgentMailbox::new(&self.store, id))
+    }
+
+    fn nested(&self, parent: &str) -> Arc<dyn SubagentStore> {
+        Arc::new(AgentSubagents { store: self.store.clone(), parent: parent.into(), model: self.model.clone(), now: self.now.clone(), depth: self.depth + 1 })
     }
 
     fn status<'a>(&'a self, id: &'a str, status: Status, result: Option<&'a str>) -> Fut<'a, ()> {

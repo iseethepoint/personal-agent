@@ -107,7 +107,7 @@ async fn spawn_and_handoff(wire: Wire) {
     let child = child_server.requests()[0].to_string();
     let at = |t: &str| child.find(t).unwrap_or_else(|| panic!("нет «{t}» в {child}"));
     assert!(at("узнай ответ") < at("Above is the conversation history, included as background."));
-    assert!(at("Above is the conversation history") < at("[Subagent Context] You are running as a subagent (depth 1/1)"));
+    assert!(at("Above is the conversation history") < at("[Subagent Context] You are running as a subagent (depth 1/2)"));
     assert!(child.contains("The messages above were forked from your parent agent's context"));
     assert!(child.contains("You inherit transcript context from your parent agent."));
     assert!(child.contains("[Subagent Task]: посчитай ответ"));
@@ -216,12 +216,25 @@ both!(resume_interrupted);
 
 #[test]
 fn first_message_is_source_text() {
-    let m = first_message("задача");
-    assert!(m.starts_with("[Subagent Context] You are running as a subagent (depth 1/1);"));
+    let m = first_message("задача", 1, false);
+    assert!(m.starts_with("[Subagent Context] You are running as a subagent (depth 1/2);"));
+    assert!(m.contains("You inherit transcript context from your parent agent."));
+    assert!(!m.contains("If you coordinate child subagents"));
     assert!(m.ends_with("[Subagent Task]: задача\n"));
     assert!(m.contains("This subagent session is persistent and remains available for follow-up messages."));
     assert!(m.contains("Browser work: Generic subagents cannot operate a live browser"));
     assert!(!m.contains("{{") && !m.contains("<!--") && !m.contains("a member"));
+    // Глубина 1, заводит своих: блоки глубины 1.
+    let m = first_message("задача", 1, true);
+    assert!(m.contains("If you coordinate child subagents, any response after child-completion handoffs"));
+    assert!(m.contains("Any subagents you spawn deeper will not inherit your transcript context"));
+    assert!(!m.contains("{{"));
+    // Глубина 2 — изолированно, без заметки о разговоре родителя.
+    let m = first_message("задача", 2, false);
+    assert!(m.starts_with("[Subagent Context] You are running as a subagent (depth 2/2);"));
+    assert!(m.contains("- You are running in isolated mode."));
+    assert!(!m.contains("forked from your parent agent") && !m.contains("You inherit transcript"));
+    assert!(!m.contains("If you coordinate child subagents") && !m.contains("{{"));
 }
 
 async fn send_with_interrupt(wire: Wire) {
@@ -334,3 +347,69 @@ both!(slow_monitor_does_not_delay_result);
 fn text_of(m: &Message) -> String {
     m.content.iter().filter_map(|p| if let Part::Text { text } = p { Some(text.clone()) } else { None }).collect()
 }
+
+/// П3з-2: глубина 2. Подагент глубины 1 заводит своего (раздел
+/// `subagent_spawning.md` и `subagent.*` в его начале, блоки глубины 1 в
+/// первом сообщении); внук изолирован (без разговора родителя, без
+/// `subagent.*`), его итог приходит подагенту — и будит его, если ход уже
+/// кончился, — а не корню. `scope: descendants` видит и достаёт внука,
+/// `direct` — нет; закрытие подагента останавливает и внука.
+async fn grandchildren(wire: Wire) {
+    let steps = vec![
+        Step::Calls(vec![("c1", "subagent.spawn", json!({"message": "внук, посчитай"})), ("c2", "slow", json!({"ms": 200}))]),
+        Step::Calls(vec![("g1", "slow", json!({"ms": 900}))]),
+        Step::Text("поручил внуку"),
+        Step::Text("внук: 7"),
+        Step::Text("итог: 7"),
+        Step::Text("внук снова"),
+        Step::Text("итог 2"),
+    ];
+    let (server, p) = model(wire, steps, false);
+    let t = tools();
+    let prefix = agent_loop::spawning_prefix(Prefix { system: "Ты — подагент.".into(), tools: t.specs() });
+    let subs = Subagents::new(Arc::new(p), Arc::new(tools()), prefix, temp_dir("tree"), Inbox::new(), Transcript::new());
+    subs.set_deeper(Arc::new(tools()), Prefix { system: "Ты — внук.".into(), tools: tools().specs() });
+    let a = call(&subs, "subagent.spawn", json!({"message": "раздай работу"})).await.unwrap();
+    assert_eq!(a["agent_id"], "agent-1");
+
+    // Ход подагента кончился раньше внука: первый итог — его.
+    let got = wait(subs.inbox()).await;
+    assert_eq!(got.len(), 1);
+    assert!(got[0].text().contains("agent_id: agent-1, status: done") && got[0].text().contains("поручил внуку"), "{}", got[0].text());
+    // Внук ещё работает: виден только в поддереве.
+    let direct = call(&subs, "subagent.list", json!({})).await.unwrap().to_string();
+    assert!(direct.contains("agent-1") && !direct.contains("agent-2"), "{direct}");
+    let all = call(&subs, "subagent.list", json!({"scope": "descendants"})).await.unwrap();
+    let grand = all["active"].as_array().unwrap().iter().find(|e| e["agent_id"] == "agent-2").unwrap_or_else(|| panic!("{all}"));
+    assert_eq!(grand["parent_agent_id"], "agent-1");
+    assert_eq!(grand["status"], "running");
+
+    // Итог внука будит подагента; корню — только итог подагента.
+    let got = wait(subs.inbox()).await;
+    assert!(got.iter().all(|m| m.text().contains("agent_id: agent-1,")), "{got:?}");
+    assert!(got[0].text().contains("итог: 7"));
+    let r = server.requests();
+    let (child, grandchild, woken) = (r[0].to_string(), r[1].to_string(), r[4].to_string());
+    assert!(child.contains("## Sub-Agent Spawning") && child.contains("\"subagent.spawn\""), "{child}");
+    assert!(child.contains("(depth 1/2)") && child.contains("If you coordinate child subagents"));
+    assert!(grandchild.contains("(depth 2/2)") && grandchild.contains("You are running in isolated mode."), "{grandchild}");
+    assert!(grandchild.contains("[Subagent Task]: внук, посчитай") && grandchild.contains("Ты — внук."));
+    assert!(!grandchild.contains("раздай работу") && !grandchild.contains("Ты — подагент.") && !grandchild.contains("\"subagent.spawn\""));
+    assert!(!grandchild.contains("forked from your parent agent") && !grandchild.contains("Sub-Agent Spawning"));
+    assert!(woken.contains("[Subagent Result] agent_id: agent-2, status: done") && woken.contains("внук: 7"), "{woken}");
+
+    // `send` внуку: `direct` его не знает, `descendants` достаёт.
+    let err = call(&subs, "subagent.send", json!({"agent_id": "agent-2", "message": "ещё раз"})).await.unwrap_err();
+    assert!(err.contains("no child agent with id `agent-2`"), "{err}");
+    call(&subs, "subagent.send", json!({"agent_id": "agent-2", "message": "ещё раз", "scope": "descendants"})).await.unwrap();
+    let got = wait(subs.inbox()).await;
+    assert!(got[0].text().contains("agent_id: agent-1,") && got[0].text().contains("итог 2"), "{got:?}");
+    assert!(server.requests()[5].to_string().contains("ещё раз"));
+
+    // Закрытие подагента закрывает и внука.
+    call(&subs, "subagent.close", json!({"agent_id": "agent-1"})).await.unwrap();
+    let all = call(&subs, "subagent.list", json!({"scope": "descendants"})).await.unwrap();
+    let recent = all["recent"].as_array().unwrap();
+    assert!(recent.iter().any(|e| e["agent_id"] == "agent-2" && e["status"] == "closed"), "{all}");
+}
+both!(grandchildren);
