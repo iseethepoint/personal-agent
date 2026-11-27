@@ -76,8 +76,8 @@ impl Prefix {
     /// читается как пустой — как у muse («home file unreadable; read as
     /// empty», `strings-all.txt:76316`).
     /// Если есть отложенные пространства — после системного текста блок
-    /// «Loading Tools» (`tool_search.rs`), а модели сразу уходят только
-    /// неотложенные описания.
+    /// правил «Loading Tools» (`tool_search.rs`); сами пространства уходят
+    /// заглушками в списке инструментов.
     pub fn assemble(system: &str, home: &Path, tools: &Tools) -> Prefix {
         let mut text = system.to_string();
         if let Some(block) = tools.loading_block() {

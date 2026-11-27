@@ -139,10 +139,9 @@
 
 | Файл | Исходник | Правки |
 |---|---|---|
-| `tool_search/loading_tools.md` | ядро: `blocks/user_chat/loading_tools.md` (`strings-all.txt:59570-59576`), часть `client-tool-loading-only` | метки `client-tool-loading-only` сняты; часть `provider-tool-search-only` (встроенный поиск инструментов Anthropic) не взята; `{deferred_stub_marker}`, `{deferred_function_marker}` подставляет код |
 | `tool_search/tools.json` | ядро: описание `tool_search.load_tool_namespace` и поле `paths` (около `0xa10827`, `0xa109da`), маркеры (`0x9d9b51`), ответы загрузки (`0x6daf7e`, `0x990e85`, `0x96daa7`), ответ на вызов незагруженной функции (`0x99117a`), краткие описания пространств `cron`, `hooks`, `user_goal`, `tracking`, `workflow`, `tool_search` (`0x2cc9b77`–`0x2ccbae2`) | `muse.connector_search`, `muse.skill_search` → `hamlet.*` (П10); из подсказки «unavailable» убрано «Built-in presentation tools, including shopping cards, are available in their tool namespaces.» (карточек покупок нет); `{n}`, `{names}`, `{name}` — места аргументов шаблонов ядра |
 
-Своё (код `agent/loop/src/tool_search.rs`): какие пространства отложены у главного агента (`cron`, `hooks`, `user_goal`, `tracking`, `workflow` — у кого есть полное описание пространства; полного списка в разборе нет); вид строки списка пространств и место блока — после системного текста; вид схем в ответе загрузки; загруженные функции добавляются в конец списка инструментов запроса; какой текст ответа загрузки в каком случае.
+Своё (код `agent/loop/src/tool_search.rs`): какие пространства отложены у главного агента (`cron`, `hooks`, `user_goal`, `tracking`, `workflow` — у кого есть полное описание пространства; полного списка в разборе нет); заглушка пространства — инструмент с именем пространства и пустой схемой, в конце списка (П5-1, часть 2; маркер в начале описания — форма ядра); вид схем в ответе загрузки; загруженные функции добавляются в конец списка инструментов запроса; какой текст ответа загрузки в каком случае.
 
 ## Разборы ядра без перенесённых текстов
 
@@ -789,7 +788,7 @@
 - `hamlet.memory_search` — `### Memory` (`user_chat/memory_recall.md` с `user_chat/memory.md`);
 - `chat.read_messages` — пункт `chat/managing_context_chat_history.md`;
 - `browser_deep_research` — правило `chat/tool_rules_deep_research.md`;
-- есть отложенные пространства — блок «Loading Tools» со списком пространств (`tool_search.rs`, как и раньше; второй раз в начало подсказки он не добавляется — `Prefix::with_system`);
+- есть отложенные пространства — блок правил «Loading Tools» (`user_chat/loading_tools.md`, часть `client-tool-loading-only`, метки сняты; побайтно как в копии muse, строки 278–283 — тест `loading_block_matches_muse_snapshot`). Списка пространств в системном тексте нет: каждое отложенное пространство уходит в списке инструментов запроса заглушкой — краткое описание с маркером в начале, без пробела (форма ядра: `strings-all.txt:332137`, маркеры — `templates.txt:2253`). Своё: заглушка — инструмент с именем пространства и пустой схемой (плоский список функций у поставщиков), в конце списка. Прежняя форма среза tool_search (список «- `имя` маркер: описание» в начале подсказки и урезанная копия `tool_search/loading_tools.md`) убрана. Второй раз в начало подсказки блок не добавляется — `Prefix::with_system`;
 - `subagent.spawn` — `session/subagents_doctrine.md` и `session/subagents_status.md` со значениями главного разговора (`blocks/subagents/chat/*`, `blocks/subagents/inherited_context/*`, `asker` = «the user», `failure_action` = «tell the user»);
 - `cron.add` — раздел расписаний; `hooks.add` — пункт `user_chat/recurring_work_hooks.md`.
 

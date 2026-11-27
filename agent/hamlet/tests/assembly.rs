@@ -138,13 +138,15 @@ async fn main_agent_registry_has_every_tool() {
         }
     }
     assert!(forbidden(&h.prefix.system).is_none(), "начало подсказки");
-    // Отложенные пространства: их функции не уходят модели сразу, в начале
-    // подсказки — список пространств с маркером; полное описание — при загрузке.
+    // Отложенные пространства: их функции не уходят модели сразу; само
+    // пространство — заглушкой в списке инструментов с маркером в начале
+    // описания, в системном тексте списка нет; полное описание — при загрузке.
     let upfront: Vec<&str> = h.prefix.tools.iter().map(|s| s.name.as_str()).collect();
-    for ns in ["cron.", "hooks.", "user_goal.", "tracking.", "workflow."] {
-        assert!(!upfront.iter().any(|n| n.starts_with(ns)), "{ns} отложено");
-        let line = format!("- `{}` [deferred: use tool_search to discover functions]: ", ns.trim_end_matches('.'));
-        assert!(h.prefix.system.contains(&line), "{line}");
+    for ns in ["cron", "hooks", "user_goal", "tracking", "workflow"] {
+        assert!(!upfront.iter().any(|n| n.starts_with(&format!("{ns}."))), "{ns} отложено");
+        let stub = h.prefix.tools.iter().find(|s| s.name == ns).unwrap_or_else(|| panic!("нет заглушки {ns}"));
+        assert!(stub.description.starts_with("[deferred: use tool_search to discover functions]") && stub.description.len() > 60, "{}", stub.description);
+        assert!(!h.prefix.system.contains(&format!("- `{ns}` [deferred")), "{ns} в системном тексте");
     }
     assert!(upfront.contains(&"tool_search.load_tool_namespace") && upfront.contains(&"hamlet.exec") && upfront.contains(&"subagent.spawn"));
     let cron_add = h.tools.specs().into_iter().find(|s| s.name == "cron.add").unwrap();

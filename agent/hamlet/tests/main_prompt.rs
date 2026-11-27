@@ -153,7 +153,7 @@ fn blocks_follow_tools() {
 
     let loading = full();
     assert_eq!(loading.matches("### Loading Tools").count(), 1);
-    assert!(loading.contains("- `cron` [deferred"));
+    assert!(loading.contains("### Loading Tools\n\nTools are organized") && !loading.contains("- `cron`"));
     assert!(!assemble(&tools(&ALL, false)).contains("### Loading Tools"));
 }
 
