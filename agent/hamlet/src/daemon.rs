@@ -77,9 +77,30 @@ impl Hamlet {
         format!("Current date and time: {}\nUser timezone: {}", rfc3339(self.clock.now_ms()), self.timezone.as_deref().unwrap_or("not provided"))
     }
 
+    /// Перезапуск (`restart_rehydration` muse): вести, взятые ходом, которого
+    /// нет в точке перезапуска, — `aborted`; вызовы без результата получают
+    /// результат «service restarted»; ход из точки `before_inference`, если
+    /// история кончается не ответом модели, — продолжается под тем же именем
+    /// (его вести закроются по итогу), иначе он считается законченным: вести —
+    /// `completed`, точка — `idle`. Возвращает имя хода для продолжения.
+    pub async fn recover(&self, conv: &mut Conversation) -> Result<Option<String>, String> {
+        let interrupted = self.history.interrupted().await?;
+        self.history.abort_orphaned(interrupted.as_deref()).await?;
+        if conv.close_interrupted() > 0 {
+            self.history.sync(&conv.history, conv.last_volatile()).await?;
+        }
+        let Some(id) = interrupted else { return Ok(None) };
+        if conv.history.last().is_some_and(|m| m.role != Role::Assistant) {
+            return Ok(Some(id));
+        }
+        self.inbox.complete(&id, true).await?;
+        self.history.checkpoint(crate::ROOT_RECOVERY_CLASS, None).await?;
+        Ok(None)
+    }
+
     /// Один ход главной сессии. Перед ходом — сжатие, если разговор дорос
-    /// до порога.
-    pub async fn turn(&self, conv: &mut Conversation) -> Result<String, String> {
+    /// до порога. `resumed` — имя хода, оборванного перезапуском.
+    pub async fn turn(&self, conv: &mut Conversation, resumed: Option<String>) -> Result<String, String> {
         if let Some(done) = self.compactor().compact_if_needed(conv).await.map_err(|e| e.to_string())? {
             self.history.replace(&conv.history, conv.last_volatile(), &done).await?;
         }
@@ -87,7 +108,7 @@ impl Hamlet {
         // за ней, весть службы — как есть; записывается историей и
         // отмечается за ходом.
         static TURNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let turn_id = format!("{}:turn:{}:{}", crate::ROOT_AGENT, self.clock.now_ms(), TURNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+        let turn_id = resumed.unwrap_or_else(|| format!("{}:turn:{}:{}", crate::ROOT_AGENT, self.clock.now_ms(), TURNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
         let (ids, taken) = self.inbox.take();
         for m in taken {
             if m.role == Role::User {
@@ -98,6 +119,8 @@ impl Hamlet {
         }
         self.history.sync(&conv.history, conv.last_volatile()).await?;
         self.inbox.attach(&ids, &turn_id).await?;
+        // Точка перезапуска: ход идёт.
+        self.history.checkpoint(crate::ROOT_RECOVERY_CLASS, Some(&turn_id)).await?;
         let mut t = Turn::from_prefix(&*self.main, &self.tools, &conv.prefix, self.spill_dir.clone());
         t.inbox = Some(self.inbox.clone());
         t.transcript = Some(self.transcript.clone());
@@ -109,6 +132,10 @@ impl Hamlet {
         if let Err(e) = self.inbox.complete(&turn_id, result.is_ok()).await {
             eprintln!("mailbox complete: {e}");
         }
+        // Точка перезапуска: между ходами.
+        if let Err(e) = self.history.checkpoint(crate::ROOT_RECOVERY_CLASS, None).await {
+            eprintln!("restart checkpoint: {e}");
+        }
         let resp = result.map_err(|e| e.to_string())?;
         conv.record_usage(&resp.usage);
         Ok(resp.text())
@@ -119,6 +146,13 @@ impl Hamlet {
     pub async fn run(self: &Arc<Self>, mut lines: mpsc::Receiver<String>, out: mpsc::UnboundedSender<String>) {
         let mut conv = match self.conversation().await {
             Ok(c) => c,
+            Err(e) => {
+                let _ = out.send(format!("[ошибка истории] {e}"));
+                return;
+            }
+        };
+        let mut resumed = match self.recover(&mut conv).await {
+            Ok(r) => r,
             Err(e) => {
                 let _ = out.send(format!("[ошибка истории] {e}"));
                 return;
@@ -157,7 +191,7 @@ impl Hamlet {
                 }
             }
             resume = false;
-            match self.turn(&mut conv).await {
+            match self.turn(&mut conv, resumed.take()).await {
                 Ok(text) => {
                     let _ = out.send(text);
                     // Продолжение по списку дел (`todo_continuation`).

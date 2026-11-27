@@ -40,12 +40,16 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-const MIGRATIONS: [&str; 4] = [
+const MIGRATIONS: [&str; 5] = [
     include_str!("../migrations/0001_history.sql"),
     include_str!("../migrations/0002_mailbox.sql"),
     include_str!("../migrations/0003_todo.sql"),
     include_str!("../migrations/0004_compactions.sql"),
+    include_str!("../migrations/0005_restart.sql"),
 ];
+/// Режимы точки перезапуска (значения ядра).
+const BEFORE_INFERENCE: &str = "before_inference";
+const IDLE: &str = "idle";
 /// Причина сжатия в `agent_compactions.trigger`. Своё: значения в разборе не
 /// видно; рядом — «context-pressure compaction failed…» ядра.
 const COMPACTION_TRIGGER: &str = "context_pressure";
@@ -106,6 +110,7 @@ struct State {
 pub struct AgentHistory {
     pool: PgPool,
     agent_id: String,
+    model: String,
     now: Now,
     state: tokio::sync::Mutex<State>,
 }
@@ -150,7 +155,7 @@ impl AgentHistory {
             .map_err(db)?;
         let next = max.map_or(floor, |m| m + 1);
         let state = State { floor, next, written: starts.len(), starts };
-        Ok(AgentHistory { pool: store.pool.clone(), agent_id: agent_id.into(), now, state: tokio::sync::Mutex::new(state) })
+        Ok(AgentHistory { pool: store.pool.clone(), agent_id: agent_id.into(), model: model.into(), now, state: tokio::sync::Mutex::new(state) })
     }
 
     /// Разговор из базы: закреплённое начало, история с границы, последняя
@@ -343,6 +348,77 @@ impl AgentHistory {
             next += 1;
         }
         Ok(next)
+    }
+}
+
+/// Точка перезапуска агента в `agent.runtime_restart_checkpoints` —
+/// запросы ядра: запись `INSERT … SELECT … WHERE EXISTS (SELECT 1 FROM agents
+/// WHERE id = $1 AND status NOT IN ('shutdown', 'not_found')) ON CONFLICT
+/// (agent_id) DO UPDATE` (около `0x1711918`), чтение `SELECT payload_json …
+/// WHERE agent_id = $1 AND mode = $2` (около `0x1710f52`). Ход пишет
+/// `before_inference` с payload, между ходами — `idle` без payload; у
+/// главного агента `recovery_class = 'foreground_root'`, `recovery_owner_id`
+/// — его id, `execution_config_json` не пуст (запрос ядра около
+/// `0x1729b52`).
+///
+/// Своё (в разборе не видно): payload — `{"message_id": <имя хода>}`, вести
+/// хода связаны с ним через `stream_owner_message_id`;
+/// `execution_config_json` — `{"model": …}`.
+impl AgentHistory {
+    /// `Some(ход)` — ход идёт (`before_inference`), `None` — между ходами
+    /// (`idle`).
+    pub async fn checkpoint(&self, recovery_class: &str, message_id: Option<&str>) -> Result<(), String> {
+        let (mode, payload) = match message_id {
+            Some(id) => (BEFORE_INFERENCE, Some(serde_json::json!({ "message_id": id }).to_string())),
+            None => (IDLE, None),
+        };
+        let config = serde_json::json!({ "model": self.model }).to_string();
+        sqlx::query(
+            "insert into agent.runtime_restart_checkpoints (agent_id, mode, recovery_class, recovery_owner_id, execution_config_json, payload_json, created_at, updated_at) \
+             select $1, $2, $3, $1, $4, $5, $6, $6 where exists (select 1 from agent.agents where id = $1 and status not in ('shutdown', 'not_found')) \
+             on conflict (agent_id) do update set mode = excluded.mode, recovery_class = excluded.recovery_class, recovery_owner_id = excluded.recovery_owner_id, \
+             execution_config_json = excluded.execution_config_json, payload_json = excluded.payload_json, updated_at = excluded.updated_at",
+        )
+        .bind(&self.agent_id)
+        .bind(mode)
+        .bind(recovery_class)
+        .bind(config)
+        .bind(payload)
+        .bind((self.now)())
+        .execute(&self.pool)
+        .await
+        .map_err(db)?;
+        Ok(())
+    }
+
+    /// Ход, оборванный перезапуском: имя из точки `before_inference`.
+    pub async fn interrupted(&self) -> Result<Option<String>, String> {
+        let payload: Option<Option<String>> = sqlx::query_scalar("select payload_json from agent.runtime_restart_checkpoints where agent_id = $1 and mode = $2")
+            .bind(&self.agent_id)
+            .bind(BEFORE_INFERENCE)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(db)?;
+        let Some(Some(json)) = payload else { return Ok(None) };
+        let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("history: payload_json: {e}"))?;
+        Ok(v["message_id"].as_str().map(str::to_string))
+    }
+
+    /// Вести, взятые ходом, которого больше нет (не `owner`), — `aborted`
+    /// (форма ядра `UPDATE agent.message_mailbox SET state = 'aborted',
+    /// terminalized_at = now() WHERE agent_id = $1 AND state = 'attached'
+    /// …`). Своё: отбор — `stream_owner_message_id` не равен ходу из точки.
+    pub async fn abort_orphaned(&self, owner: Option<&str>) -> Result<u64, String> {
+        let r = sqlx::query(
+            "update agent.message_mailbox set state = 'aborted', checkpoint_custody = coalesce(checkpoint_custody, 'executing'), terminalized_at = now() \
+             where agent_id = $1 and state = 'attached' and stream_owner_message_id is distinct from $2",
+        )
+        .bind(&self.agent_id)
+        .bind(owner)
+        .execute(&self.pool)
+        .await
+        .map_err(db)?;
+        Ok(r.rows_affected())
     }
 }
 

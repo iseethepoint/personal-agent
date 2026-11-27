@@ -111,6 +111,21 @@ Rows holding model reasoning (thinking and redacted-thinking items) are withheld
 - FOREIGN KEY `agent_id` → `agent.agents.agent_id`
 - PRIMARY KEY `submission_id` (`message_mailbox_pkey`)
 
+## `agent.runtime_restart_checkpoints`
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `agent_id` | text | no |  |
+| `mode` | text | no |  |
+| `payload_json` | text | yes |  |
+| `created_at` | bigint | no |  |
+| `updated_at` | bigint | no |  |
+| `recovery_class` | text | yes |  |
+| `recovery_owner_id` | text | yes |  |
+| `execution_config_json` | text | yes |  |
+
+- PRIMARY KEY `agent_id` (`runtime_restart_checkpoints_pkey`)
+
 ## `agent.volatile_context_pins`
 
 | column | type | nullable | default |

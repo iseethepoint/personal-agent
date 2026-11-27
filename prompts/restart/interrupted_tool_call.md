@@ -1,0 +1,1 @@
+This tool call was dispatched but did not complete: the service restarted while it was running. Its effects may have partially or fully applied. Check what actually happened before retrying or building on it.
