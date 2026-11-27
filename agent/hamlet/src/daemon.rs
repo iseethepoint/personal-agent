@@ -72,19 +72,18 @@ impl Services {
 /// Метка времени входа — форма ядра: `0xbc4b050` склеивает через пробел
 /// время `[Day YYYY-MM-DD HH:MM:SS TZ]` (`0xf19a160` → `0xf19a3d0`: дни
 /// `Mon`…`Sun`, `{:04}-{:02}-{:02} {:02}:{:02}:{:02}` `0xb38799`, `%Z`,
-/// скобки `0x2dcb58`) и `[client_timezone=…]` (`0x409b29`). Пояс — из
-/// настроек агента; без него у muse метки нет (`0xbc4c4cd`), своё: у Hamlet
-/// нет приложения, которое сообщает пояс, — тогда `UTC`.
-pub fn time_tag(ms: i64, timezone: Option<&str>) -> String {
+/// скобки `0x2dcb58`) и `[client_timezone=…]` (`0x409b29`). Без пояса метки
+/// нет, как у muse (`0xbc4c4cd`); пояс проверен при загрузке `agent.toml`.
+pub fn time_tag(ms: i64, timezone: Option<&str>) -> Option<String> {
     use chrono::TimeZone;
-    let tz: chrono_tz::Tz = timezone.and_then(|t| t.parse().ok()).unwrap_or(chrono_tz::UTC);
-    let t = tz.timestamp_millis_opt(ms).single().unwrap_or_else(|| tz.timestamp_millis_opt(0).unwrap());
-    format!("[{}] [client_timezone={}]", t.format("%a %Y-%m-%d %H:%M:%S %Z"), tz.name())
+    let tz: chrono_tz::Tz = timezone?.parse().ok()?;
+    let t = tz.timestamp_millis_opt(ms).single()?;
+    Some(format!("[{}] [client_timezone={}]", t.format("%a %Y-%m-%d %H:%M:%S %Z"), tz.name()))
 }
 
 impl Hamlet {
-    /// Заметка изменчивого — метка времени входа (`time_tag`).
-    pub fn volatile(&self) -> String {
+    /// Заметка изменчивого — метка времени входа (`time_tag`); без пояса — нет.
+    pub fn volatile(&self) -> Option<String> {
         time_tag(self.clock.now_ms(), self.timezone.as_deref())
     }
 
@@ -130,7 +129,10 @@ impl Hamlet {
         let (ids, taken) = self.inbox.take();
         for m in taken {
             if m.role == Role::User {
-                conv.push_user(m.content, &self.volatile());
+                match self.volatile() {
+                    Some(tag) => conv.push_user(m.content, &tag),
+                    None => conv.history.push(m),
+                }
             } else {
                 conv.history.push(m);
             }

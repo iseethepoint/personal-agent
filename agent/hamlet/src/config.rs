@@ -35,7 +35,8 @@ pub struct AgentSection {
     /// Язык, на котором исполнитель браузера пишет людям.
     #[serde(default = "default_locale")]
     pub locale: String,
-    /// Пояс владельца (IANA), если известен.
+    /// Пояс владельца (IANA), если известен; нет — нет и метки времени входа
+    /// (`daemon::time_tag`).
     pub timezone: Option<String>,
 }
 
@@ -136,6 +137,10 @@ impl AgentDir {
         let file = dir.join("agent.toml");
         let text = std::fs::read_to_string(&file).map_err(|e| format!("{}: {e}", file.display()))?;
         let toml: AgentToml = toml::from_str(&text).map_err(|e| format!("{}: {e}", file.display()))?;
+        // Пояс — имя IANA; неразборчивый — ошибка загрузки, без подмены.
+        if let Some(tz) = &toml.agent.timezone {
+            tz.parse::<chrono_tz::Tz>().map_err(|_| format!("{}: [agent].timezone: неизвестный пояс `{tz}` (нужно имя IANA, например `Europe/Berlin`)", file.display()))?;
+        }
         Ok(AgentDir { dir: dir.to_path_buf(), toml })
     }
 

@@ -55,6 +55,18 @@ fn t0() -> i64 {
 
 /// Временная папка агента: реестр на поддельный сервер, база — свой адрес
 /// в своей переменной.
+/// Папка агента без пояса в `agent.toml`.
+fn without_timezone(dir: &std::path::Path) {
+    let toml = std::fs::read_to_string(dir.join("agent.toml")).unwrap().replace("timezone = \"UTC\"\n", "");
+    std::fs::write(dir.join("agent.toml"), toml).unwrap();
+}
+
+/// Есть ли в тексте метка времени входа (в системном тексте её форма —
+/// «[client_timezone=IANA identifier]», это не метка).
+fn has_time_tag(s: &str) -> bool {
+    s.match_indices("[client_timezone=").any(|(i, _)| !s[i..].starts_with("[client_timezone=IANA identifier]"))
+}
+
 fn agent_dir(name: &str, wire: Wire, server: &Server) -> PathBuf {
     agent_dir_with(name, wire, server, "http://127.0.0.1:9/v2")
 }
@@ -92,7 +104,7 @@ fn agent_dir_with(name: &str, wire: Wire, server: &Server, search_base: &str) ->
     )
     .unwrap();
     // Проверка ответа зовёт свои модели — в тестах с чужими шагами выключена.
-    std::fs::write(dir.join("agent.toml"), format!("[agent]\nlocale = \"en-US\"\n\n[database]\nurl_env = \"{db_var}\"\n\n[verification]\nenabled = false\n")).unwrap();
+    std::fs::write(dir.join("agent.toml"), format!("[agent]\nlocale = \"en-US\"\ntimezone = \"UTC\"\n\n[database]\nurl_env = \"{db_var}\"\n\n[verification]\nenabled = false\n")).unwrap();
     std::fs::write(dir.join("system.md"), "You are Hamlet, a test agent.").unwrap();
     std::fs::create_dir_all(dir.join("home")).unwrap();
     std::fs::write(dir.join("home/MEMORY.md"), "# Memory\n\nThe owner drinks coffee without sugar.\n").unwrap();
@@ -326,6 +338,7 @@ async fn unfinished_todo_continues_the_turn() {
             true,
         );
         let dir = agent_dir("todo", wire, &server);
+        without_timezone(&dir);
         let h = build(&dir, FakeClock::at(t0())).await;
         let (tx, rx) = mpsc::channel(4);
         let (otx, mut orx) = mpsc::unbounded_channel();
@@ -340,6 +353,8 @@ async fn unfinished_todo_continues_the_turn() {
         assert_eq!(second, "Plan drafted and sent.", "{wire:?}");
         let reqs = server.requests();
         assert_eq!(reqs.len(), 4, "{wire:?}");
+        // Пояса нет — метки времени у главного нет (`0xbc4c4cd`).
+        assert!(reqs.iter().all(|r| !has_time_tag(&r.to_string())) && reqs[0].to_string().contains("Plan the week"), "{wire:?}");
         let handoff = reqs[2].to_string();
         assert!(handoff.contains("This runtime handoff follows an assistant turn with work still `pending` or `in_progress`."), "{wire:?}");
         assert!(handoff.contains("Send the plan") && !handoff.contains("has not changed since the last reminder"), "{wire:?}");
@@ -658,6 +673,8 @@ async fn subagent_tree_survives_restart() {
         .unwrap();
         let r = s1.requests();
         let (child, grand) = (request_start(wire, &r[0]), r[1].to_string());
+        // Пояс задан — свои метки времени и у подагента, и у внука.
+        assert!(r[0].to_string().contains("[Fri 2027-01-15 08:00:00 UTC] [client_timezone=UTC]") && has_time_tag(&grand), "{wire:?}");
         assert!(child.contains("## Subagents") && child.contains("You can delegate work to subagents. They run in the background while you stay focused on your own task.") && !child.contains("## Sub-Agent Spawning") && child.contains("\"subagent.spawn\""), "{wire:?}: {child}");
         assert!(grand.contains("(depth 2/2)") && grand.contains("isolated mode") && !grand.contains("split the work"), "{wire:?}: {grand}");
         assert!(!request_start(wire, &r[1]).contains("\"subagent.spawn\""), "{wire:?}: у внука нет subagent.*");
