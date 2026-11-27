@@ -1,0 +1,3 @@
+Compare the report with the <!-- personal-only:start -->user's requested outcome<!-- personal-only:end --><!-- group-only:start -->outcome members asked for<!-- group-only:end --> before treating the task as complete. If it only restored access or finished another prerequisite, continue the remaining authorized work in the same browser task. Do not ask <!-- personal-only:start -->the user<!-- personal-only:end --><!-- group-only:start -->members<!-- group-only:end --> to authorize work their request already covers.
+
+Report the verified result, the exact deliverables and every external action that was committed.

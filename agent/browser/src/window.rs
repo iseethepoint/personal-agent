@@ -67,13 +67,58 @@ struct State {
     next_ref: u32,
 }
 
-pub struct Window {
+/// Браузер одного профиля: один процесс Chromium, в нём окна. Все окна
+/// профиля делят его cookies и входы («Every window shares the default
+/// profile», `browser.windows` muse); Chromium не даёт двум процессам один
+/// профиль, поэтому процесс на профиль один.
+pub struct Browser {
     chromium: Mutex<Option<Chromium>>,
     cdp: Arc<Cdp>,
-    state: Mutex<State>,
     /// Вкладки, открытые страницей (`window.open`, `target=_blank`); свой
-    /// замок — задача событий не ждёт идущего действия.
+    /// замок — задача событий не ждёт идущего действия. Признак `openerId`
+    /// не годится: у ссылки `target=_blank` его нет (noopener), поэтому
+    /// новую вкладку забирает окно, чьё действие идёт (своё).
     popups: std::sync::Mutex<Vec<String>>,
+    /// Вкладки, которые уже чьи-то (окна или стартовая пустая).
+    known: std::sync::Mutex<std::collections::HashSet<String>>,
+}
+
+impl Browser {
+    pub async fn launch(bin: &Path, profile_dir: &Path, headless: bool) -> Result<Arc<Browser>, String> {
+        let chromium = Chromium::launch(bin, profile_dir, headless).await?;
+        let cdp = chromium.cdp.clone();
+        cdp.call(None, "Target.setDiscoverTargets", json!({"discover": true})).await?;
+        let targets = cdp.call(None, "Target.getTargets", json!({})).await?;
+        let known = targets["targetInfos"].as_array().into_iter().flatten().map(|t| s(t, "targetId")).collect();
+        let b = Arc::new(Browser { chromium: Mutex::new(Some(chromium)), cdp: cdp.clone(), popups: std::sync::Mutex::new(Vec::new()), known: std::sync::Mutex::new(known) });
+        let weak = Arc::downgrade(&b);
+        let mut events = cdp.events();
+        tokio::spawn(async move {
+            while let Ok(Event { method, params, .. }) = events.recv().await {
+                let Some(b) = weak.upgrade() else { break };
+                let info = &params["targetInfo"];
+                if method == "Target.targetCreated" && s(info, "type") == "page" {
+                    b.popups.lock().unwrap().push(s(info, "targetId"));
+                }
+            }
+        });
+        Ok(b)
+    }
+
+    /// Закрыть процесс браузера.
+    pub async fn close(&self) {
+        if let Some(c) = self.chromium.lock().await.take() {
+            c.close().await;
+        }
+    }
+}
+
+pub struct Window {
+    browser: Arc<Browser>,
+    /// Окно само запустило браузер и закрывает его вместе с собой.
+    owns_browser: bool,
+    cdp: Arc<Cdp>,
+    state: Mutex<State>,
 }
 
 /// Вид вкладки: текст и снимок.
@@ -116,37 +161,28 @@ enum Step {
 }
 
 impl Window {
-    /// Открыть окно: свой Chromium с профилем `profile_dir`.
+    /// Открыть окно со своим Chromium и профилем `profile_dir`; браузер
+    /// закрывается вместе с окном.
     pub async fn open(bin: &Path, profile_dir: &Path, headless: bool) -> Result<Arc<Window>, String> {
-        let chromium = Chromium::launch(bin, profile_dir, headless).await?;
-        let cdp = chromium.cdp.clone();
-        cdp.call(None, "Target.setDiscoverTargets", json!({"discover": true})).await?;
-        let w = Arc::new(Window {
-            chromium: Mutex::new(Some(chromium)),
-            cdp: cdp.clone(),
-            state: Mutex::new(State { tabs: vec![], selected: None, next_tab: 1, next_view: 1, next_ref: 1 }),
-            popups: std::sync::Mutex::new(Vec::new()),
-        });
-        // Вкладки, которые открывает страница, — в очередь окна. Признак
-        // `openerId` не годится: у ссылки `target=_blank` его нет (noopener),
-        // поэтому берётся любая новая вкладка, открытая не окном.
-        let weak = Arc::downgrade(&w);
-        let mut events = cdp.events();
-        tokio::spawn(async move {
-            while let Ok(Event { method, params, .. }) = events.recv().await {
-                let Some(w) = weak.upgrade() else { break };
-                let info = &params["targetInfo"];
-                if method == "Target.targetCreated" && s(info, "type") == "page" {
-                    w.popups.lock().unwrap().push(s(info, "targetId"));
-                }
-            }
-        });
-        let targets = cdp.call(None, "Target.getTargets", json!({})).await?;
+        let browser = Browser::launch(bin, profile_dir, headless).await?;
+        let targets = browser.cdp.call(None, "Target.getTargets", json!({})).await?;
         let first = targets["targetInfos"].as_array().into_iter().flatten().find(|t| s(t, "type") == "page").map(|t| s(t, "targetId"));
-        let target = match first {
+        Self::with_target(browser, true, first).await
+    }
+
+    /// Новое окно в уже запущенном браузере профиля.
+    pub async fn new_in(browser: Arc<Browser>) -> Result<Arc<Window>, String> {
+        Self::with_target(browser, false, None).await
+    }
+
+    async fn with_target(browser: Arc<Browser>, owns_browser: bool, target: Option<String>) -> Result<Arc<Window>, String> {
+        let cdp = browser.cdp.clone();
+        let target = match target {
             Some(t) => t,
-            None => s(&cdp.call(None, "Target.createTarget", json!({"url": "about:blank"})).await?, "targetId"),
+            None => s(&cdp.call(None, "Target.createTarget", json!({"url": "about:blank", "newWindow": true})).await?, "targetId"),
         };
+        browser.popups.lock().unwrap().retain(|p| *p != target);
+        let w = Arc::new(Window { browser, owns_browser, cdp, state: Mutex::new(State { tabs: vec![], selected: None, next_tab: 1, next_view: 1, next_ref: 1 }) });
         let mut st = w.state.lock().await;
         let id = w.attach(&mut st, &target).await?;
         st.selected = Some(id);
@@ -157,6 +193,7 @@ impl Window {
     async fn attach(&self, st: &mut State, target: &str) -> Result<String, String> {
         let r = self.cdp.call(None, "Target.attachToTarget", json!({"targetId": target, "flatten": true})).await?;
         let session = s(&r, "sessionId");
+        self.browser.known.lock().unwrap().insert(target.to_string());
         for m in ["Page.enable", "DOM.enable", "Accessibility.enable"] {
             self.cdp.call(Some(&session), m, json!({})).await?;
         }
@@ -166,11 +203,27 @@ impl Window {
         Ok(id)
     }
 
-    /// Закрыть браузер окна.
+    /// Закрыть окно: его вкладки, а свой браузер — целиком.
     pub async fn close(&self) {
-        if let Some(c) = self.chromium.lock().await.take() {
-            c.close().await;
+        if self.owns_browser {
+            self.browser.close().await;
+            return;
         }
+        let targets: Vec<String> = self.state.lock().await.tabs.drain(..).map(|t| t.target).collect();
+        for t in targets {
+            let _ = self.cdp.call(None, "Target.closeTarget", json!({"targetId": t})).await;
+        }
+    }
+
+    /// Список вкладок окна для `browser.windows`.
+    pub async fn tab_lines(&self) -> Vec<String> {
+        let st = self.state.lock().await;
+        let mut out = vec![];
+        for t in &st.tabs {
+            let info = self.eval(&t.session, "[document.title, location.href]").await.unwrap_or(Value::Null);
+            out.push(format!("- {}: Title: {} URL: {}", t.id, info[0].as_str().unwrap_or_default(), info[1].as_str().unwrap_or_default()));
+        }
+        out
     }
 
     pub async fn tab_ids(&self) -> Vec<String> {
@@ -586,7 +639,7 @@ impl Window {
                     let bits = mods.iter().map(|m| match m.as_str() {
                         "Alt" => 1,
                         "Control" => 2,
-                        "Command" => 4,
+                        "Meta" => 4,
                         "Shift" => 8,
                         _ => 0,
                     }).fold(0, |a, b| a | b);
@@ -653,10 +706,10 @@ impl Window {
     /// Новые вкладки, открытые страницей, — в окно.
     async fn adopt_popups(&self, st: &mut State) -> Vec<String> {
         tokio::time::sleep(Duration::from_millis(200)).await;
-        let pending: Vec<String> = std::mem::take(&mut *self.popups.lock().unwrap());
+        let pending: Vec<String> = std::mem::take(&mut *self.browser.popups.lock().unwrap());
         let mut ids = vec![];
         for target in pending {
-            if st.tabs.iter().any(|t| t.target == target) {
+            if self.browser.known.lock().unwrap().contains(&target) {
                 continue;
             }
             if let Ok(id) = self.attach(st, &target).await {
@@ -671,7 +724,7 @@ impl Window {
     pub async fn act(&self, tab: &str, actions: &[Value]) -> Result<Vec<ToolResultPart>, String> {
         let mut st = self.state.lock().await;
         let session = Self::session_of(&st, tab)?;
-        self.popups.lock().unwrap().clear();
+        self.browser.popups.lock().unwrap().clear();
         let mut lines = vec![];
         let mut stopped = false;
         let mut unknown = false;
@@ -772,7 +825,7 @@ impl Window {
                 };
                 let target = s(&self.cdp.call(None, "Target.createTarget", json!({"url": url})).await?, "targetId");
                 let id = self.attach(&mut st, &target).await?;
-                self.popups.lock().unwrap().retain(|p| *p != target);
+                self.browser.popups.lock().unwrap().retain(|p| *p != target);
                 st.selected = Some(id.clone());
                 let session = Self::session_of(&st, &id)?;
                 self.settle(&session).await;

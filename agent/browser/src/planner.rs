@@ -24,7 +24,7 @@ use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
-use agent_loop::{personal, Tool, ToolError, ToolFuture, Tools, Turn};
+use agent_loop::{personal, Inbox, Tool, ToolError, ToolFuture, Tools, Turn};
 use agent_model::{Message, Part, Provider, Role, ToolResultPart, ToolSpec};
 use serde_json::Value;
 
@@ -221,6 +221,9 @@ pub struct Planner<P> {
     pub asker: Arc<dyn Asker>,
     pub locale: String,
     pub spill_dir: PathBuf,
+    /// Обновления главного агента, пришедшие во время работы: ход забирает
+    /// их между шагами.
+    pub updates: Option<Inbox>,
 }
 
 impl<P: Provider + Send + Sync + 'static> Planner<P> {
@@ -236,6 +239,7 @@ impl<P: Provider + Send + Sync + 'static> Planner<P> {
         tools.add(ReportTool(slot.clone()));
         let mut turn = Turn::new(&*self.provider, &tools, system(&self.locale), self.spill_dir.clone());
         turn.terminal = vec![REPORT.into()];
+        turn.inbox = self.updates.clone();
         history.push(Message { role: Role::User, content: vec![Part::Text { text: message }] });
         loop {
             turn.run(history, &mut |_| {}).await.map_err(|e| e.to_string())?;

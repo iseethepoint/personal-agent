@@ -4,3 +4,4 @@ pub mod cdp;
 pub mod chromium;
 pub mod window;
 pub mod planner;
+pub mod browsers;
