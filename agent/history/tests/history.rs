@@ -94,7 +94,9 @@ async fn mailbox_states_follow_the_core() {
     AgentHistory::open(&store, "root", "root", "fake/main", Arc::new(|| 0)).await.unwrap();
     let inbox = Inbox::persistent(Arc::new(AgentMailbox::new(&store, "root"))).await.unwrap();
     inbox.push(msg(Role::Developer, "a")).await;
-    inbox.push(msg(Role::Developer, "b")).await;
+    inbox.push_user(msg(Role::User, "b")).await;
+    let kinds: Vec<String> = sqlx::query_scalar("select submission_kind from agent.message_mailbox order by accepted_ordinal").fetch_all(store.pool()).await.unwrap();
+    assert_eq!(kinds, ["notice", "user"]);
     let state = || async {
         let rows: Vec<(String, i64, String, Option<String>)> =
             sqlx::query_as("select submission_id, accepted_ordinal, state, stream_owner_message_id from agent.message_mailbox order by accepted_ordinal").fetch_all(store.pool()).await.unwrap();
@@ -105,7 +107,7 @@ async fn mailbox_states_follow_the_core() {
     let again = Inbox::persistent(Arc::new(AgentMailbox::new(&store, "root"))).await.unwrap();
     let (ids, msgs) = again.take();
     assert_eq!(ids, ["root:mailbox:1", "root:mailbox:2"]);
-    assert_eq!(msgs, [msg(Role::Developer, "a"), msg(Role::Developer, "b")]);
+    assert_eq!(msgs, [msg(Role::Developer, "a"), msg(Role::User, "b")]);
     again.attach(&ids[..1], "t1").await.unwrap();
     again.attach(&ids[1..], "t2").await.unwrap();
     again.complete("t1", true).await.unwrap();

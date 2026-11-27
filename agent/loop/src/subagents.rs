@@ -105,8 +105,9 @@ type MailboxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = R
 /// Хранилище ящика: принять весть, отметить взятые ходом, закрыть по
 /// итогу хода, поднять непринятые после перезапуска.
 pub trait Mailbox: Send + Sync {
-    /// Записать весть; вернуть её `submission_id`.
-    fn accept<'a>(&'a self, m: &'a Message) -> MailboxFuture<'a, String>;
+    /// Записать подачу вида `kind` (`user` — строка владельца, `notice` —
+    /// весть службы); вернуть её `submission_id`.
+    fn accept<'a>(&'a self, m: &'a Message, kind: &'a str) -> MailboxFuture<'a, String>;
     /// Вести взяты ходом `owner` и уже лежат в его истории.
     fn attach<'a>(&'a self, ids: &'a [String], owner: &'a str) -> MailboxFuture<'a, ()>;
     /// Ход `owner` кончился: его вести — `completed` (или `aborted`).
@@ -131,8 +132,17 @@ impl Inbox {
     /// Положить заметку для родителя (итог подагента, итог фоновой команды).
     /// Не записалась в хранилище — всё равно встаёт в очередь (ошибка — в журнал).
     pub async fn push(&self, m: Message) {
+        self.submit(m, "notice").await
+    }
+
+    /// Подать строку владельца (`submission_kind = 'user'`).
+    pub async fn push_user(&self, m: Message) {
+        self.submit(m, "user").await
+    }
+
+    async fn submit(&self, m: Message, kind: &str) {
         let id = match &self.store {
-            Some(s) => match s.accept(&m).await {
+            Some(s) => match s.accept(&m, kind).await {
                 Ok(id) => Some(id),
                 Err(e) => {
                     eprintln!("mailbox accept: {e}");
@@ -170,6 +180,10 @@ impl Inbox {
             Some(s) => s.complete(owner, ok).await,
             None => Ok(()),
         }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.lock().unwrap().is_empty()
     }
 
     /// Дождаться, пока что-нибудь дойдёт (для начала нового хода родителя,

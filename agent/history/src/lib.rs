@@ -301,8 +301,10 @@ impl Record for AgentHistory {
 ///
 /// Своё (в разборе не видно): `submission_id` — `<agent_id>:mailbox:<ordinal>`,
 /// `accepted_ordinal` — следующий по агенту, `conversation_epoch` — 0,
-/// `submission_kind` — `notice` (вести служб; строки владельца идут в
-/// историю сразу), `routing_scope` — `root`, `submission_json` — сообщение.
+/// `routing_scope` — `root`, `submission_json` — сообщение. Вид подачи:
+/// строка владельца — `user` (как в запросах ядра), весть службы — `notice`
+/// (своё: у ядра внутренние подачи — варианты `SavedSubmissionKind`, их
+/// значений в столбце в разборе не видно).
 pub struct AgentMailbox {
     pool: PgPool,
     agent_id: String,
@@ -317,16 +319,17 @@ impl AgentMailbox {
 type Fut<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + 'a>>;
 
 impl Mailbox for AgentMailbox {
-    fn accept<'a>(&'a self, m: &'a Message) -> Fut<'a, String> {
+    fn accept<'a>(&'a self, m: &'a Message, kind: &'a str) -> Fut<'a, String> {
         Box::pin(async move {
             let json = serde_json::to_string(m).map_err(|e| e.to_string())?;
             sqlx::query_scalar(
                 "with next as (select coalesce(max(accepted_ordinal), 0) + 1 as ord from agent.message_mailbox where agent_id = $1 and conversation_epoch = 0) \
                  insert into agent.message_mailbox (submission_id, accepted_ordinal, agent_id, conversation_epoch, submission_kind, routing_scope, state, submission_json) \
-                 select $1 || ':mailbox:' || ord, ord, $1, 0, 'notice', 'root', 'accepted', $2 from next returning submission_id",
+                 select $1 || ':mailbox:' || ord, ord, $1, 0, $3, 'root', 'accepted', $2 from next returning submission_id",
             )
             .bind(&self.agent_id)
             .bind(json)
+            .bind(kind)
             .fetch_one(&self.pool)
             .await
             .map_err(db)
