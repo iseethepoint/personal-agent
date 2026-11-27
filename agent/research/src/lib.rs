@@ -53,16 +53,22 @@ use serde_json::{json, Value};
 
 const TEXTS_JSON: &str = include_str!("../../../prompts/deep_research/tools.json");
 static TEXTS: LazyLock<Value> = LazyLock::new(|| serde_json::from_str(TEXTS_JSON).expect("prompts/deep_research/tools.json"));
-const BLOCKS: [&str; 9] = [
-    include_str!("../../../prompts/deep_research/who_you_are.md"),
-    include_str!("../../../prompts/deep_research/assignment.md"),
-    include_str!("../../../prompts/deep_research/how_you_work.md"),
-    include_str!("../../../prompts/deep_research/tools.md"),
-    include_str!("../../../prompts/deep_research/reporting_back.md"),
-    include_str!("../../../prompts/deep_research/discretion.md"),
-    include_str!("../../../prompts/deep_research/safety.md"),
-    include_str!("../../../prompts/deep_research/security_authority.md"),
-    include_str!("../../../prompts/deep_research/your_environment.md"),
+/// Блоки системного текста — в порядке профиля 6 ядра (таблица профилей
+/// 0x290bbf50, срез 0x9905ee: 66 67 68 12e 69 6a 635 6b 6c 13b;
+/// `prompts/profiles/`). Разделы 12e (время), 13b (runtime) и общие блоки
+/// раздела 635 придут со сборкой по профилю (П5-2). Своё:
+/// `security_authority` — в конце: его место раскладывает сборщик ядра
+/// 0xcdbbdf0, разбор не закончен.
+pub const BLOCKS: [(&str, &str); 9] = [
+    ("deep_research/who_you_are.md", include_str!("../../../prompts/deep_research/who_you_are.md")),
+    ("deep_research/your_environment.md", include_str!("../../../prompts/deep_research/your_environment.md")),
+    ("deep_research/assignment.md", include_str!("../../../prompts/deep_research/assignment.md")),
+    ("deep_research/tools.md", include_str!("../../../prompts/deep_research/tools.md")),
+    ("deep_research/how_you_work.md", include_str!("../../../prompts/deep_research/how_you_work.md")),
+    ("deep_research/discretion.md", include_str!("../../../prompts/deep_research/discretion.md")),
+    ("deep_research/safety.md", include_str!("../../../prompts/deep_research/safety.md")),
+    ("deep_research/reporting_back.md", include_str!("../../../prompts/deep_research/reporting_back.md")),
+    ("deep_research/security_authority.md", include_str!("../../../prompts/deep_research/security_authority.md")),
 ];
 const RESUMED_MD: &str = include_str!("../../../prompts/deep_research/resumed_after_restart.md");
 
@@ -237,7 +243,7 @@ impl<P: Provider + Send + Sync + 'static> DeepResearch<P> {
                 format!("- `{}`: {first}.", s.name)
             })
             .collect();
-        BLOCKS.iter().map(|b| personal(b).replace("{tooling_lines}", &lines.join("\n")).trim_end().to_string()).collect::<Vec<_>>().join("\n\n")
+        BLOCKS.iter().map(|(_, b)| personal(b).replace("{tooling_lines}", &lines.join("\n")).trim_end().to_string()).collect::<Vec<_>>().join("\n\n")
     }
 
     /// Начать исследование; `resume` — подъём после перезапуска (папка,
