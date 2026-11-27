@@ -11,9 +11,12 @@
 //!
 //! Тексты — `prompts/subagent_monitor/` (системный блок
 //! `blocks/activity_monitor/subagent_monitor.md`, `prompt_user.md`,
-//! описания инструментов). Своё: событие монитора — исполненная пачка
-//! вызовов подагента, и ход подагента ждёт решения монитора (у muse монитор
-//! — отдельная служба); вид блоков «Trigger» и «Subtree Snapshot» и заметки
+//! описания инструментов). Монитор — своя задача tokio с очередью событий,
+//! как отдельная служба muse: ход подагента его не ждёт. Событие — снимок
+//! исполненной пачки вызовов; события, дошедшие до монитора после итога
+//! подагента, уже не рассматриваются (итог доставлен, «terminal completion
+//! delivery … before this monitor is asked anything»). Своё: вид блоков
+//! «Trigger» и «Subtree Snapshot» и заметки
 //! родителю (поля `coordinator_agent_*`, `worker_agent_*`,
 //! `coordinator_children` названы в системном тексте muse; заголовок — как в
 //! `handoff_child.md`). Глубина подагентов у нас одна: координатор и
@@ -107,8 +110,10 @@ impl<P: Provider + Send + Sync + 'static> Monitor<P> {
         }
     }
 
-    /// Решение по одному событию: `true` — родителю ушла заметка.
-    pub async fn decide(&self, agent_id: &str, task: &str, calls: &[StepCall], inbox: &Inbox) -> bool {
+    /// Решение по одному событию: `true` — родителю ушла заметка. Решение,
+    /// принятое уже после итога подагента (`running` — нет), заметки не
+    /// шлёт: итог доставлен, промежуточное устарело.
+    pub async fn decide(&self, agent_id: &str, task: &str, calls: &[StepCall], inbox: &Inbox, running: &(dyn Fn() -> bool + Send + Sync)) -> bool {
         let event = self.events.fetch_add(1, Ordering::SeqCst) + 1;
         let system = personal(SYSTEM_MD)
             .replace("{subagents_monitoring_md}", self.contract().await.trim_end())
@@ -134,7 +139,7 @@ impl<P: Provider + Send + Sync + 'static> Monitor<P> {
             eprintln!("subagent monitor {agent_id}: {e}");
             return false;
         }
-        let notify = *picked.lock().unwrap() == Some(NOTIFY);
+        let notify = *picked.lock().unwrap() == Some(NOTIFY) && running();
         if notify {
             inbox.push(Message {
                 role: Role::Developer,
@@ -148,15 +153,21 @@ impl<P: Provider + Send + Sync + 'static> Monitor<P> {
         notify
     }
 
-    /// Крючок шага для хода подагента.
-    pub fn hook(self: &Arc<Self>, agent_id: String, task: String, inbox: Inbox) -> StepHook {
+    /// Очередь и задача монитора одного подагента; крючок шага только
+    /// кладёт событие в очередь. `running` — идёт ли ещё работа подагента.
+    pub fn watch(self: &Arc<Self>, agent_id: String, task: String, inbox: Inbox, running: Arc<dyn Fn() -> bool + Send + Sync>) -> StepHook {
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<StepCall>>();
         let me = self.clone();
+        tokio::spawn(async move {
+            while let Some(calls) = rx.recv().await {
+                if !running() {
+                    continue;
+                }
+                me.decide(&agent_id, &task, &calls, &inbox, &*running).await;
+            }
+        });
         Arc::new(move |calls: Vec<StepCall>| {
-            let me = me.clone();
-            let (id, task, inbox) = (agent_id.clone(), task.clone(), inbox.clone());
-            Box::pin(async move {
-                me.decide(&id, &task, &calls, &inbox).await;
-            })
+            let _ = tx.send(calls);
         })
     }
 }

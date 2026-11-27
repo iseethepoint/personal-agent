@@ -89,8 +89,8 @@ pub struct Turn<'a, P> {
     /// нового вызова модели (у muse `nothing_to_report`, `notify_main_agent`:
     /// «Terminal: the run ends immediately», `strings-all.txt:85281`).
     pub terminal: Vec<String>,
-    /// Узнаёт о каждой исполненной пачке вызовов (монитор подагентов);
-    /// ход ждёт его, прежде чем снова звать модель.
+    /// Узнаёт о каждой исполненной пачке вызовов (монитор подагентов).
+    /// Не блокирует: крючок отдаёт событие и ход сразу идёт дальше.
     pub on_step: Option<StepHook>,
 }
 
@@ -103,7 +103,7 @@ pub struct StepCall {
     pub result: String,
 }
 
-pub type StepHook = std::sync::Arc<dyn Fn(Vec<StepCall>) -> futures_util::future::BoxFuture<'static, ()> + Send + Sync>;
+pub type StepHook = std::sync::Arc<dyn Fn(Vec<StepCall>) + Send + Sync>;
 
 impl<'a, P: Provider> Turn<'a, P> {
     pub fn new(provider: &'a P, tools: &'a Tools, system: impl Into<String>, spill_dir: impl Into<PathBuf>) -> Self {
@@ -274,7 +274,7 @@ impl<'a, P: Provider> Turn<'a, P> {
                         StepCall { name: name.clone(), arguments, is_error, result }
                     })
                     .collect();
-                hook(step).await;
+                hook(step);
             }
             history.push(Message { role: Role::User, content: results });
             if ended {

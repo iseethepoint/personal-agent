@@ -165,6 +165,10 @@ pub fn inherited_history(parent: &[Message]) -> Vec<Message> {
 /// boundary owns the memory-search refresh», `strings-all.txt:55420`).
 pub type AfterDone = Arc<dyn Fn(Status, String) -> futures_util::future::BoxFuture<'static, String> + Send + Sync>;
 
+/// Заводит очередь монитора для подагента: (id, задача, ящик родителя,
+/// идёт ли работа) → крючок шага.
+type WatchFactory = Arc<dyn Fn(String, String, Inbox, Arc<dyn Fn() -> bool + Send + Sync>) -> crate::turn::StepHook + Send + Sync>;
+
 enum Input {
     Message(String),
     Resume,
@@ -190,7 +194,7 @@ struct Inner<P> {
     agents: Mutex<Vec<Agent>>,
     /// Монитор промежуточных событий (`SubagentMonitor`); без него —
     /// только итоги.
-    monitor: std::sync::OnceLock<Arc<crate::monitor::Monitor<P>>>,
+    monitor: std::sync::OnceLock<WatchFactory>,
 }
 
 /// Подагенты одного родителя. Инструменты `subagent.*` — из `tools()`.
@@ -288,8 +292,9 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
     }
 
     /// Включить монитор (модель `SubagentMonitor`).
-    pub fn set_monitor(&self, m: Arc<crate::monitor::Monitor<P>>) {
-        let _ = self.inner.monitor.set(m);
+    pub fn set_monitor<M: Provider + Send + Sync + 'static>(&self, m: Arc<crate::monitor::Monitor<M>>) {
+        let f: WatchFactory = Arc::new(move |id, task, inbox, running| m.watch(id, task, inbox, running));
+        let _ = self.inner.monitor.set(f);
     }
 
     /// Инструменты `subagent.spawn/send/list/close/resume` для родителя.
@@ -330,7 +335,15 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         let inner = self.inner.clone();
         let stop = interrupt.clone();
         let agent_id = id.clone();
-        let task_text = task.to_string();
+        let watch = self.inner.monitor.get().map(|f| {
+            let me = Arc::downgrade(&self.inner);
+            let watched = id.clone();
+            let running: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
+                me.upgrade()
+                    .is_some_and(|i| i.agents.lock().unwrap().iter().any(|a| a.id == watched && a.status == Status::Running))
+            });
+            f(id.clone(), task.to_string(), self.inner.inbox.clone(), running)
+        });
         let mut history = inherited_history(&self.inner.parent.snapshot());
         if !history.is_empty() {
             history.push(Message { role: Role::Developer, content: vec![Part::Text { text: personal(ACTIVE_TURN_MD).trim_end().to_string() }] });
@@ -344,9 +357,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 }
                 Self::set(&inner, &agent_id, Status::Running, None);
                 let mut turn = Turn::from_prefix(&*inner.provider, &inner.tools, &inner.prefix, inner.spill_dir.clone());
-                if let Some(m) = inner.monitor.get() {
-                    turn.on_step = Some(m.hook(agent_id.clone(), task_text.clone(), inner.inbox.clone()));
-                }
+                turn.on_step = watch.clone();
                 let mut quiet = |_: &str| {};
                 let outcome = tokio::select! {
                     r = turn.run(&mut conv.history, &mut quiet) => Some(r),
