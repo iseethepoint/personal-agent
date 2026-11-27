@@ -24,7 +24,7 @@
 
 pub mod config;
 pub mod daemon;
-pub mod roles;
+pub use agent_loop::roles;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;

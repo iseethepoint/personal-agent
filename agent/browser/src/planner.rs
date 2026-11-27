@@ -288,6 +288,8 @@ impl<P: Provider + Send + Sync + 'static> Planner<P> {
         tools.add(Tabs(WindowRef::Ready(self.window.clone())));
         tools.add(RequestInput(self.asker.clone()));
         tools.add(ReportTool(slot.clone()));
+        // Набор исполнителя окна — роль `browser_task`.
+        let tools = agent_loop::roles::Role::get("browser_task").apply(tools);
         let mut turn = Turn::new(&*self.provider, &tools, system(&self.locale), self.spill_dir.clone());
         turn.terminal = vec![REPORT.into()];
         turn.inbox = self.updates.clone();

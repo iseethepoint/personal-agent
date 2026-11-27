@@ -5,6 +5,7 @@ pub mod compaction;
 pub mod monitor;
 pub mod prompt;
 pub mod quarantine;
+pub mod roles;
 pub mod segmented;
 pub mod spill;
 pub mod subagents;

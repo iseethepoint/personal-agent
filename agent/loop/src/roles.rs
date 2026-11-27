@@ -10,11 +10,12 @@
 //! `hamlet.<x>` (`read` → `hamlet.read`, `notify_main_agent` →
 //! `hamlet.notify_main_agent`).
 
-use agent_loop::Tools;
+use crate::tool::Tools;
 use serde::Deserialize;
 
 /// Определения ядра.
-const ROLES: [(&str, &str); 8] = [
+const ROLES: [(&str, &str); 9] = [
+    ("browser_task", include_str!("../../../prompts/roles/browser_task.toml")),
     ("foreground_root", include_str!("../../../prompts/roles/foreground_root.toml")),
     ("owner_subagent_depth1", include_str!("../../../prompts/roles/owner_subagent_depth1.toml")),
     ("workflow_subagent_depth1", include_str!("../../../prompts/roles/workflow_subagent_depth1.toml")),
