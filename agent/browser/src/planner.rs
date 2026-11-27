@@ -1,19 +1,19 @@
 //! Исполнитель окна — «browser planner» muse: отдельный агент на модели
-//! задачи `BrowserAgent` со своим системным текстом
-//! (`prompts/browser/system.md`, `instructions/*`, `pages.md`,
-//! `presentation_language.md`) и инструментами `browser.observe`,
+//! задачи `BrowserAgent` со своим системным текстом — профиль 1 ядра
+//! (`prompts/browser/system.md`, `pages.md`) — и инструментами `browser.observe`,
 //! `browser.act`, `browser.tabs`, `browser.request_input`, `browser.report`
 //! (`prompts/browser/tools/*.json|md`). Работа кончается принятым
 //! `browser.report`; ответ без него возвращается к модели с текстом
 //! `completion_gate/report_required.md` («a reply alone does not close the
 //! task»).
 //!
-//! Первое сообщение и продолжение — строки ядра: «Carry out this
-//! assignment end to end, then report the result.», «Continue this task from
-//! the history above with Muse's new instruction below, then report the
-//! result.» (`strings-all.txt:49735`; Muse → Hamlet). Своё: порядок блоков
-//! системного текста (в разборе не виден), вид ответа на
-//! `browser.request_input` и подтверждение отчёта.
+//! Первое сообщение и продолжение — сборка задания `0x8b1f310`: строка
+//! «Carry out this assignment end to end, then report the result.» или
+//! «Continue this task from the history above with Muse's new instruction
+//! below, then report the result.» (`0x539613`, `0x539652`; Muse → Hamlet),
+//! задание, «\n\nLanguage:\n» и `presentation_language.md` с подставленным
+//! `{locale}` (`0x8b1f920`). Своё: вид ответа на `browser.request_input` и
+//! подтверждение отчёта.
 //!
 //! Не взяты в П4к-1а: вход на сайты, покупки, проверки ботов, перерывы,
 //! специалисты, файлы, программы (`browser.run`), `look`-цели с моделью
@@ -34,17 +34,6 @@ const SYSTEM_MD: &str = include_str!("../../../prompts/browser/system.md");
 const PAGES_MD: &str = include_str!("../../../prompts/browser/pages.md");
 const LANGUAGE_MD: &str = include_str!("../../../prompts/browser/presentation_language.md");
 const GATE_MD: &str = include_str!("../../../prompts/browser/completion_gate/report_required.md");
-const INSTRUCTIONS: [&str; 9] = [
-    include_str!("../../../prompts/browser/instructions/assignment.md"),
-    include_str!("../../../prompts/browser/instructions/browsing.md"),
-    include_str!("../../../prompts/browser/instructions/obstacles.md"),
-    include_str!("../../../prompts/browser/instructions/asking.md"),
-    include_str!("../../../prompts/browser/instructions/commitments.md"),
-    include_str!("../../../prompts/browser/instructions/facts.md"),
-    include_str!("../../../prompts/browser/instructions/privacy.md"),
-    include_str!("../../../prompts/browser/instructions/conduct.md"),
-    include_str!("../../../prompts/browser/instructions/reporting.md"),
-];
 
 macro_rules! tool_text {
     ($name:literal) => {
@@ -83,22 +72,30 @@ pub struct Report {
     pub products: Vec<Value>,
 }
 
-pub fn assignment_message(task: &str) -> String {
-    format!("Carry out this assignment end to end, then report the result.\n\n{task}")
+/// `presentation_language.md` (`0x8b1f920`): текст файла без краёв,
+/// `{locale}` — язык, на котором исполнитель пишет людям.
+fn language(locale: &str) -> String {
+    personal(LANGUAGE_MD).trim().replace("{locale}", locale)
 }
 
-pub fn update_message(text: &str) -> String {
-    format!("Continue this task from the history above with Hamlet's new instruction below, then report the result.\n\n{text}")
+/// Первое сообщение окна (`0x8b1f310`, флаг продолжения снят).
+pub fn assignment_message(task: &str, locale: &str) -> String {
+    format!("Carry out this assignment end to end, then report the result.\n\n{task}\n\nLanguage:\n{}", language(locale))
 }
 
-/// Системный текст исполнителя; `locale` — язык, на котором он пишет
-/// людям.
-pub fn system(locale: &str) -> String {
-    let mut parts = vec![personal(SYSTEM_MD).trim_end().to_string()];
-    parts.extend(INSTRUCTIONS.iter().map(|t| personal(t).trim_end().to_string()));
-    parts.push(personal(PAGES_MD).trim_end().to_string());
-    parts.push(personal(LANGUAGE_MD).replace("{locale}", locale).trim_end().to_string());
-    parts.join("\n\n")
+/// Продолжение (`0x8b1f310`, флаг продолжения поднят).
+pub fn update_message(text: &str, locale: &str) -> String {
+    format!("Continue this task from the history above with Hamlet's new instruction below, then report the result.\n\n{text}\n\nLanguage:\n{}", language(locale))
+}
+
+/// Системный текст исполнителя — профиль 1 (`0x290bbe38`), срез 0 `64 23b`:
+/// раздел `0x64` вариант 0 — записи `browser/system.md`, `browser/pages.md`
+/// (таблица `0x2906bd30`) подряд, без разделителей; затем личный вариант
+/// меток и края без переводов строки (как у других профилей). `23b` — П8.
+/// Срез 1 (`0x164`, `instructions/*`) у профиля по виду не выводится
+/// (`prompts/SOURCES.md`, П5-2 часть 4).
+pub fn system() -> String {
+    personal(&format!("{SYSTEM_MD}{PAGES_MD}")).trim_matches('\n').to_string()
 }
 
 fn spec(name: &str, (md, json): (&str, &str)) -> ToolSpec {
@@ -267,7 +264,6 @@ pub struct Planner<P> {
     pub provider: Arc<P>,
     pub window: Arc<Window>,
     pub asker: Arc<dyn Asker>,
-    pub locale: String,
     pub spill_dir: PathBuf,
     /// Обновления главного агента, пришедшие во время работы: ход забирает
     /// их между шагами.
@@ -290,7 +286,7 @@ impl<P: Provider + Send + Sync + 'static> Planner<P> {
         tools.add(ReportTool(slot.clone()));
         // Набор исполнителя окна — роль `browser_task`.
         let tools = agent_loop::roles::Role::get("browser_task").apply(tools);
-        let mut turn = Turn::new(&*self.provider, &tools, system(&self.locale), self.spill_dir.clone());
+        let mut turn = Turn::new(&*self.provider, &tools, system(), self.spill_dir.clone());
         turn.terminal = vec![REPORT.into()];
         turn.inbox = self.updates.clone();
         turn.record = self.record.as_ref().map(|r| r.record.clone() as Arc<dyn agent_loop::Record>);

@@ -80,7 +80,7 @@ fn every_profile_and_section_is_mapped() {
         }
         for id in order(p) {
             let s = secs.get(id).unwrap_or_else(|| panic!("{}: раздел {id} не в карте", p.at));
-            assert!(["dispatcher", "other_harness", "browser_table", "unresolved"].contains(&s.via.as_str()));
+            assert!(["dispatcher", "flag", "browser_table", "unresolved"].contains(&s.via.as_str()));
         }
     }
     let unresolved: Vec<&str> = secs.values().filter(|s| s.via == "unresolved").map(|s| s.id.as_str()).collect();
@@ -124,7 +124,7 @@ fn section_map_matches_dispatcher() {
     );
     assert_eq!(names("13b"), ["blocks/shared/runtime.md"]);
     for id in ["b7", "b8", "c1", "c2"] {
-        assert_eq!(secs[id].via, "other_harness", "{id}");
+        assert_eq!(secs[id].via, "flag", "{id}");
     }
 }
 
@@ -139,7 +139,7 @@ fn browser_planner_follows_profile() {
     assert_eq!(p.slice[0].sections, ["64", "23b"]);
     let blocks: Vec<String> = secs["64"].block.iter().filter_map(|b| b.block.clone()).collect();
     assert_eq!(blocks, ["browser/system.md", "browser/pages.md"]);
-    let text = agent_browser::planner::system("en-US");
+    let text = agent_browser::planner::system();
     let first = |path: &str| -> String {
         let t = agent_loop::personal(&std::fs::read_to_string(root().join("prompts").join(path)).unwrap());
         t.trim().lines().next().unwrap().to_string()

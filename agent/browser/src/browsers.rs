@@ -325,7 +325,7 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
         // собирает сам), сведения — профиль и задание.
         let record = match self.workers.get() {
             Some(w) => {
-                let prefix = agent_loop::Prefix { system: crate::planner::system(&self.locale), tools: vec![] };
+                let prefix = agent_loop::Prefix { system: crate::planner::system(), tools: vec![] };
                 let meta = json!({"profile": profile, "assignment": assignment}).to_string();
                 Some(w.begin(TASK_CLASS, &id, &format!("browser-window:{id}"), &prefix, Some(&meta)).await?)
             }
@@ -361,7 +361,6 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
                     provider: me.provider.clone(),
                     window: task.window.clone(),
                     asker: Arc::new(TaskAsker { task: task.clone(), inbox: me.inbox.clone() }),
-                    locale: me.locale.clone(),
                     spill_dir: me.spill_dir.clone(),
                     updates: Some(task.updates.clone()),
                     record: record.clone(),
@@ -404,7 +403,7 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
             let profile = str_arg(args, "profile").unwrap_or(DEFAULT_PROFILE);
             let t = self.open_window(profile, str_arg(args, "url"), text).await?;
             *t.running.lock().unwrap() = true;
-            self.start(t.clone(), Some(assignment_message(text)));
+            self.start(t.clone(), Some(assignment_message(text, &self.locale)));
             return Ok(format!("A new window (task_id {}) accepted the request.\n\n{accepted}", t.id));
         }
         let t = self.find(task_id)?;
@@ -428,7 +427,7 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
             std::mem::replace(&mut *running, true)
         };
         if was_running {
-            t.updates.push(Message { role: Role::User, content: vec![Part::Text { text: update_message(&body) }] }).await;
+            t.updates.push(Message { role: Role::User, content: vec![Part::Text { text: update_message(&body, &self.locale) }] }).await;
             let waiting: Vec<String> = t.questions.lock().unwrap().iter().map(|w| w.id.clone()).collect();
             let mut out = format!("Sent to the window (task_id {task_id}) as an update.");
             if !waiting.is_empty() {
@@ -439,7 +438,7 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
             }
             return Ok(format!("{out}\n\n{accepted}"));
         }
-        self.start(t.clone(), Some(update_message(&body)));
+        self.start(t.clone(), Some(update_message(&body, &self.locale)));
         Ok(format!("The window (task_id {task_id}) accepted the request as new work.\n\n{accepted}"))
     }
 
