@@ -1,0 +1,3719 @@
+# Раздел ядра muse → блоки, по порядку. Снято прогоном функции-диспетчера
+# 0xa9b9dc0 (таблица переходов 0x786d40) для каждого номера: она зависит только
+# от номера. block — имя блока; text — где текст: "core 0x…" (вшит в ядро),
+# "file" (файл P/hatch-agent/prompts/<имя>), literal — запись без имени со вставкой.
+# via = "assembler" — диспетчер не отдаёт раздел (None), его раскладывает сборщик
+# агентских подсказок 0xcdbbdf0; via = "unresolved" — разбор не закончен.
+
+[[section]]
+id = "0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/who_you_are.md"
+vars = ["thoughtful_follow_through_principle"]
+text = "core 0x7a1fd5"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/user_chat/who_you_work_for.md"
+text = "core 0x79ff67"
+[[section.block]]
+block = "blocks/user_chat/who_you_work_for_household.md"
+text = "core 0x7a3c8f"
+[[section.block]]
+block = "blocks/user_chat/who_you_work_for_principal.md"
+text = "core 0x7a02c3"
+[[section.block]]
+block = "blocks/user_chat/discretion_and_alignment.md"
+text = "core 0x7a03f0"
+[[section.block]]
+block = "blocks/user_chat/how_you_work.md"
+text = "core 0x7a3fcc"
+[[section.block]]
+block = "blocks/user_chat/how_you_work_limitation.md"
+text = "core 0x7a1e81"
+[[section.block]]
+block = "blocks/user_chat/how_you_work_product_questions.md"
+text = "core 0x7a441b"
+
+[[section]]
+id = "1"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/personalization.md"
+vars = ["alignment_status_pointer"]
+text = "core 0x7a4dc4"
+[[section.block]]
+block = "blocks/user_chat/memory_recall.md"
+vars = ["user_chat_memory_section"]
+text = "core 0x7a5561"
+[[section.block]]
+block = "blocks/chat/relationships.md"
+vars = ["relationships_section"]
+text = "core 0x7a55b6"
+
+[[section]]
+id = "2"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/contextual_awareness.md"
+text = "core 0x7a560d"
+[[section.block]]
+block = "blocks/user_chat/date_time_awareness.md"
+vars = ["current_date_line", "year_anchor_line"]
+text = "core 0x7a5649"
+[[section.block]]
+literal = "\n"
+[[section.block]]
+block = "blocks/chat/timezones_save.md"
+text = "core 0x7a5c49"
+[[section.block]]
+block = "blocks/chat/date_validation_opener.md"
+text = "core 0x7a5e62"
+[[section.block]]
+block = "blocks/chat/date_validation_rest.md"
+vars = ["nearby_dates_reference", "date_batch_check_guidance"]
+text = "core 0x7a5fa4"
+[[section.block]]
+block = "blocks/chat/user_location_awareness.md"
+vars = ["current_location_section"]
+text = "core 0x7a602c"
+
+[[section]]
+id = "3"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/proactivity.md"
+text = "core 0x7a6086"
+
+[[section]]
+id = "4"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/environment.md"
+text = "core 0x7a6d7d"
+[[section.block]]
+block = "blocks/shared/environment/computer.md"
+text = "core 0x7a7587"
+[[section.block]]
+block = "blocks/shared/environment/browser.md"
+text = "core 0x7a763c"
+[[section.block]]
+block = "blocks/user_chat/environment/connected_accounts.md"
+text = "core 0x7a6dd8"
+[[section.block]]
+block = "blocks/user_chat/environment/secure_vault.md"
+text = "core 0x7a6f68"
+[[section.block]]
+block = "blocks/user_chat/environment/wallet.md"
+text = "core 0x7a711e"
+[[section.block]]
+block = "blocks/shared/environment/runtime.md"
+text = "core 0x7a7797"
+[[section.block]]
+block = "blocks/user_chat/environment/deployments.md"
+text = "core 0x7a7361"
+[[section.block]]
+block = "blocks/shared/environment/chats.md"
+text = "core 0x7a78fa"
+[[section.block]]
+literal = ""
+[[section.block]]
+literal = "\n"
+[[section.block]]
+block = "blocks/shared/environment/artifacts.md"
+text = "core 0x7a7bf6"
+[[section.block]]
+block = "blocks/shared/environment/feed.md"
+text = "core 0x7a7f29"
+[[section.block]]
+block = "blocks/shared/environment/user_goals.md"
+text = "core 0x7a817d"
+[[section.block]]
+block = "blocks/shared/environment/tracking.md"
+text = "core 0x7a8424"
+[[section.block]]
+block = "blocks/shared/environment/devices.md"
+text = "core 0x7a866b"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "5"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/tools.md"
+text = "core 0x7a92a8"
+[[section.block]]
+block = "blocks/user_chat/tools_estimates.md"
+text = "core 0x7a877e"
+[[section.block]]
+block = "blocks/user_chat/tools_confirmation.md"
+text = "core 0x7a8883"
+[[section.block]]
+block = "blocks/user_chat/tools_outward_discretion.md"
+text = "core 0x7a8e5d"
+[[section.block]]
+block = "blocks/user_chat/tools_approvals.md"
+vars = ["deep_research_delegation_rule"]
+text = "core 0x7a980d"
+[[section.block]]
+block = "blocks/user_chat/loading_tools.md"
+text = "core 0x7a9c33"
+[[section.block]]
+block = "blocks/anthropic/cedar/loading_tools.md"
+text = "core 0x7a9f64"
+
+[[section]]
+id = "6"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/subagents.md"
+vars = ["subagents_section"]
+text = "core 0x7aa1ed"
+
+[[section]]
+id = "7"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/recurring_work.md"
+text = "core 0x7aadab"
+[[section.block]]
+block = "blocks/user_chat/recurring_work_hooks.md"
+text = "core 0x7aa22d"
+[[section.block]]
+block = "blocks/user_chat/recurring_work_operations.md"
+vars = ["cron_created_acknowledgement"]
+text = "core 0x7aaffb"
+[[section.block]]
+block = "blocks/user_chat/recurring_work_failures.md"
+text = "core 0x7aa366"
+[[section.block]]
+block = "blocks/user_chat/recurring_work_results.md"
+text = "core 0x7aa5d3"
+[[section.block]]
+block = "blocks/user_chat/recurring_work_verification.md"
+text = "core 0x7ab9fe"
+
+[[section]]
+id = "8"
+via = "dispatcher"
+[[section.block]]
+literal = "\n"
+[[section.block]]
+block = "blocks/chat/workspace_files.md"
+text = "core 0x7abc05"
+[[section.block]]
+block = "blocks/chat/runtime_files_list.md"
+text = "core 0x7ad3fc"
+[[section.block]]
+block = "blocks/chat/workspace_files_tail.md"
+text = "core 0x7ac0dd"
+[[section.block]]
+block = "blocks/chat/filesystem.md"
+vars = ["system_prompt_copy_file"]
+text = "core 0x7ad6af"
+[[section.block]]
+block = "blocks/chat/filesystem_memory.md"
+text = "core 0x7adef7"
+[[section.block]]
+literal = "\n"
+[[section.block]]
+block = "blocks/chat/filesystem_workspace.md"
+text = "core 0x7ae136"
+[[section.block]]
+literal = "\n"
+[[section.block]]
+block = "blocks/user_chat/docs.md"
+text = "core 0x7ac111"
+
+[[section]]
+id = "9"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/security.md"
+text = "core 0x7af18d"
+[[section.block]]
+block = "blocks/user_chat/security_secrets.md"
+text = "core 0x7af98c"
+[[section.block]]
+block = "blocks/user_chat/security_service_limits.md"
+text = "core 0x7b0384"
+[[section.block]]
+block = "blocks/user_chat/security_anti_phishing.md"
+text = "core 0x7b05c7"
+[[section.block]]
+block = "blocks/user_chat/security_anti_phishing_tail.md"
+text = "core 0x7b088a"
+
+[[section]]
+id = "a"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/safety_core.md"
+text = "core 0x7b0cb0"
+[[section.block]]
+block = "blocks/chat/safety_oversight.md"
+text = "core 0x7b120b"
+[[section.block]]
+block = "blocks/shared/safety_hard_stops.md"
+text = "core 0x7b1ed6"
+[[section.block]]
+block = "blocks/shared/safety_self_modification.md"
+text = "core 0x7b262c"
+[[section.block]]
+block = "blocks/shared/safety_sensitive_attributes.md"
+text = "core 0x7b26a6"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "b"
+via = "dispatcher"
+[[section.block]]
+literal = "{commentary_visibility}"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "c"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/context_and_active_work.md"
+text = "core 0x7b2ac0"
+
+[[section]]
+id = "d"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/taking_ownership.md"
+vars = ["offer_options_guidance"]
+text = "core 0x7b2b06"
+
+[[section]]
+id = "e"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/memory_search_baseline.md"
+text = "core 0x7b333e"
+[[section.block]]
+block = "blocks/user_chat/retaining_memories.md"
+text = "core 0x7b5ae5"
+[[section.block]]
+block = "blocks/user_chat/memory_correction_baseline.md"
+text = "core 0x7b69e9"
+[[section.block]]
+block = "blocks/user_chat/memory_scope_and_custody.md"
+text = "core 0x7b6eb9"
+
+[[section]]
+id = "10"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/active_work.md"
+text = "core 0x7b871c"
+[[section.block]]
+block = "blocks/user_chat/active_work_blockers.md"
+text = "core 0x7b7bff"
+[[section.block]]
+block = "blocks/user_chat/active_work_updates.md"
+text = "core 0x7b8de3"
+[[section.block]]
+block = "blocks/user_chat/active_work_finishing.md"
+text = "core 0x7b801e"
+
+[[section]]
+id = "11"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/due_diligence.md"
+text = "core 0x7b98d6"
+[[section.block]]
+block = "blocks/user_chat/due_diligence_follow_ups.md"
+text = "core 0x7b93b3"
+[[section.block]]
+block = "blocks/user_chat/due_diligence_live_information.md"
+text = "core 0x7badc7"
+
+[[section]]
+id = "12"
+via = "assembler"
+
+[[section]]
+id = "13"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/turn_recollection_reminder.md"
+text = "core 0x7bbc21"
+[[section.block]]
+block = "blocks/user_chat/turn_diligence_reminder.md"
+text = "core 0x7bd188"
+
+[[section]]
+id = "14"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/turn_commentary_instructions.md"
+text = "core 0x7bd590"
+
+[[section]]
+id = "15"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/identifiers_and_dates.md"
+text = "core 0x7bd5d8"
+
+[[section]]
+id = "16"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/security_operations.md"
+text = "core 0x7bd875"
+[[section.block]]
+block = "blocks/user_chat/security_operations_anti_phishing.md"
+text = "core 0x7be675"
+[[section.block]]
+block = "blocks/user_chat/security_operations_disclosure.md"
+text = "core 0x7be8c5"
+[[section.block]]
+block = "blocks/user_chat/security_operations_sensitive_values.md"
+text = "core 0x7bf20f"
+
+[[section]]
+id = "17"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/working_with_tools.md"
+text = "core 0x7bf7c8"
+[[section.block]]
+block = "blocks/user_chat/shared_spaces.md"
+text = "core 0x7bfdb4"
+
+[[section]]
+id = "18"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/service_limits.md"
+text = "core 0x7bff31"
+
+[[section]]
+id = "19"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/browser_and_sources.md"
+text = "core 0x7c054a"
+[[section.block]]
+block = "blocks/user_chat/browser_and_sources_handoffs.md"
+text = "core 0x7c12fa"
+[[section.block]]
+block = "blocks/user_chat/browser_and_sources_places.md"
+text = "core 0x7c1c51"
+
+[[section]]
+id = "1a"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/secure_vault.md"
+text = "core 0x7c25a0"
+[[section.block]]
+block = "blocks/user_chat/secure_vault_entry_card.md"
+text = "core 0x7c1e52"
+[[section.block]]
+block = "blocks/user_chat/secure_vault_credentials.md"
+text = "core 0x7c2ede"
+[[section.block]]
+block = "blocks/user_chat/secure_vault_code_from_user.md"
+text = "core 0x7c2117"
+[[section.block]]
+block = "blocks/user_chat/secure_vault_resend.md"
+text = "core 0x7c46d3"
+
+[[section]]
+id = "1b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/captchas.md"
+text = "core 0x7c4a74"
+
+[[section]]
+id = "1c"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/purchases.md"
+text = "core 0x7c531b"
+
+[[section]]
+id = "1d"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/recurring_work_recovery.md"
+text = "core 0x7c61f9"
+
+[[section]]
+id = "1e"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/communication_and_delivery.md"
+text = "core 0x7c66e6"
+
+[[section]]
+id = "1f"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/conversation.md"
+text = "core 0x7c6974"
+
+[[section]]
+id = "20"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/peer_collaboration.md"
+text = "core 0x7c87d7"
+
+[[section]]
+id = "21"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/artifacts.md"
+text = "core 0x7d2c71"
+
+[[section]]
+id = "22"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/background_results.md"
+text = "core 0x7d2f5c"
+[[section.block]]
+block = "blocks/user_chat/background_results_silence.md"
+text = "core 0x7d32dc"
+[[section.block]]
+block = "blocks/user_chat/proactivity_guidance.md"
+text = "core 0x7d35f5"
+[[section.block]]
+block = "blocks/user_chat/background_results_delivery.md"
+text = "core 0x7d3b0b"
+
+[[section]]
+id = "23"
+via = "assembler"
+
+[[section]]
+id = "24"
+via = "assembler"
+
+[[section]]
+id = "25"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/who_you_are.md"
+vars = ["thoughtful_follow_through_principle"]
+text = "core 0x7a1fd5"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+
+[[section]]
+id = "26"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/background/objective_step.md"
+text = "file"
+
+[[section]]
+id = "27"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/conversation_context.md"
+text = "core 0x7df5d1"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "28"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/current_conversation.md"
+text = "core 0x7df9be"
+
+[[section]]
+id = "29"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/group_muse.md"
+vars = ["group_platform"]
+text = "core 0x7dfef4"
+
+[[section]]
+id = "2d"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/chats.md"
+vars = ["chats_section"]
+text = "core 0x7e3989"
+
+[[section]]
+id = "2f"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/filesystem.md"
+vars = ["system_prompt_copy_file"]
+text = "core 0x7ad6af"
+[[section.block]]
+block = "blocks/chat/filesystem_memory.md"
+text = "core 0x7adef7"
+[[section.block]]
+literal = "\n"
+[[section.block]]
+block = "blocks/chat/filesystem_workspace.md"
+text = "core 0x7ae136"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "30"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/how_you_evolve.md"
+vars = ["self_evolution_section"]
+text = "core 0x7e3c65"
+
+[[section]]
+id = "31"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/keeping_track_of_active_work.md"
+text = "core 0x7e3cb2"
+
+[[section]]
+id = "32"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/managing_context_opener.md"
+text = "core 0x7e5647"
+[[section.block]]
+block = "blocks/shared/managing_context_body.md"
+text = "core 0x7e58fa"
+[[section.block]]
+block = "blocks/chat/managing_context_retention.md"
+text = "core 0x7e5a86"
+[[section.block]]
+block = "blocks/chat/managing_context_chat_history.md"
+text = "core 0x7e57fb"
+
+[[section]]
+id = "34"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/response_formatting.md"
+text = "core 0x7e20ca"
+[[section.block]]
+block = "blocks/chat/response_formatting_structured_content.md"
+text = "core 0x7e5e81"
+[[section.block]]
+block = "blocks/chat/response_formatting_markdown.md"
+text = "core 0x7e216e"
+[[section.block]]
+block = "blocks/chat/response_formatting_message_breaks.md"
+text = "core 0x7e1f1d"
+[[section.block]]
+block = "blocks/chat/response_formatting_links.md"
+text = "core 0x7e263f"
+[[section.block]]
+block = "blocks/chat/response_formatting_product_links.md"
+text = "core 0x7e5f83"
+[[section.block]]
+block = "blocks/chat/response_formatting_link_labels.md"
+text = "core 0x7e2a74"
+[[section.block]]
+block = "blocks/chat/response_formatting_citations.md"
+text = "core 0x7e60c6"
+[[section.block]]
+block = "blocks/chat/response_formatting_attachments.md"
+vars = ["voice_message_guidance"]
+text = "core 0x7e30e4"
+[[section.block]]
+block = "blocks/chat/response_formatting_connect_links.md"
+text = "core 0x7e35fc"
+[[section.block]]
+block = "blocks/chat/response_formatting_interactive_ui.md"
+text = "core 0x7e6205"
+[[section.block]]
+block = "blocks/anthropic/cedar/response_formatting_widgets.md"
+text = "core 0x7e64eb"
+[[section.block]]
+block = "blocks/chat/response_formatting_reactions.md"
+vars = ["reacji_bullet"]
+text = "core 0x48e780"
+
+[[section]]
+id = "35"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/safety_core_conversational.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/safety_oversight.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_self_modification.md"
+text = "core 0x7b262c"
+[[section.block]]
+block = "blocks/shared/safety_sensitive_attributes.md"
+text = "core 0x7b26a6"
+[[section.block]]
+block = "blocks/shared/safety_delegated_authority_requester.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/safety_credentials.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_credentials_transient_limits.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_connections.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_user_choice.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_alignment_task.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_trust.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_security_policy.md"
+vars = ["prompt_injection_defense"]
+text = "file"
+
+[[section]]
+id = "36"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/scheduled_work_mechanics.md"
+vars = ["cron_created_acknowledgement"]
+text = "file"
+
+[[section]]
+id = "37"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/writing_style.md"
+text = "core 0x7e73e1"
+[[section.block]]
+block = "blocks/chat/writing_style_follow_ups.md"
+text = "core 0x7e7192"
+[[section.block]]
+block = "blocks/chat/writing_style_brevity.md"
+text = "core 0x7e903c"
+
+[[section]]
+id = "38"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/task_acknowledgment.md"
+text = "core 0x7e9364"
+
+[[section]]
+id = "39"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/tools_intro.md"
+text = "core 0x7e962f"
+[[section.block]]
+block = "blocks/shared/tool_rules_reporting_truth.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tool_rules_no_time_guesses.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/tool_rules.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tools_runtime_pointer.md"
+text = "file"
+[[section.block]]
+block = "blocks/anthropic/cedar/tools_runtime_pointer.md"
+text = "file"
+
+[[section]]
+id = "3a"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/self_improvement/tools.md"
+text = "file"
+
+[[section]]
+id = "3b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/runtime.md"
+vars = ["runtime_facts"]
+text = "core 0x7e9b37"
+
+[[section]]
+id = "3c"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/subagents.md"
+vars = ["subagents_section"]
+text = "core 0x7aa1ed"
+
+[[section]]
+id = "3d"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/temporal_awareness_window_only.md"
+vars = ["temporal_awareness_window"]
+text = "file"
+
+[[section]]
+id = "3e"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/tools_sync_worker.md"
+text = "file"
+
+[[section]]
+id = "3f"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/agent/memory.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/memory_recall_opening.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/memory_recall_doctrine.md"
+text = "core 0x7e9e25"
+[[section.block]]
+block = "blocks/agent/person_records.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/memory_read_only.md"
+text = "file"
+
+[[section]]
+id = "40"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/agent/memory.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/memory_recall_opening.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/memory_recall_doctrine.md"
+text = "core 0x7e9e25"
+[[section.block]]
+block = "blocks/agent/person_records.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/memory_read_only_worker.md"
+text = "file"
+
+[[section]]
+id = "41"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/agent/managing_context_opener_worker.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/managing_context_body.md"
+text = "core 0x7e58fa"
+[[section.block]]
+block = "blocks/agent/managing_context_retention_worker.md"
+text = "file"
+
+[[section]]
+id = "42"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/agent/reporting_back.md"
+text = "file"
+
+[[section]]
+id = "43"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/agent/who_you_are.md"
+vars = ["subagent_identity_intro", "history_inheritance_section"]
+text = "file"
+
+[[section]]
+id = "44"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/agent/workspace_files.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/runtime_files_list.md"
+text = "file"
+
+[[section]]
+id = "45"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/agent/your_environment_intro.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/environment/computer.md"
+text = "core 0x7a7587"
+[[section.block]]
+block = "blocks/agent/environment_browser.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/environment/runtime.md"
+text = "core 0x7a7797"
+[[section.block]]
+block = "blocks/agent/environment_chats.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/environment_artifacts_slot.md"
+vars = ["artifacts_environment_entry"]
+text = "file"
+[[section.block]]
+block = "blocks/agent/environment_feed.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/environment/user_goals.md"
+text = "core 0x7a817d"
+[[section.block]]
+block = "blocks/shared/environment/tracking.md"
+text = "core 0x7a8424"
+[[section.block]]
+block = "blocks/shared/environment/devices.md"
+text = "core 0x7a866b"
+[[section.block]]
+block = "blocks/agent/your_requester.md"
+vars = ["requester_description"]
+text = "file"
+
+[[section]]
+id = "46"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/artifacts/shared/content_integrity_core.md"
+text = "file"
+
+[[section]]
+id = "47"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/artifacts/shared/content_integrity_url_resolution.md"
+text = "file"
+
+[[section]]
+id = "48"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/artifacts/shared/respect_and_trust.md"
+text = "file"
+
+[[section]]
+id = "49"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/web_artifacts_inspector/who_you_are.md"
+vars = ["history_inheritance_section"]
+text = "file"
+
+[[section]]
+id = "4a"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/web_artifacts_inspector/tools.md"
+text = "file"
+[[section.block]]
+block = "blocks/anthropic/cedar/web_artifacts_inspector_tools.md"
+text = "file"
+
+[[section]]
+id = "4b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/web_artifacts_inspector/required_workflow.md"
+text = "file"
+
+[[section]]
+id = "4c"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/spaces_builder/new_preamble.md"
+text = "file"
+
+[[section]]
+id = "4d"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/spaces_builder/edit_preamble.md"
+text = "file"
+
+[[section]]
+id = "4e"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/artifacts/shared/web_builder_request_context.md"
+vars = ["history_inheritance_section"]
+text = "file"
+[[section.block]]
+block = "blocks/spaces_builder/builder_head.md"
+text = "file"
+
+[[section]]
+id = "4f"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/spaces_builder/sourcing_storage_and_media.md"
+vars = ["artifact_image_guidance", "web_builder_generated_media_source_guidance", "web_builder_generated_media_fallback_guidance", "artifact_content_playbooks"]
+text = "file"
+
+[[section]]
+id = "50"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/spaces_builder/new_visual_design.md"
+text = "file"
+[[section.block]]
+block = "blocks/spaces_builder/visual_design_cards.md"
+vars = ["space_template_visual_design"]
+text = "file"
+
+[[section]]
+id = "51"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/spaces_builder/edit_visual_design.md"
+vars = ["space_template_edit_color_rules"]
+text = "file"
+[[section.block]]
+block = "blocks/spaces_builder/visual_design_cards.md"
+vars = ["space_template_visual_design"]
+text = "file"
+
+[[section]]
+id = "52"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/spaces_builder/edit_assets_and_settings.md"
+text = "file"
+
+[[section]]
+id = "53"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/spaces_builder/tools_and_completion.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tools_runtime_pointer_untruncated.md"
+text = "file"
+[[section.block]]
+block = "blocks/artifacts/shared/web_builder_completion.md"
+text = "file"
+
+[[section]]
+id = "54"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/artifacts/shared/edit_results.md"
+text = "file"
+
+[[section]]
+id = "55"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/artifacts/shared/design_reference.md"
+text = "file"
+
+[[section]]
+id = "56"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/artifacts/shared/taste_check.md"
+text = "file"
+
+[[section]]
+id = "57"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/artifacts/shared/html_content_and_layout.md"
+vars = ["artifact_image_guidance"]
+text = "file"
+[[section.block]]
+block = "blocks/artifacts/shared/html_live_page.md"
+vars = ["space_template_static_color_rules"]
+text = "file"
+[[section.block]]
+block = "blocks/artifacts/shared/html_web_assets.md"
+vars = ["artifact_content_playbooks"]
+text = "file"
+[[section.block]]
+block = "blocks/artifacts/shared/html_quality_bar.md"
+text = "file"
+
+[[section]]
+id = "58"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/spaces_builder_lite/who_you_are.md"
+text = "file"
+[[section.block]]
+block = "blocks/artifacts/shared/web_builder_request_context.md"
+vars = ["history_inheritance_section"]
+text = "file"
+
+[[section]]
+id = "59"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/spaces_builder_lite/environment.md"
+text = "file"
+
+[[section]]
+id = "5a"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/spaces_builder_lite/workflow.md"
+vars = ["lite_create_verify_steps"]
+text = "file"
+[[section.block]]
+block = "blocks/artifacts/shared/web_builder_completion.md"
+text = "file"
+
+[[section]]
+id = "5b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/spaces_builder_lite/authoring_constraints.md"
+text = "file"
+
+[[section]]
+id = "5c"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/spaces_builder_lite/filesystem.md"
+text = "file"
+
+[[section]]
+id = "5d"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/spaces_builder_lite/edit_who_you_are.md"
+text = "file"
+[[section.block]]
+block = "blocks/artifacts/shared/web_builder_request_context.md"
+vars = ["history_inheritance_section"]
+text = "file"
+
+[[section]]
+id = "5e"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/spaces_builder_lite/edit_environment.md"
+text = "file"
+
+[[section]]
+id = "5f"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/spaces_builder_lite/edit_workflow.md"
+vars = ["lite_edit_verify_steps"]
+text = "file"
+[[section.block]]
+block = "blocks/artifacts/shared/web_builder_completion.md"
+text = "file"
+
+[[section]]
+id = "60"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/space_task/who_you_are.md"
+vars = ["history_inheritance_section"]
+text = "file"
+
+[[section]]
+id = "61"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/space_task/environment.md"
+text = "file"
+
+[[section]]
+id = "62"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/space_task/artifact_actions.md"
+text = "file"
+
+[[section]]
+id = "63"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/space_task/task_completion.md"
+text = "file"
+
+[[section]]
+id = "64"
+via = "unresolved"
+note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+
+[[section]]
+id = "65"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/browser/checkout_preapproval.md"
+vars = ["checkout_preapproval"]
+text = "file"
+
+[[section]]
+id = "66"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/deep_research/who_you_are.md"
+text = "file"
+
+[[section]]
+id = "67"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/deep_research/your_environment.md"
+text = "file"
+
+[[section]]
+id = "68"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/deep_research/assignment.md"
+text = "file"
+
+[[section]]
+id = "69"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/deep_research/tools.md"
+vars = ["tooling_lines"]
+text = "file"
+
+[[section]]
+id = "6a"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/deep_research/how_you_work.md"
+text = "file"
+
+[[section]]
+id = "6b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/deep_research/safety.md"
+text = "file"
+
+[[section]]
+id = "6c"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/deep_research/reporting_back.md"
+text = "file"
+
+[[section]]
+id = "6d"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/ideas_builder/activation_authored_execution.md"
+text = "file"
+
+[[section]]
+id = "6e"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/ideas_builder/build_contract.md"
+vars = ["ideas_builder_avatar_schedule_guidance"]
+text = "file"
+
+[[section]]
+id = "6f"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/ideas_builder/completion_checks.md"
+text = "file"
+
+[[section]]
+id = "70"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/ideas_builder/data_and_access.md"
+text = "file"
+
+[[section]]
+id = "71"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/ideas_builder/output_guidance.md"
+text = "file"
+
+[[section]]
+id = "72"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/ideas_builder/reporting_back.md"
+vars = ["ideas_build_hand_off_tool_name"]
+text = "file"
+
+[[section]]
+id = "73"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/ideas_builder/who_you_are.md"
+vars = ["history_inheritance_section"]
+text = "file"
+
+[[section]]
+id = "74"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/ideas_builder/workflow_backed_ideas.md"
+text = "file"
+
+[[section]]
+id = "75"
+via = "unresolved"
+note = "STOP call callq	*0x1f10f8e9(%rip)       # 0x29ace378"
+
+[[section]]
+id = "76"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/device_sync/decision_policy.md"
+text = "file"
+
+[[section]]
+id = "77"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/device_sync/guidelines.md"
+text = "file"
+
+[[section]]
+id = "78"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/device_sync/temporal_awareness.md"
+vars = ["temporal_awareness_window"]
+text = "file"
+
+[[section]]
+id = "79"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/device_sync/tool_call_style.md"
+text = "file"
+
+[[section]]
+id = "7a"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/media_upload/decision_policy.md"
+text = "file"
+
+[[section]]
+id = "7b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/media_upload/tool_call_style.md"
+text = "file"
+
+[[section]]
+id = "7c"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/event_hook/filesystem.md"
+text = "file"
+
+[[section]]
+id = "7d"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/event_hook/how_this_run_works.md"
+text = "file"
+
+[[section]]
+id = "7e"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/event_hook/tools.md"
+text = "file"
+
+[[section]]
+id = "7f"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/event_hook/who_you_are.md"
+text = "file"
+
+[[section]]
+id = "80"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/context_worker/who_you_are.md"
+text = "file"
+
+[[section]]
+id = "81"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/proactivity/system.md"
+vars = ["prepared_proactivity_system"]
+text = "file"
+
+[[section]]
+id = "82"
+via = "assembler"
+
+[[section]]
+id = "83"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/group_identity.md"
+text = "file"
+
+[[section]]
+id = "84"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/group_social_room.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/worker.md"
+text = "file"
+
+[[section]]
+id = "85"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/group_collaboration.md"
+text = "file"
+
+[[section]]
+id = "86"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/social_norms.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/group_participation.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/social_etiquette.md"
+text = "file"
+
+[[section]]
+id = "87"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/participation.md"
+text = "file"
+
+[[section]]
+id = "88"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/tracking.md"
+vars = ["chat_id"]
+text = "file"
+
+[[section]]
+id = "89"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/system.md"
+text = "file"
+
+[[section]]
+id = "8a"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/discretion/peer_guidance.md"
+vars = ["chat_id", "policy"]
+text = "file"
+
+[[section]]
+id = "8b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/company_conversation/worker.md"
+text = "file"
+
+[[section]]
+id = "8c"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/group_chat/state.md"
+vars = ["state"]
+text = "file"
+
+[[section]]
+id = "8d"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/group_chat/muse_coordination.md"
+text = "file"
+
+[[section]]
+id = "8e"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/muse_coordination.md"
+text = "file"
+
+[[section]]
+id = "8f"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/group_chat/memory.md"
+vars = ["chat_id", "memory_directory"]
+text = "file"
+
+[[section]]
+id = "90"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/discretion/discretion_guidance.md"
+vars = ["path", "policy"]
+text = "file"
+
+[[section]]
+id = "91"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/discretion/descendant_guidance.md"
+vars = ["chat_id", "policy"]
+text = "file"
+
+[[section]]
+id = "92"
+via = "dispatcher"
+[[section.block]]
+block = "session/peer_scope_block.md"
+vars = ["counterpart_line", "level_note", "reconnected_at", "verification_line"]
+text = "core 0x7eda82"
+
+[[section]]
+id = "93"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/context_worker/environment.md"
+text = "file"
+
+[[section]]
+id = "94"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/context_worker/tools.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tools_runtime_pointer_untruncated.md"
+text = "file"
+
+[[section]]
+id = "95"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/scheduler_worker/how_this_run_ends.md"
+text = "file"
+
+[[section]]
+id = "96"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/scheduler_worker/who_you_are.md"
+text = "file"
+
+[[section]]
+id = "97"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/agent/your_environment_intro.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/environment/computer.md"
+text = "core 0x7a7587"
+[[section.block]]
+block = "blocks/agent/environment_browser_worker.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/environment_runtime_worker.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/environment_chats.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/environment_artifacts_slot.md"
+vars = ["artifacts_environment_entry"]
+text = "file"
+[[section.block]]
+block = "blocks/agent/environment_feed.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/environment/user_goals.md"
+text = "core 0x7a817d"
+[[section.block]]
+block = "blocks/shared/environment/tracking.md"
+text = "core 0x7a8424"
+[[section.block]]
+block = "blocks/agent/environment_scheduled_work_worker.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "98"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/scheduler_resolution/temporal_awareness.md"
+vars = ["temporal_awareness_window"]
+text = "file"
+
+[[section]]
+id = "99"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/scheduler_resolution/tool_call_style.md"
+text = "file"
+
+[[section]]
+id = "9a"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/scheduler_resolution/tools.md"
+text = "file"
+
+[[section]]
+id = "9b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/scheduler_resolution/who_you_are.md"
+text = "file"
+
+[[section]]
+id = "9c"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/memory_flush/who_you_are.md"
+text = "file"
+
+[[section]]
+id = "ab"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/core.md"
+vars = ["hatch_environment", "security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "ac"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/_shared/system/product_step.md"
+vars = ["security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "ad"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/_shared/system/product_pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "ae"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/steps/research_user_context.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "b0"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/proactive_notifier/urgency.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "b1"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/style_guide.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "b2"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/environment.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+[[section.block]]
+block = "self_improvement/ideas/feasibility_horizon.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "b3"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/capabilities.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "b4"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/goals_bookkeeping/system/ledger.md"
+vars = ["connection_tracking_guidance"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "b5"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/_shared/system/person_records.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "b7"
+via = "assembler"
+
+[[section]]
+id = "b8"
+via = "assembler"
+
+[[section]]
+id = "b9"
+via = "assembler"
+
+[[section]]
+id = "ba"
+via = "assembler"
+
+[[section]]
+id = "bb"
+via = "assembler"
+
+[[section]]
+id = "bc"
+via = "assembler"
+
+[[section]]
+id = "bd"
+via = "assembler"
+
+[[section]]
+id = "be"
+via = "assembler"
+
+[[section]]
+id = "bf"
+via = "assembler"
+
+[[section]]
+id = "c0"
+via = "assembler"
+
+[[section]]
+id = "c1"
+via = "assembler"
+
+[[section]]
+id = "c2"
+via = "assembler"
+
+[[section]]
+id = "c3"
+via = "assembler"
+
+[[section]]
+id = "c4"
+via = "assembler"
+
+[[section]]
+id = "c5"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/grounding.md"
+text = "file"
+
+[[section]]
+id = "c6"
+via = "assembler"
+
+[[section]]
+id = "c7"
+via = "assembler"
+
+[[section]]
+id = "c8"
+via = "assembler"
+
+[[section]]
+id = "c9"
+via = "assembler"
+
+[[section]]
+id = "ca"
+via = "dispatcher"
+[[section.block]]
+block = "session/connectors.md"
+text = "core 0x7f0ea6"
+
+[[section]]
+id = "cb"
+via = "dispatcher"
+[[section.block]]
+block = "session/saved_credentials.md"
+vars = ["website_logins"]
+text = "core 0x7f1364"
+
+[[section]]
+id = "cc"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/identifier_standing_rule.md"
+text = "file"
+
+[[section]]
+id = "cd"
+via = "dispatcher"
+[[section.block]]
+block = "turn_commentary_guidance.md"
+text = "core 0x7f1cd4"
+
+[[section]]
+id = "ce"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/plain_language_head.md"
+text = "file"
+
+[[section]]
+id = "d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/space_request.md"
+text = "core 0x7daf25"
+
+[[section]]
+id = "125"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/safety.md"
+text = "file"
+[[section.block]]
+block = "blocks/chat/safety_oversight.md"
+text = "core 0x7b120b"
+[[section.block]]
+block = "blocks/shared/safety_hard_stops.md"
+text = "core 0x7b1ed6"
+[[section.block]]
+block = "blocks/shared/safety_self_modification.md"
+text = "core 0x7b262c"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "126"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/background/execute_resolve.md"
+text = "file"
+
+[[section]]
+id = "12e"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/contextual_awareness.md"
+text = "core 0x7a560d"
+[[section.block]]
+block = "blocks/chat/date_time_awareness_head.md"
+vars = ["current_date_line", "year_anchor_line", "time_tag_placement"]
+text = "file"
+[[section.block]]
+block = "blocks/agent/timezones_trust.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/date_validation_opener.md"
+text = "file"
+[[section.block]]
+block = "blocks/chat/date_validation_rest.md"
+vars = ["nearby_dates_reference", "date_batch_check_guidance"]
+text = "core 0x7a5fa4"
+[[section.block]]
+block = "blocks/agent/identifier_validation.md"
+text = "file"
+
+[[section]]
+id = "132"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/agent/managing_context_opener.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/managing_context_body.md"
+text = "core 0x7e58fa"
+[[section.block]]
+block = "blocks/agent/managing_context_retention.md"
+text = "file"
+
+[[section]]
+id = "133"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/prompt_injection_defense.md"
+vars = ["prompt_injection_defense"]
+text = "file"
+
+[[section]]
+id = "135"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/safety_core_conversational.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/safety_oversight.md"
+text = "file"
+[[section.block]]
+block = "blocks/ideas_builder/safety_self_modification.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_sensitive_attributes.md"
+text = "core 0x7b26a6"
+[[section.block]]
+block = "blocks/shared/safety_delegated_authority_requester.md"
+text = "file"
+[[section.block]]
+block = "blocks/ideas_builder/safety_credentials.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_connections.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_user_choice.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_alignment_task.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_trust.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_security_policy.md"
+vars = ["prompt_injection_defense"]
+text = "file"
+
+[[section]]
+id = "139"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/tools_intro.md"
+text = "core 0x7e962f"
+[[section.block]]
+block = "blocks/shared/tool_rules_reporting_truth.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tool_rules_no_time_guesses.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/tool_rules.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tool_rules_builder_batching.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tools_runtime_pointer_untruncated.md"
+text = "file"
+
+[[section]]
+id = "13b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/runtime.md"
+vars = ["runtime_facts"]
+text = "core 0x7e9b37"
+
+[[section]]
+id = "164"
+via = "unresolved"
+note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+
+[[section]]
+id = "186"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/social_norms.md"
+text = "file"
+[[section.block]]
+block = "blocks/peer_chat/social_participation.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/social_etiquette.md"
+text = "file"
+
+[[section]]
+id = "1ab"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/relationships/system/core.md"
+vars = ["security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1ae"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/relationships/system/pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/steps/research_goals.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/artifact_annotations.md"
+text = "core 0x7db03a"
+
+[[section]]
+id = "200"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/who_you_are.md"
+vars = ["thoughtful_follow_through_principle"]
+text = "core 0x7a1fd5"
+[[section.block]]
+block = "blocks/shared/who_built_you.md"
+text = "core 0x7a3aa3"
+[[section.block]]
+block = "blocks/side_chat/who_you_work_for.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/who_you_work_for_household.md"
+text = "core 0x7a3c8f"
+[[section.block]]
+block = "blocks/side_chat/discretion_and_alignment.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/how_you_work.md"
+text = "core 0x7a3fcc"
+[[section.block]]
+block = "blocks/side_chat/how_you_work_limitation.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/how_you_work_product_questions.md"
+text = "core 0x7a441b"
+
+[[section]]
+id = "202"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/contextual_awareness.md"
+text = "core 0x7a560d"
+[[section.block]]
+block = "blocks/user_chat/date_time_awareness.md"
+vars = ["current_date_line", "year_anchor_line"]
+text = "core 0x7a5649"
+[[section.block]]
+literal = "\n"
+[[section.block]]
+block = "blocks/chat/timezones_save.md"
+text = "core 0x7a5c49"
+[[section.block]]
+block = "blocks/chat/date_validation_opener.md"
+text = "core 0x7a5e62"
+[[section.block]]
+block = "blocks/chat/date_validation_rest.md"
+vars = ["nearby_dates_reference", "date_batch_check_guidance"]
+text = "core 0x7a5fa4"
+[[section.block]]
+block = "blocks/chat/user_location_awareness.md"
+vars = ["current_location_section"]
+text = "core 0x7a602c"
+
+[[section]]
+id = "204"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/environment.md"
+text = "core 0x7a6d7d"
+[[section.block]]
+block = "blocks/shared/environment/computer.md"
+text = "core 0x7a7587"
+[[section.block]]
+block = "blocks/shared/environment/browser.md"
+text = "core 0x7a763c"
+[[section.block]]
+block = "blocks/user_chat/environment/connected_accounts.md"
+text = "core 0x7a6dd8"
+[[section.block]]
+block = "blocks/user_chat/environment/secure_vault.md"
+text = "core 0x7a6f68"
+[[section.block]]
+block = "blocks/user_chat/environment/wallet.md"
+text = "core 0x7a711e"
+[[section.block]]
+block = "blocks/shared/environment/runtime.md"
+text = "core 0x7a7797"
+[[section.block]]
+block = "blocks/user_chat/environment/deployments.md"
+text = "core 0x7a7361"
+[[section.block]]
+block = "blocks/shared/environment/chats.md"
+text = "core 0x7a78fa"
+[[section.block]]
+block = "blocks/side_chat/environment_chats.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+[[section.block]]
+block = "blocks/shared/environment/artifacts.md"
+text = "core 0x7a7bf6"
+[[section.block]]
+block = "blocks/shared/environment/feed.md"
+text = "core 0x7a7f29"
+[[section.block]]
+block = "blocks/shared/environment/user_goals.md"
+text = "core 0x7a817d"
+[[section.block]]
+block = "blocks/shared/environment/tracking.md"
+text = "core 0x7a8424"
+[[section.block]]
+block = "blocks/shared/environment/devices.md"
+text = "core 0x7a866b"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "205"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/tools.md"
+text = "core 0x7a92a8"
+[[section.block]]
+block = "blocks/side_chat/tools_estimates.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/tools_confirmation.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/tools_outward_discretion.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/tools_approvals.md"
+vars = ["deep_research_delegation_rule"]
+text = "core 0x7a980d"
+[[section.block]]
+block = "blocks/user_chat/loading_tools.md"
+text = "core 0x7a9c33"
+[[section.block]]
+block = "blocks/anthropic/cedar/loading_tools.md"
+text = "core 0x7a9f64"
+
+[[section]]
+id = "206"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/subagents.md"
+vars = ["subagents_section"]
+text = "core 0x7aa1ed"
+
+[[section]]
+id = "207"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/recurring_work.md"
+text = "core 0x7aadab"
+[[section.block]]
+block = "blocks/side_chat/recurring_work_hooks.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/recurring_work_operations.md"
+vars = ["cron_created_acknowledgement"]
+text = "core 0x7aaffb"
+[[section.block]]
+block = "blocks/side_chat/recurring_work_failures.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/recurring_work_results.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/recurring_work_verification.md"
+text = "core 0x7ab9fe"
+
+[[section]]
+id = "209"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/security.md"
+text = "core 0x7af18d"
+[[section.block]]
+block = "blocks/side_chat/security_requests_here.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/security_secrets.md"
+text = "core 0x7af98c"
+[[section.block]]
+block = "blocks/side_chat/security_discretion_policy_authorization.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/security_service_limits.md"
+text = "core 0x7b0384"
+[[section.block]]
+block = "blocks/user_chat/security_anti_phishing.md"
+text = "core 0x7b05c7"
+[[section.block]]
+block = "blocks/side_chat/anti_phishing_this_chat.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/security_anti_phishing_tail.md"
+text = "core 0x7b088a"
+
+[[section]]
+id = "20d"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/taking_ownership.md"
+text = "file"
+
+[[section]]
+id = "210"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/active_work.md"
+text = "core 0x7b871c"
+[[section.block]]
+block = "blocks/side_chat/active_work_blockers.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/active_work_updates.md"
+text = "core 0x7b8de3"
+[[section.block]]
+block = "blocks/side_chat/active_work_finishing.md"
+text = "file"
+
+[[section]]
+id = "211"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/due_diligence.md"
+text = "core 0x7b98d6"
+[[section.block]]
+block = "blocks/user_chat/due_diligence_live_information.md"
+text = "core 0x7badc7"
+
+[[section]]
+id = "216"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/security_operations.md"
+text = "core 0x7bd875"
+[[section.block]]
+block = "blocks/side_chat/security_requests_here.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/security_operations_anti_phishing.md"
+text = "core 0x7be675"
+[[section.block]]
+block = "blocks/side_chat/anti_phishing_this_chat.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/security_operations_disclosure.md"
+text = "core 0x7be8c5"
+[[section.block]]
+block = "blocks/side_chat/private_information_this_chat.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/security_operations_sensitive_values.md"
+text = "core 0x7bf20f"
+
+[[section]]
+id = "219"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/browser_and_sources.md"
+text = "core 0x7c054a"
+[[section.block]]
+block = "blocks/side_chat/browser_and_sources_handoffs.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/browser_and_sources_places.md"
+text = "core 0x7c1c51"
+
+[[section]]
+id = "21a"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/secure_vault.md"
+text = "core 0x7c25a0"
+[[section.block]]
+block = "blocks/side_chat/secure_vault_entry_card.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/secure_vault_credentials.md"
+text = "core 0x7c2ede"
+[[section.block]]
+block = "blocks/side_chat/secure_vault_code_from_user.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/secure_vault_resend.md"
+text = "core 0x7c46d3"
+
+[[section]]
+id = "21f"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/conversation.md"
+text = "core 0x7c6974"
+
+[[section]]
+id = "222"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/background_results.md"
+text = "core 0x7d2f5c"
+[[section.block]]
+block = "blocks/user_chat/background_results_silence.md"
+text = "core 0x7d32dc"
+[[section.block]]
+literal = ""
+[[section.block]]
+block = "blocks/side_chat/background_results_delivery.md"
+text = "file"
+
+[[section]]
+id = "224"
+via = "assembler"
+
+[[section]]
+id = "225"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/security.md"
+text = "file"
+
+[[section]]
+id = "226"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/background/mail_conversation.md"
+text = "file"
+
+[[section]]
+id = "22d"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/other_chats.md"
+text = "file"
+
+[[section]]
+id = "231"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/keeping_track_of_active_work.md"
+text = "file"
+
+[[section]]
+id = "232"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/side_chat/managing_context_opener.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/managing_context_body.md"
+text = "core 0x7e58fa"
+[[section.block]]
+block = "blocks/chat/managing_context_retention.md"
+text = "core 0x7e5a86"
+[[section.block]]
+block = "blocks/side_chat/managing_context_chat_history.md"
+text = "file"
+
+[[section]]
+id = "234"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/response_formatting.md"
+text = "core 0x7e20ca"
+[[section.block]]
+block = "blocks/chat/response_formatting_markdown.md"
+text = "core 0x7e216e"
+[[section.block]]
+block = "blocks/chat/response_formatting_links.md"
+text = "core 0x7e263f"
+[[section.block]]
+block = "blocks/side_chat/response_formatting_product_links.md"
+text = "core 0x7e2943"
+[[section.block]]
+block = "blocks/chat/response_formatting_link_labels.md"
+text = "core 0x7e2a74"
+[[section.block]]
+block = "blocks/side_chat/response_formatting_text_and_links.md"
+text = "core 0x7e2e72"
+[[section.block]]
+block = "blocks/side_chat/response_formatting_text_and_links_send.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/response_formatting_text_and_links_instead.md"
+text = "core 0x7e2f50"
+[[section.block]]
+block = "blocks/chat/response_formatting_attachments.md"
+vars = ["voice_message_guidance"]
+text = "core 0x7e30e4"
+[[section.block]]
+block = "blocks/chat/response_formatting_reactions.md"
+vars = ["reacji_bullet"]
+text = "core 0x48e780"
+
+[[section]]
+id = "235"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/safety_core_conversational.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/safety_oversight_detached.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_self_modification.md"
+text = "core 0x7b262c"
+[[section.block]]
+block = "blocks/shared/safety_sensitive_attributes.md"
+text = "core 0x7b26a6"
+[[section.block]]
+block = "blocks/agent/safety_credentials_worker.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_credentials_transient_limits.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_connections.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_user_choice.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_alignment_task.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_trust.md"
+text = "file"
+
+[[section]]
+id = "237"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/writing_style.md"
+text = "core 0x7e73e1"
+[[section.block]]
+block = "blocks/chat/writing_style_brevity.md"
+text = "core 0x7e903c"
+
+[[section]]
+id = "239"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/tools_intro.md"
+text = "core 0x7e962f"
+[[section.block]]
+block = "blocks/shared/tool_rules_reporting_truth.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tool_rules_no_time_guesses.md"
+text = "file"
+[[section.block]]
+block = "blocks/ideas_builder/tool_rules.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tools_runtime_pointer.md"
+text = "file"
+[[section.block]]
+block = "blocks/anthropic/cedar/tools_runtime_pointer.md"
+text = "file"
+
+[[section]]
+id = "23b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/runtime.md"
+vars = ["runtime_facts"]
+text = "core 0x7e9b37"
+
+[[section]]
+id = "264"
+via = "unresolved"
+note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+
+[[section]]
+id = "2ab"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/shopping/system/core.md"
+vars = ["hatch_environment", "security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "2ae"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/shopping/system/pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "2af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/steps/research_capabilities.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "2d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/connection_permission_setup.md"
+vars = ["connection_id"]
+text = "core 0x7db227"
+
+[[section]]
+id = "325"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/conversation.md"
+text = "file"
+
+[[section]]
+id = "326"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/background/verification.md"
+text = "file"
+
+[[section]]
+id = "335"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/safety_core_detached.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_self_modification_detached.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_sensitive_attributes.md"
+text = "core 0x7b26a6"
+[[section.block]]
+block = "blocks/shared/safety_delegated_authority_task.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_credentials_detached_worker.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_connections.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_user_choice.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_alignment_task.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_trust.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_security_policy.md"
+vars = ["prompt_injection_defense"]
+text = "file"
+
+[[section]]
+id = "339"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/tools_intro.md"
+text = "core 0x7e962f"
+[[section.block]]
+block = "blocks/shared/tool_rules_reporting_truth.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tool_rules_no_time_guesses.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tool_rules_detached_approvals.md"
+text = "file"
+[[section.block]]
+block = "blocks/agent/tool_rules_worker.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/tools_runtime_pointer.md"
+text = "file"
+[[section.block]]
+block = "blocks/anthropic/cedar/tools_runtime_pointer.md"
+text = "file"
+
+[[section]]
+id = "33b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/runtime.md"
+vars = ["runtime_facts"]
+text = "core 0x7e9b37"
+
+[[section]]
+id = "364"
+via = "unresolved"
+note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+
+[[section]]
+id = "3ab"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/travel/system/core.md"
+vars = ["hatch_environment", "security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "3ae"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/travel/system/pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "3af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/steps/research_web_discovery.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "3d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/connection_permission_edit.md"
+vars = ["connection_id", "rule_id"]
+text = "core 0x7db514"
+
+[[section]]
+id = "425"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/ownership.md"
+text = "file"
+
+[[section]]
+id = "426"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/background/standing_context.md"
+text = "file"
+
+[[section]]
+id = "435"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/safety_core_detached.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_self_modification_detached.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_sensitive_attributes.md"
+text = "core 0x7b26a6"
+[[section.block]]
+block = "blocks/shared/safety_delegated_authority_task.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_credentials_detached_worker.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_connections.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_user_choice.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_alignment_task.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_trust.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_security_policy.md"
+vars = ["prompt_injection_defense"]
+text = "file"
+
+[[section]]
+id = "43b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/runtime.md"
+vars = ["runtime_facts"]
+text = "core 0x7e9b37"
+
+[[section]]
+id = "464"
+via = "unresolved"
+note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+
+[[section]]
+id = "4ab"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/alignment/system/core.md"
+vars = ["hatch_environment", "security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "4ae"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/alignment/system/pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "4af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/steps/plan.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "4d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/pending_connection_permission_setup.md"
+vars = ["recipient_name"]
+text = "core 0x7db68f"
+
+[[section]]
+id = "525"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/evidence.md"
+text = "file"
+
+[[section]]
+id = "526"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_sync/system.md"
+text = "file"
+
+[[section]]
+id = "535"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/safety_core_detached.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_self_modification_detached.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_sensitive_attributes.md"
+text = "core 0x7b26a6"
+[[section.block]]
+block = "blocks/shared/safety_delegated_authority_task.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_credentials_detached_worker.md"
+text = "file"
+[[section.block]]
+block = "blocks/self_improvement/safety_proposal_boundary.md"
+text = "file"
+
+[[section]]
+id = "53b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/runtime.md"
+vars = ["runtime_facts"]
+text = "core 0x7e9b37"
+
+[[section]]
+id = "564"
+via = "unresolved"
+note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+
+[[section]]
+id = "5ab"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/memory/system/core.md"
+vars = ["security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "5ae"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/memory/system/pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "5af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/steps/draft.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "5d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/shopping_entry_without_commentary.md"
+text = "core 0x7dab75"
+
+[[section]]
+id = "625"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/collaboration.md"
+text = "file"
+
+[[section]]
+id = "626"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_sync/working.md"
+text = "file"
+
+[[section]]
+id = "635"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/safety_core_detached.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_self_modification_detached.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_sensitive_attributes.md"
+text = "core 0x7b26a6"
+[[section.block]]
+block = "blocks/deep_research/discretion.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/discretion_alignment_task.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_security_policy.md"
+vars = ["prompt_injection_defense"]
+text = "file"
+
+[[section]]
+id = "63b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/runtime.md"
+vars = ["runtime_facts"]
+text = "core 0x7e9b37"
+
+[[section]]
+id = "664"
+via = "unresolved"
+note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+
+[[section]]
+id = "6ab"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/studying/system/core.md"
+vars = ["hatch_environment", "security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "6ae"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/studying/system/pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "6af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/steps/rate.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "6d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/voice_device_reply.md"
+text = "core 0x7dba7f"
+
+[[section]]
+id = "725"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/turn_collaboration.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/turn_recollection_reminder.md"
+text = "core 0x7bbc21"
+[[section.block]]
+block = "blocks/side_chat/turn_diligence_reminder.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/turn_memory_discretion.md"
+text = "file"
+
+[[section]]
+id = "726"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_sync/safety.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_hard_stops.md"
+text = "core 0xa36c37"
+[[section.block]]
+block = "blocks/shared/safety_sensitive_attributes.md"
+text = "core 0xa37390"
+[[section.block]]
+block = "blocks/shared/safety_self_modification_detached.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "735"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/memory_flush/safety.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_security_policy.md"
+vars = ["prompt_injection_defense"]
+text = "file"
+
+[[section]]
+id = "73b"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/runtime.md"
+vars = ["runtime_facts"]
+text = "core 0x7e9b37"
+
+[[section]]
+id = "764"
+via = "unresolved"
+note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+
+[[section]]
+id = "7ab"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/skill_improvement/system/core.md"
+vars = ["hatch_environment", "security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "7ae"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/skill_improvement/system/pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "7af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/steps/feed_composer.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "7d0"
+via = "dispatcher"
+[[section.block]]
+text = "core 0x7dbb7c"
+
+[[section]]
+id = "825"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/private_sidebars.md"
+text = "file"
+
+[[section]]
+id = "835"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/scheduler_resolution/safety.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_security_policy.md"
+vars = ["prompt_injection_defense"]
+text = "file"
+
+[[section]]
+id = "864"
+via = "unresolved"
+note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+
+[[section]]
+id = "8ab"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/goals_bookkeeping/system/core.md"
+vars = ["hatch_environment", "security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "8ae"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/goals_bookkeeping/system/pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "8af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/steps/relevance_judge.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "8d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/output_language.md"
+vars = ["locale"]
+text = "core 0x7dbbc8"
+
+[[section]]
+id = "925"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/messages.md"
+text = "file"
+
+[[section]]
+id = "935"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/safety_core_detached.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_sensitive_attributes.md"
+text = "core 0x7b26a6"
+[[section.block]]
+block = "blocks/sync_worker/safety_decision_boundary.md"
+text = "file"
+[[section.block]]
+block = "blocks/shared/safety_security_policy.md"
+vars = ["prompt_injection_defense"]
+text = "file"
+
+[[section]]
+id = "964"
+via = "unresolved"
+note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+
+[[section]]
+id = "9ab"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/flight_tracking/system/core.md"
+vars = ["hatch_environment", "security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "9ae"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/flight_tracking/system/pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "9af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/steps/share_generalize.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "9d0"
+via = "dispatcher"
+[[section.block]]
+block = "cancellation_handoff.md"
+text = "core 0x7dbd41"
+
+[[section]]
+id = "a25"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/chat/writing_style.md"
+text = "core 0x7e73e1"
+[[section.block]]
+block = "blocks/chat/writing_style_brevity.md"
+text = "core 0x7e903c"
+
+[[section]]
+id = "aab"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/proactive_notifier/system/core.md"
+vars = ["hatch_environment", "security_policy"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "aae"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/proactive_notifier/system/pipeline.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "aaf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/ideas/system/steps/share_judge.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "ad0"
+via = "dispatcher"
+[[section.block]]
+text = "core 0x7dbecd"
+
+[[section]]
+id = "b25"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/writing.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/response_formatting_text_and_links.md"
+text = "core 0x7e2e72"
+[[section.block]]
+block = "blocks/side_chat/response_formatting_text_and_links_send.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/response_formatting_text_and_links_instead.md"
+text = "core 0x7e2f50"
+
+[[section]]
+id = "baf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/relationships/system/steps/pages.md"
+vars = ["connection_relationship_guidance"]
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "bd0"
+via = "dispatcher"
+[[section.block]]
+text = "core 0x7dc19e"
+
+[[section]]
+id = "c25"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/user_updates.md"
+text = "file"
+
+[[section]]
+id = "caf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/relationships/system/steps/rank.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "cd0"
+via = "dispatcher"
+[[section.block]]
+block = "session/web_artifact_completion_ownership_handoff.md"
+text = "core 0x7dc2d2"
+
+[[section]]
+id = "d25"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/status.md"
+text = "file"
+
+[[section]]
+id = "daf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/relationships/system/steps/judge.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "dd0"
+via = "dispatcher"
+[[section.block]]
+block = "session/web_artifact_inspection_report_handoff.md"
+text = "core 0x7dc423"
+
+[[section]]
+id = "e25"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/discretion.md"
+text = "file"
+
+[[section]]
+id = "eaf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/shopping/system/steps/profile.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "ed0"
+via = "dispatcher"
+[[section.block]]
+text = "core 0x7dc4dc"
+
+[[section]]
+id = "f25"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/active_work.md"
+text = "core 0x7b871c"
+[[section.block]]
+block = "blocks/peer_chat/active_work_blockers.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/active_work_updates.md"
+text = "core 0x7b8de3"
+[[section.block]]
+block = "blocks/side_chat/active_work_finishing.md"
+text = "file"
+
+[[section]]
+id = "faf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/shopping/system/steps/judge.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "fd0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/idea_activation_refused.md"
+vars = ["reason", "card_title"]
+text = "core 0x7dd62c"
+
+[[section]]
+id = "1025"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/proactivity.md"
+text = "file"
+
+[[section]]
+id = "10af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/travel/system/steps/profile.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "10d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/poppy_command.md"
+vars = ["site"]
+text = "core 0x7dda22"
+
+[[section]]
+id = "1125"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/files.md"
+text = "file"
+
+[[section]]
+id = "11af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/travel/system/steps/judge.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "11d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/poppy_report.md"
+vars = ["site"]
+text = "core 0x7ddca4"
+
+[[section]]
+id = "1225"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/product_questions.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/how_you_work_product_questions.md"
+text = "core 0x7a441b"
+[[section.block]]
+block = "blocks/user_chat/docs.md"
+text = "core 0x7ac111"
+
+[[section]]
+id = "12af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/alignment/system/steps/reflect.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "12d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/group_muse_message.md"
+text = "core 0x7ddf00"
+
+[[section]]
+id = "1325"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/loading_tools.md"
+text = "core 0x7a9c33"
+[[section.block]]
+block = "blocks/anthropic/cedar/loading_tools.md"
+text = "core 0x7a9f64"
+
+[[section]]
+id = "13af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/alignment/system/steps/repair.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "13d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/group_muse_silenced.md"
+text = "core 0x7ddf83"
+
+[[section]]
+id = "1425"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/browser_and_sources.md"
+text = "core 0x7c054a"
+[[section.block]]
+block = "blocks/side_chat/browser_and_sources_handoffs.md"
+text = "file"
+[[section.block]]
+block = "blocks/peer_chat/browser_places.md"
+text = "file"
+
+[[section]]
+id = "14af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/alignment/system/steps/judge.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "14d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/group_muse_silence_ended.md"
+text = "core 0x7de0ed"
+
+[[section]]
+id = "1525"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/user_chat/secure_vault.md"
+text = "core 0x7c25a0"
+[[section.block]]
+block = "blocks/side_chat/secure_vault_entry_card.md"
+text = "file"
+[[section.block]]
+block = "blocks/peer_chat/secure_vault_credentials.md"
+text = "file"
+[[section.block]]
+block = "blocks/side_chat/secure_vault_code_from_user.md"
+text = "file"
+[[section.block]]
+block = "blocks/user_chat/secure_vault_resend.md"
+text = "core 0x7c46d3"
+
+[[section]]
+id = "15af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/memory/system/steps/extract.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "15d0"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/turn_directives/proactive_reads_granted.md"
+text = "core 0x7de1f3"
+
+[[section]]
+id = "1625"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/card_numbers.md"
+text = "file"
+
+[[section]]
+id = "16af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/memory/system/steps/reconcile.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1725"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/shared/subagents.md"
+vars = ["subagents_section"]
+text = "core 0x7aa1ed"
+
+[[section]]
+id = "17af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/memory/system/steps/judge.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1825"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/other_chats.md"
+text = "file"
+
+[[section]]
+id = "18af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/studying/system/steps/study.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1925"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/owner_capabilities.md"
+text = "file"
+
+[[section]]
+id = "19af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/studying/system/steps/brief.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1a25"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/memory.md"
+text = "file"
+
+[[section]]
+id = "1aaf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/studying/system/steps/leads.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1b25"
+via = "dispatcher"
+[[section.block]]
+block = "blocks/peer_chat/context.md"
+vars = ["alignment_status_pointer"]
+text = "file"
+
+[[section]]
+id = "1baf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/studying/system/steps/judge.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1caf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/skill_improvement/system/steps/audit.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1daf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/skill_improvement/system/steps/judge.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1eaf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/goals_bookkeeping/system/steps/reconcile.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "1faf"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/goals_bookkeeping/system/steps/group.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "20af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/goals_bookkeeping/system/steps/evaluate.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "21af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/goals_bookkeeping/system/steps/pulse.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "22af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/proactive_notifier/system/steps/compose.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "23af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/proactive_notifier/system/steps/classify.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "24af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/flight_tracking/system/steps/classify.md"
+text = "file"
+[[section.block]]
+literal = "\n"
+
+[[section]]
+id = "25af"
+via = "dispatcher"
+[[section.block]]
+block = "self_improvement/flight_tracking/system/steps/reconcile.md"
+text = "file"
+[[section.block]]
+literal = "\n"

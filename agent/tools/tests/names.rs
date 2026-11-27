@@ -154,6 +154,11 @@ fn prompts_have_no_muse_or_meta() {
         if name == "SOURCES.md" {
             continue;
         }
+        // prompts/profiles/ — карта профилей и разделов ядра (имена блоков muse
+        // с адресами); модель её не видит.
+        if f.parent().is_some_and(|d| d.ends_with("prompts/profiles")) {
+            continue;
+        }
         seen += 1;
         let mut text = personal(&std::fs::read_to_string(&f).unwrap());
         if f.ends_with("prompts/browser/tools/act.json") {

@@ -882,3 +882,96 @@
 | `subagents/inherited_context/transcript_fact.md` | `0x9fe8ec` | 74 |
 | `subagents/inherited_context/task_content_bullet.md` | `0x9fe96f` | 209 |
 | `subagents/inherited_context/fanout_bullet.md` | `0x9fea73` | 245 |
+
+## Системные тексты ролей — профили ядра и карта разделов (П5-2, часть 1)
+
+**Откуда порядок.** У muse системный текст каждой роли собирается по профилю подсказки. Таблица профилей — `.data.rel.ro` `0x290bbdd0`–`0x290bcd18` (в файле ядра −`0x2000`): главный профиль и 69 пронумерованных. У профиля — срезы (указатель, длина) на массивы `u16` в `.rodata`; в номере раздела младший байт — раздел, старший — вариант. Всё выписано в `prompts/profiles/profiles.toml` (номер, адрес, роль, у кого роль у Hamlet или строка плана, срезы с адресами).
+
+**Раздел → блоки.** Функция-диспетчер `0xa9b9dc0` (таблица переходов `0x786d40`, 203 ветки; номера меньше `0x25` уходят в реестр `user_chat` `0xa9511e0`, `0x26` — в `0xd32dc40`, это `blocks/background/*`) по номеру раздела возвращает список записей блоков (запись — 72 байта: имя, переменные, варианты, текст, вид). Функция зависит только от номера, поэтому список снят прогоном: свой маленький эмулятор x86-64 по тексту objdump (рабочий скрипт, в репозиторий не идёт) для каждого из 352 номеров всех профилей. Итог — `prompts/profiles/sections.toml`: по разделу — блоки по порядку, переменные, где текст (вшит в ядро — адрес, или файл `P/…`), записи без имени — вставки (`"\n"`, `{commentary_visibility}`).
+
+Что карта ещё не закрывает:
+- `via = "assembler"` — диспетчер возвращает None (`b7`–`c4`, `c6`–`c9`, `12`, `23`, `24`, `82`, `224`). Это стек безопасности и соседние разделы. Их раскладывает сборщик агентских подсказок `0xcdbbdf0`: он ищет в профиле раздел `0x33` или `0x35` и берёт по его варианту стек из 7–12 записей (`0xcd52e60`, таблицы `0x29054028`–`0x29055e88`; подагенту — `0x290546e8`). Как `b7`…`c2` ложатся на записи стека — разбор сборщика, следующая часть; по порядку индексов не угадываем.
+- `via = "unresolved"` — `0x64` (варианты 0–9) и `0x75`: ветка зовёт функцию через `0x29ace370` / `0x29ace378`; это профили 1–5 («не опознан»).
+- Разделы `d0` с вариантами 0–`15` — заметки хода (`turn_directives/*`), в системный текст не идут.
+- Правила отрисовки (когда блок `anthropic/cedar/*` вместо обычного; `agent/memory.md` и `agent/memory_read_only.md` в одном разделе) — в сборщике, следующая часть.
+
+**Глубокое исследование** (профиль 6, `0x290bbf50`: `66 67 68 12e 69 6a 635 6b 6c 13b`). Порядок блоков в `agent/research/src/lib.rs` приведён к профилю: who_you_are, your_environment, assignment, tools, how_you_work, discretion (раздел `635`), safety, reporting_back. Было: who_you_are, assignment, how_you_work, tools, reporting_back, discretion, safety, security_authority, your_environment. Своё: `security_authority` — в конце, его место за сборщиком. Чего ещё нет: `shared/who_built_you` (раздел `66`), раздел времени `12e`, общие блоки раздела `635` (safety_core_detached, safety_self_modification_detached, safety_sensitive_attributes, discretion_alignment_task, safety_security_policy), `shared/runtime` (`13b`) — придут со сборкой по профилю.
+
+У браузерного окна, монитора подагентов и сжатия профиля в таблице нет: их тексты собираются не по профилю (`prompts/browser/`, `prompts/subagent_monitor/`, `prompts/compaction/`).
+
+Тест — `agent/hamlet/tests/profiles.rs`: вся таблица (70 профилей, каждый номер раздела в карте), порядок разделов ролей Hamlet = массивы профилей ядра, блоки глубокого исследования в порядке профиля, карта на известных разделах.
+
+Профили:
+
+| Номер | Адрес | Роль | У Hamlet / строка плана | Срезы (адрес, разделов) |
+|---|---|---|---|---|
+| main | `0x290bbdd0` | главный разговор (`main_chat`) | agent/hamlet/src/main_prompt.rs (П5-1) | `0x9904d4` (21) · `0x9904fe` (42) · `0x990552` (25) |
+| 0 | `0x290bbe00` | подагент (`subagent`) | agent/loop/src/subagents.rs — П5-2 ч.1 | `0x990584` (13) · `0x99059e` (14) · `0x9905ba` (22) |
+| 1 | `0x290bbe38` | не опознан: раздел 0x64 вариант 0 — вызов через 0x29ace370 (таблица 0x2906bd30) (`unidentified`) | — | `0x4a628c` (2) · `0x9905e6` (1) |
+| 2 | `0x290bbe70` | не опознан: раздел 0x64 вариант 2 — вызов через 0x29ace370 (таблица 0x2906bd30) (`unidentified`) | — | `0x4a7c64` (2) · `0x9905e8` (1) |
+| 3 | `0x290bbea8` | не опознан: раздел 0x64 вариант 4 — вызов через 0x29ace370 (таблица 0x2906bd30) (`unidentified`) | — | `0x4a662c` (2) · `0x4a8440` (2) |
+| 4 | `0x290bbee0` | не опознан: раздел 0x64 вариант 6 — вызов через 0x29ace370 (таблица 0x2906bd30) (`unidentified`) | — | `0x4a93f0` (2) · `0x9905ea` (1) |
+| 5 | `0x290bbf18` | не опознан: раздел 0x64 вариант 8 — вызов через 0x29ace370 (таблица 0x2906bd30) (`unidentified`) | — | `0x4a5748` (2) · `0x9905ec` (1) |
+| 6 | `0x290bbf50` | глубокое исследование (`deep_research`) | agent/research/src/lib.rs | `0x9905ee` (10) |
+| 7 | `0x290bbf88` | сборщик идей (`ideas_builder`) | П22 | `0x990602` (18) · `0x99059e` (14) · `0x9905ba` (22) |
+| 8 | `0x290bbfc0` | синхронизация устройств (`device_sync`) | П21 | `0x990626` (7) · `0x990634` (13) · `0x9905ba` (22) |
+| 9 | `0x290bbff8` | загрузка медиа (`media_upload`) | П14 | `0x99064e` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 10 | `0x290bc030` | работник наблюдателя (hooks) (`event_hook`) | agent/cron/src/hooks.rs — П5-2 ч.3 | `0x99065a` (7) · `0x4b0fa0` (16) · `0x9905ba` (22) |
+| 11 | `0x290bc068` | работник контекста (`context_worker`) | П13 | `0x990668` (6) · `0x4b0fa0` (16) · `0x9905ba` (22) |
+| 12 | `0x290bc0a0` | синхронизация с другим агентом (`peer_sync`) | П19 | `0x49af90` (4) · `0x990674` (13) · `0x9905ba` (22) |
+| 13 | `0x290bc0d8` | работник контекста (второй вариант) (`context_worker`) | П13 | `0x990668` (6) · `0x99068e` (18) · `0x9905ba` (22) |
+| 14 | `0x290bc110` | проактивность (`proactivity`) | П13 | `0x4ac194` (2) · `0x4696c0` (8) · `0x9905ba` (22) |
+| 15 | `0x290bc148` | шаг цели (фон) (`objective_step`) | П11 | `0x9906b2` (5) · `0x9906bc` (7) |
+| 16 | `0x290bc180` | итог работника (execute_resolve) (`execute_resolve`) | agent/cron/src/hooks.rs (роль execute_resolve_worker) — П5-2 ч.3 | `0x4a3198` (4) · `0x9906ca` (10) · `0x9905ba` (22) |
+| 17 | `0x290bc1b8` | почтовый разговор (`mail_conversation`) | П16 | `0x49e4a0` (4) · `0x9906ca` (10) · `0x9905ba` (22) |
+| 18 | `0x290bc1f0` | разговор с компанией (`company_conversation`) | П19 | `0x9906de` (3) · `0x9905ba` (22) |
+| 19 | `0x290bc228` | проверяющий (`verification`) | agent/cron/src/verification.rs — П5-2 ч.3 | `0x49a180` (4) · `0x9906bc` (7) |
+| 20 | `0x290bc260` | побочный чат (`side_chat`) | П6, П19 | `0x9906e4` (21) · `0x99070e` (44) · `0x990766` (23) |
+| 21 | `0x290bc298` | чат с другими агентами (`peer_chat`) | П19 | `0x990794` (7) · `0x9907a2` (53) · `0x99080c` (23) |
+| 22 | `0x290bc2d0` | работник расписаний (`scheduler_worker`) | agent/cron/src/worker.rs — П5-2 ч.2 | `0x99083a` (13) · `0x4b0fa0` (16) · `0x9905ba` (22) |
+| 23 | `0x290bc308` | итог расписания (`scheduler_resolution`) | agent/cron/src/worker.rs — П5-2 ч.2 | `0x990854` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 24 | `0x290bc340` | проверка веб-артефактов (`web_artifacts_inspector`) | П17 | `0x495ba0` (8) · `0x99059e` (14) · `0x9905ba` (22) |
+| 25 | `0x290bc378` | сборщик сайтов (новый) (`spaces_builder_new`) | П17 | `0x990860` (13) · `0x99059e` (14) · `0x9905ba` (22) |
+| 26 | `0x290bc3b0` | сборщик сайтов (правка) (`spaces_builder_edit`) | П17 | `0x99087a` (15) · `0x99059e` (14) · `0x9905ba` (22) |
+| 27 | `0x290bc3e8` | лёгкий сборщик сайтов (новый) (`spaces_builder_lite_new`) | П17 | `0x4c49a0` (16) · `0x99059e` (14) · `0x9905ba` (22) |
+| 28 | `0x290bc420` | лёгкий сборщик сайтов (правка) (`spaces_builder_lite_edit`) | П17 | `0x990898` (17) · `0x99059e` (14) · `0x9905ba` (22) |
+| 29 | `0x290bc458` | задача сайта (`space_task`) | П17 | `0x9908ba` (13) · `0x99059e` (14) · `0x9905ba` (22) |
+| 30 | `0x290bc490` | сброс памяти (`memory_flush`) | agent/loop/src/compaction.rs — П5-2 ч.3 | `0x49a850` (4) · `0x99059e` (14) · `0x9905ba` (22) |
+| 31 | `0x290bc4c8` | самоулучшение: ideas (`self_improvement_ideas`) | П22 | `0x9908d4` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 32 | `0x290bc500` | самоулучшение: ideas (`self_improvement_ideas`) | П22 | `0x9908e2` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 33 | `0x290bc538` | самоулучшение: ideas (`self_improvement_ideas`) | П22 | `0x9908ee` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 34 | `0x290bc570` | самоулучшение: ideas (`self_improvement_ideas`) | П22 | `0x9908fa` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 35 | `0x290bc5a8` | самоулучшение: ideas (`self_improvement_ideas`) | П22 | `0x990906` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 36 | `0x290bc5e0` | самоулучшение: ideas (`self_improvement_ideas`) | П22 | `0x990914` (10) · `0x99059e` (14) · `0x9905ba` (22) |
+| 37 | `0x290bc618` | самоулучшение: ideas (`self_improvement_ideas`) | П22 | `0x990928` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 38 | `0x290bc650` | самоулучшение: product_step (`self_improvement_product_step`) | П11 | `0x990936` (6) · `0x9906bc` (7) |
+| 39 | `0x290bc688` | самоулучшение: product_step (`self_improvement_product_step`) | П11 | `0x990942` (6) · `0x9906bc` (7) |
+| 40 | `0x290bc6c0` | самоулучшение: product_step (`self_improvement_product_step`) | П11 | `0x99094e` (6) · `0x9906bc` (7) |
+| 41 | `0x290bc6f8` | самоулучшение: product_step (`self_improvement_product_step`) | П11 | `0x99095a` (6) · `0x9906bc` (7) |
+| 42 | `0x290bc730` | самоулучшение: relationships (`self_improvement_relationships`) | П11 | `0x990966` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 43 | `0x290bc768` | самоулучшение: relationships (`self_improvement_relationships`) | П11 | `0x990972` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 44 | `0x290bc7a0` | самоулучшение: relationships (`self_improvement_relationships`) | П11 | `0x99097e` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 45 | `0x290bc7d8` | самоулучшение: shopping (`self_improvement_shopping`) | П20 | `0x99098a` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 46 | `0x290bc810` | самоулучшение: shopping (`self_improvement_shopping`) | П20 | `0x990996` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 47 | `0x290bc848` | самоулучшение: travel (`self_improvement_travel`) | П20 | `0x9909a2` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 48 | `0x290bc880` | самоулучшение: travel (`self_improvement_travel`) | П20 | `0x9909ae` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 49 | `0x290bc8b8` | самоулучшение: alignment (`self_improvement_alignment`) | П11 | `0x9909ba` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 50 | `0x290bc8f0` | самоулучшение: alignment (`self_improvement_alignment`) | П11 | `0x9909c8` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 51 | `0x290bc928` | самоулучшение: alignment (`self_improvement_alignment`) | П11 | `0x9909d6` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 52 | `0x290bc960` | самоулучшение: memory (`self_improvement_memory`) | П11 | `0x9909e4` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 53 | `0x290bc998` | самоулучшение: memory (`self_improvement_memory`) | П11 | `0x9909f0` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 54 | `0x290bc9d0` | самоулучшение: memory (`self_improvement_memory`) | П11 | `0x9909fc` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 55 | `0x290bca08` | самоулучшение: studying (`self_improvement_studying`) | П11 | `0x990a08` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 56 | `0x290bca40` | самоулучшение: studying (`self_improvement_studying`) | П11 | `0x990a16` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 57 | `0x290bca78` | самоулучшение: studying (`self_improvement_studying`) | П11 | `0x990a24` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 58 | `0x290bcab0` | самоулучшение: studying (`self_improvement_studying`) | П11 | `0x990a32` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 59 | `0x290bcae8` | самоулучшение: skill_improvement (`self_improvement_skill_improvement`) | П11 | `0x990a40` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 60 | `0x290bcb20` | самоулучшение: skill_improvement (`self_improvement_skill_improvement`) | П11 | `0x990a4c` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 61 | `0x290bcb58` | самоулучшение: goals_bookkeeping (`self_improvement_goals_bookkeeping`) | П11 | `0x48c3f0` (8) · `0x99059e` (14) · `0x9905ba` (22) |
+| 62 | `0x290bcb90` | самоулучшение: goals_bookkeeping (`self_improvement_goals_bookkeeping`) | П11 | `0x456f60` (8) · `0x99059e` (14) · `0x9905ba` (22) |
+| 63 | `0x290bcbc8` | самоулучшение: goals_bookkeeping (`self_improvement_goals_bookkeeping`) | П11 | `0x454a60` (8) · `0x99059e` (14) · `0x9905ba` (22) |
+| 64 | `0x290bcc00` | самоулучшение: goals_bookkeeping (`self_improvement_goals_bookkeeping`) | П11 | `0x990a58` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 65 | `0x290bcc38` | самоулучшение: proactive_notifier (`self_improvement_proactive_notifier`) | П13 | `0x990a66` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 66 | `0x290bcc70` | самоулучшение: proactive_notifier (`self_improvement_proactive_notifier`) | П13 | `0x990a72` (7) · `0x99059e` (14) · `0x9905ba` (22) |
+| 67 | `0x290bcca8` | самоулучшение: flight_tracking (`self_improvement_flight_tracking`) | П20 | `0x990a80` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+| 68 | `0x290bcce0` | самоулучшение: flight_tracking (`self_improvement_flight_tracking`) | П20 | `0x990a8c` (6) · `0x99059e` (14) · `0x9905ba` (22) |
