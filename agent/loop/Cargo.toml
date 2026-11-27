@@ -8,7 +8,7 @@ publish.workspace = true
 agent-model = { path = "../model" }
 serde_json = "1"
 thiserror = "2"
-tokio = { version = "1", features = ["time", "fs"] }
+tokio = { version = "1", features = ["time", "fs", "sync", "rt", "macros"] }
 futures-util = { version = "0.3", default-features = false }
 tiktoken-rs = "0.7"
 
