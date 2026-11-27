@@ -42,11 +42,11 @@
 | Вещь muse | Где | Что делает | Пометка |
 |---|---|---|---|
 | Исполнение хода | `A/source-files.txt:1303-1363` (`session/impl_session/message_execution/*`) | ход: сборка → модель → пачка вызовов инструментов → итог; там же `model_execution.rs` (`:1327`), `tool_dispatch_batch.rs` (`:1357-1361`), `tool_batch_settlement.rs` (`:1356`) | как есть (форма), код свой |
-| Повтор после сбоя модели | `A/source-files.txt:1321-1323` (`inference_recovery/*`) | повтор вызова модели, ожидание | как есть |
+| Повтор после сбоя модели | `A/source-files.txt:1321-1323` (`inference_recovery/*`); правила — `A/strings-all.txt:54778-54781` | вызов модели повторяется, только пока пользователь ещё ничего не увидел: при ошибке поставщика, которую можно повторить, при неверном имени инструмента, при сбое разбора потока; после упора в предел ответа в разговор вставляется «Internal retry notice» (`session/output_token_cap_retry_notice.md`); если ответ уже начал показываться, частичный текст сохраняется без повтора; кусок контекста, на котором модель падает, помещается в карантин (`prompt_poison_recovery`). Сколько раз повторять — числа не найдено | как есть |
 | Проверка завершения | `A/source-files.txt:1311-1313` (`completion_gate*`), `A/source-files.txt:1530-1533` (`completion_checks*`, `completion_contract.rs`) | не даёт закончить ход без обещанного результата | как есть |
 | Сборка подсказки | `A/source-files.txt:1365-1394` (`prompt_assembly/*`) | системный текст, контекст хода, описания пространств инструментов (`tool_namespace_descriptions.rs`, `:1392`), закрепление начала подсказки (`prompt_prefix_pin*`, `:1384-1387`), оценка длины (`context_estimate.rs`, `:1374`) | как есть (форма) |
 | Хранение истории | `A/source-files.txt:1228-1239` (`history_persistence/*`); SQL `agent.*` (`A/sql.txt:2458,2514`) | запись шагов хода и событий в базу | как есть (форма) |
-| Сроки ожидания | `A/env-knobs.txt:68` (`JARVIS_MODEL_STREAM_FIRST_CHUNK_TIMEOUT_MS`, `JARVIS_TOOL_DISPATCH_TIMEOUT_MS` и др.) | пределы на первый кусок потока, на инструмент и т.п. | как есть (только имена, значений в разборе нет) |
+| Сроки ожидания | `A/env-knobs.txt:68`; значения по умолчанию — таблица в ядре `0x26a6bf00-0x26a6c080` (каждый вход: `lea rdi, имя; mov esi, длина; mov edx, значение; jmp 0x26a6b620`) | см. 4.2: первый кусок потока 600 с, тишина в потоке 90 с или 180 с, инструмент 180 с, после инструмента 30 с и др. | как есть (значения) |
 | Большой вывод инструмента — в файл | `A/source-files.txt:1805` (`tool_output_spill.rs`) | слишком длинный результат уходит в файл, модели — указатель | как есть |
 | Системный текст главного разговора | `A/strings-all.txt:59570-59700…` (`blocks/user_chat/*`, 88 блоков); `P/hatch-agent/prompts/blocks/chat/*.md` (18) | кто ты, как работаешь, память, инструменты, безопасность, расписания | как есть (тексты; см. находку 4) |
 | Разметка «личный / групповой» | `<!-- personal-muse-only:start -->` — 3050 вхождений, `group-muse-only` — 2950 (`A/strings-all.txt`) | один текст на два режима | как есть: оставляем только personal |
@@ -61,7 +61,7 @@
 |---|---|---|---|
 | `muse.read`, `muse.write`, `muse.edit` | `A/strings-all.txt:59657`; исходники `A/source-files.txt:1571-1579` (`file_io*`), `:1552-1553` (`edit.rs`, `edit_matching.rs`) | файлы в `~`, правка заменой | как есть |
 | `muse.exec` + `process.list/poll/log/write/send_keys/kill/clear` | `A/strings-all.txt:58387,59667`; `A/source-files.txt:1764-1796` (`subprocesses/*`: `exec_tool.rs` `:1772`, `process_tool.rs` `:1788`, `executor/local*` `:1775-1783`, `executor/execd.rs` `:1774`) | команды оболочки, фоновые процессы | как есть (форма), код свой |
-| `browser.search` | `A/source-files.txt:1510`; описание `A/strings-all.txt:76891` («Search the web using a text query…», параметр `primary_query.language_code`); правило выбора `A/strings-all.txt:58083` | поиск в сети | как есть (форма); бэкенд поиска свой (у muse — крейт `web-search`, `A/source-files.txt:7359-7362`) |
+| `browser.search` | `A/source-files.txt:1510`; описание `A/strings-all.txt:76891` («Search the web using a text query…», параметр `primary_query.language_code`); правило выбора `A/strings-all.txt:58083` | поиск в сети | как есть (форма); бэкенд поиска свой. У muse это внутренние службы Meta: `browser.search` идёт в MSL (`msl_search/search2/serving_configs/`, «msl_search_host must be a Meta-internal IP address» — `A/strings-all.txt:80185`), на закрытых машинах — в CAGI («False on confidential VMs, whose searches use CAGI instead of MSL» — `A/strings-all.txt:149863`). Варианты бэкенда инструментов браузера: `perplexity`, `firecrawl`, `page_cache` (перечисление `BrowserToolBackend`, `A/strings-all.txt:245415`); Perplexity в главном чате включается флагом `hatch_main_chat_browser_search_perplexity` (`A/strings-all.txt:226996`). Сама программа `/opt/hatch/bin/web-search` — жёсткая ссылка на `authdc` (`rootfs-full.listing.txt:208299`) |
 | `browser.open` | `A/source-files.txt:1507-1509`; `A/strings-all.txt:58084` | текст страницы по точному адресу или ссылке из выдачи | как есть (форма), код свой |
 | `browser.find` | `A/source-files.txt:1504`; `R/home/hatch/docs/browser.md:18` | поиск по тексту полученной страницы | как есть |
 | `browser.lookup_citation_url` | `A/source-files.txt:1506` | адрес источника из выдачи | как есть |
@@ -153,7 +153,7 @@
 |---|---|---|---|
 | Своё сжатие | `A/source-files.txt:2145-2150` (`hatch-compaction`: `quality.rs`, `segmented.rs`, `transcript/*`); `A/source-files.txt:1221-1223` (`eager_compaction*`), `:1310` (`compaction_model.rs`) | сводка старой части разговора | как есть (форма), код свой |
 | Тексты сжатия | `P/hatch-compaction/prompts/compact/{system,summarization,summary_rules,segmented_*}.md`; `P/hatch-agent/prompts/compact/*.md` | что сохранять в сводке | как есть |
-| Порог | `A/env-knobs.txt:12` (`JARVIS_AVOCADO_COMPACTION_TRIGGER_TOKENS`, `JARVIS_AVOCADO_CONTEXT_WINDOW_TOKENS`); окно «avocado» = 350 000 (`A/strings-all.txt:235542-235543`) | когда сжимать | прослойка (окно у каждой модели своё) |
+| Порог | `A/env-knobs.txt:12`; окно «avocado» = 350 000 (`A/strings-all.txt:235542-235543`); функция в ядре `0x20954580`: окно по умолчанию `0x55730` = 350 000, порог сжатия по умолчанию `0x249f0` = 150 000 токенов, при пороге больше окна — остановка с ошибкой | сжатие начинается при 150 000 токенов из 350 000 (примерно 43 % окна) | прослойка (окно у каждой модели своё; порог берём той же формы) |
 | Модель сжатия | `azure/avocado-compaction-v1` (`A/strings-all.txt:237073`); `setup.compaction_memory_flush_use_main = true` (`A/strings-all.txt:236111`) | сжатие идёт на отдельной модели или на главной | прослойка |
 | Таблицы | `agent.agent_compactions`, `agent.compactions` (`A/sql.txt:2458,2514`) | история сжатий | как есть (форма) |
 
@@ -162,7 +162,8 @@
 | Вещь muse | Где | Что делает | Пометка |
 |---|---|---|---|
 | Связь с мессенджером как «побочный чат» | `R/home/hatch/docs/chat-connections.md:1-20` | мессенджер — только канал для чата, второй истории нет | как есть (форма) |
-| WhatsApp | `A/source-files.txt:2020-2128` (`hatch-chat-transport-whatsapp/*`); `R/home/hatch/docs/chat-connections.md:15` | единственный канал muse | без пары до слова владельца (П6: какой мессенджер) |
+| WhatsApp | `A/source-files.txt:2020-2128` (`hatch-chat-transport-whatsapp/*`); `R/home/hatch/docs/chat-connections.md:15` | канал, который muse предлагает пользователям | без пары до слова владельца (П6: какой мессенджер) |
+| Telegram, Messenger, SMS | крейты `hatch-chat-transport-telegram` (26 файлов, `A/crates.txt:50`), `hatch-chat-transport-messenger` (`A/crates.txt:250`), `hatch-chat-transport-texting` (`A/crates.txt:361`), общий `hatch-chat-transports` (`A/crates.txt:78`) | в ядре есть и другие каналы, в справочнике они не объявлены | как есть (форма) — образец для П6 |
 | Пометка источника хода | `P/hatch-agent/prompts/blocks/chat/how_you_work.md:11` (`[whatsapp]`) | агент знает, откуда пришло сообщение | как есть |
 | Доставка событий | `A/source-files.txt:3144-…` (`hatch-daemon-messaging`) | события агента для клиентов | как есть (форма) |
 
@@ -190,7 +191,7 @@
 
 | Вещь muse | Где | Что делает | Пометка |
 |---|---|---|---|
-| Проверка внедрённых команд | `R/opt/hatch-private/configs/hatch-engine/crates/hatch-agent/src/prompt_injection_checker/*` | отдельная модель проверяет вывод инструментов | прослойка (назначение модели); включать или нет — слово ревизора |
+| Проверка внедрённых команд | `R/opt/hatch-private/configs/hatch-engine/crates/hatch-agent/src/prompt_injection_checker/*` | отдельная модель проверяет вывод инструментов | как есть (форма); модель — назначение в прослойке |
 | Проверка вызовов (кибер, CBRNE, утечка данных) | `A/source-files.txt:1689-1712` (`registry/*_guard*`); политики `R/opt/hatch-private/configs/hatch-engine/crates/hatch-agent/src/safety_classifiers/policies/*.json` | проверка вызова до исполнения | прослойка |
 | Модели проверок | `[weights."safety-classifier"]` (`A/strings-all.txt:235771`); `gemma-4-e4b-hatch-monitor` (`A/strings-all.txt:236757`); `JARVIS_SAFETY_MODEL` (`A/env-knobs.txt:12`) | отдельные малые модели | прослойка |
 | Чёрный список адресов | `R/opt/hatch-private/configs/blocklist/*` | запрет адресов | как есть |
@@ -214,7 +215,7 @@
 | Встроенные инструменты сервера (поиск, выборка страниц) | **у muse нет**: свои `browser.search`/`browser.open`/`browser.find` (раздел 2.2) | не используются | не используются | не используются — одинаково для всех |
 | Длина окна | `context_window` у весов: 1 000 000 у `cedar` (`A/strings-all.txt:235797`), 200 000 у `claude-opus-5` (`A/strings-all.txt:235819-235821`), «avocado» = 350 000 (`A/strings-all.txt:235542-235543`, замена — `JARVIS_AVOCADO_CONTEXT_WINDOW_TOKENS`, `A/env-knobs.txt:12`); бета `context-1m-2025-08-07` (`A/strings-all.txt:235856`); оценка длины `context_estimate.rs` (`A/source-files.txt:1374`), `context_window.rs` (`:1316`), счёт токенов `o200k_count.rs` (`:5307`) | из настройки модели | из настройки модели | из настройки модели (у локальной — как запущен сервер, `num_ctx` / `--ctx-size`); счёт токенов приблизительный, как `o200k_count` у muse |
 | Предел ответа | `anthropic.runtime_output_ceiling = 64000` (`A/strings-all.txt:235806`); проверка размера запроса `enforce_request_size_budget.rs` (`A/source-files.txt:5267`) | `max_tokens` | `max_tokens` / `max_completion_tokens` | `max_tokens` |
-| Системный текст посреди разговора | `anthropic.mid_conversation_system_messages` (`A/strings-all.txt:235801`); `magi.developer_role` (`A/strings-all.txt:235583`) | по флагу | роль `developer`/`system` | зависит от шаблона модели; как muse поступает без флага — в разборе не найдено |
+| Системный текст посреди разговора | внутри у muse это «developer messages»: метки времени, напоминания, передачи от фоновых работ, заметки после результатов инструментов (`A/strings-all.txt:78528`, `:60084`); роль сохраняется (`A/strings-all.txt:78625`). Флаги: `anthropic.mid_conversation_system_messages` (`A/strings-all.txt:235801`), `magi.developer_role` (`A/strings-all.txt:235583`). Уведомления безопасности muse кладёт текстом в результат инструмента, в обёртке `<system-reminder>…</system-reminder>` (`A/strings-all.txt:59333-59349`) — это работает с любой моделью. Ветка кода для выключенного флага не найдена; рядом с разбором запроса Anthropic есть строка `system_merged` (`A/strings-all.txt:237408`) | по флагу | роль `developer`/`system` | зависит от шаблона модели; без поддержки — текст в обёртке `<system-reminder>` внутри соседнего сообщения (форма muse для уведомлений) |
 | Картинки на входе | `prepare_inline_image_bytes.rs` (`A/source-files.txt:5270`); `anthropic.image_resolution` (`A/strings-all.txt:235805`); `magi.image_only_messages`, `png_or_jpeg_images_only` (`A/strings-all.txt:235587-235588`; «Cerebras /generate rejects every image type except PNG and JPEG», `A/strings-all.txt:235758`); описание картинки отдельной моделью `P/content-understanding/prompts/image_describe.md`, назначение `MediaDescription` (`A/strings-all.txt:236113`) | блок `image` (base64) | `image_url` (data: base64) | только у моделей со зрением; иначе картинки выключены или описываются отдельной моделью (форма muse, `MediaDescription`) |
 | Файлы на входе (PDF и др.) | `file_io/document_convert.rs` (`A/source-files.txt:1573`) — перевод документа в текст на своей стороне | текст | текст | текст |
 | Ответ в заданной форме | `output_contract.rs` (`A/source-files.txt:5332`): «Complete the task by calling `…` exactly once … must validate against this JSON Schema» (`A/strings-all.txt:235518`) — обязательный вызов инструмента; `guided_decoding.rs` (`:5256`), `magi.guided_decoding` | через вызов инструмента | через вызов инструмента | через вызов инструмента (если инструменты есть) |
@@ -222,7 +223,7 @@
 | Поток (стрим) | `anthropic/parse_sse_stream.rs`, `sse_parser_state_machine.rs` (`A/source-files.txt:5269,5273`); `gpt_responses/stream.rs` (`:5285`); Chat Completions — «stream ended before [DONE]» (`A/strings-all.txt:237328`) | SSE Messages | SSE Chat Completions | SSE Chat Completions |
 | Счёт токенов | `prompt_tokens`, `cached_tokens`, `completion_tokens` (`A/strings-all.txt:235508`); `agent.agent_message_token_usage` (`A/tool-schemas.txt:164`) | `usage` | `usage` | `usage`, если сервер отдаёт; иначе ноль и пометка |
 | Модель по назначению | `[defaults]` `auto`, `model`, `maintenance` (сжатие, сброс памяти) (`A/strings-all.txt:235569-235575`); `setup.default_model_purposes` (`A/strings-all.txt:237127-237137`); `setup.overrides` по назначению (`A/strings-all.txt:236112-236114,237149-237151`) | любая роль | любая роль | любая роль; у слабой локальной модели фон и сжатие можно отдать другой модели |
-| Модель эмбеддингов | `memory.embeddings`, `embedding_models` (`A/sql.txt:4453`); `hatch-memory/src/retrieval/models/inference.rs` (`A/source-files.txt:5472`) | у Anthropic эмбеддингов нет — нужен второй поставщик | `/v1/embeddings` | `/v1/embeddings` (Ollama, llama.cpp, vLLM); что делает muse без эмбеддингов — в разборе не найдено |
+| Модель эмбеддингов | модель памяти `hatch-memory-default`, мера `cosine` (`A/strings-all.txt:200520`); столбец `memory.embeddings.embedding` — `vector(384)` (`A/strings-all.txt:213514-213517`); у идей тоже 384 (`A/strings-all.txt:16386`). Ядро само векторы не считает (крейтов ONNX/candle нет в `A/crates.txt`): это служба `embeddings` за прокси вывода (маршруты прокси — `A/strings-all.txt:248622`; сокет `JARVIS_INFERENCE_PROXY_SOCK`, `R/etc/hatch/env:12`). Поиск памяти двойной: векторный (`emb.embedding <=> $1::vector`) и по словам (`websearch_to_tsquery('english', …)` + `ts_rank_cd` по `runtime.search_documents`) — `A/strings-all.txt:200441-200454`. Без векторов muse ищет только по словам и дозаполняет векторы позже: «feed search embedding unavailable; lexical-only» (`A/strings-all.txt:55090`), «semantic search will backfill later» (`A/strings-all.txt:86301`), «idea embeddings unavailable; the convergence net will backfill later» (`A/strings-all.txt:163965`) | у Anthropic эмбеддингов нет — второй поставщик или только поиск по словам | `/v1/embeddings` | `/v1/embeddings` (Ollama, llama.cpp, vLLM), модель на 384 измерения; если её нет — только поиск по словам, как у muse |
 | Локальная модель в реестре | `local_inference = true` у проводов (`A/strings-all.txt:235901`) | — | — | у muse такой флаг уже есть: берём его форму |
 | Сроки ожидания по поставщику | `JARVIS_ANTHROPIC_TIMEOUT_MS` (`A/env-knobs.txt:64`); `slow_first_token = true` (`A/strings-all.txt:237069`) | из настройки | из настройки | из настройки (у локальной первый токен медленный) |
 | Голос (TTS, распознавание речи) | `hatch-inference/src/voice/*` (`A/source-files.txt:5345-5369`) | — | — | без пары в шаблоне |
@@ -243,7 +244,32 @@
 
 - **Разбор:** `A/source-files.txt:1303-1363` (`message_execution/*`), `:1365-1394` (`prompt_assembly/*`), `:1228-1239` (`history_persistence/*`), `:1221-1223` (`eager_compaction*`), `:1296-1302` (`memory_flush/*`), `:1805` (`tool_output_spill.rs`); сроки — `A/env-knobs.txt:68`; таблицы `agent.*` (`A/sql.txt:2458,2514,3575,3779`).
 - **Задание:** ход «модель → пачка вызовов → результаты → модель» до ответа без вызовов. Пачка исполняется параллельно (`tool_dispatch_batch`). Повтор при сбое модели (`inference_recovery`). Проверка завершения (`completion_gate`). Большой вывод уходит в файл (`tool_output_spill`). Сборка подсказки: неизменное начало (системный текст, файлы `~`, описания инструментов) + изменчивый хвост (время, контекст хода) — по форме `prompt_prefix_pin`/`volatile_context_pin`.
-- **Сжатие:** по форме `hatch-compaction` и текстам `P/hatch-compaction/prompts/compact/*.md`. Порог — доля окна из настройки модели. Перед сжатием — сброс памяти (`memory_flush`, текст `P/hatch-agent/prompts/session/memory_flush_prompt.md`). Сводка пишется моделью назначения `maintenance`.
+- **Сроки muse по умолчанию** (значения из ядра; адрес — место в таблице `0x26a6bf00-0x26a6c080`, если не сказано иначе):
+
+  | Настройка | Значение | Где в ядре |
+  |---|---|---|
+  | `JARVIS_MODEL_STREAM_FIRST_CHUNK_TIMEOUT_MS` — первый кусок ответа модели | 600 000 мс (10 мин) | `0x26a6bfa0` |
+  | `JARVIS_CRON_MODEL_STREAM_FIRST_CHUNK_TIMEOUT_MS` — то же для расписаний | 1 800 000 мс (30 мин) | `0x26a6c020` |
+  | `JARVIS_MODEL_STREAM_CHUNK_IDLE_TIMEOUT_MS` — тишина в потоке | 90 000 мс в одном месте, 180 000 мс в другом (два разных чтения; где какое — не установлено) | `0x26a6bf80`, `0x26a6c060` |
+  | `JARVIS_TOOL_DISPATCH_TIMEOUT_MS` — исполнение инструмента | 180 000 мс | `0x26a6bf00` |
+  | `JARVIS_POST_TOOL_CONTINUATION_TIMEOUT_MS` — продолжение после инструмента | 30 000 мс | `0x26a6bf60` |
+  | `JARVIS_PRE_INFERENCE_STEP_TIMEOUT_MS` — подготовка перед вызовом модели | 10 000 мс | `0x26a6bf20` |
+  | `JARVIS_POST_INFERENCE_TERMINALIZATION_TIMEOUT_MS` — закрытие хода после модели | 30 000 мс | `0x26a6c040` |
+  | `JARVIS_ACCEPTED_TURN_FIRST_PROGRESS_TIMEOUT_MS` — первый признак жизни принятого хода | 90 000 мс | `0x26a6c000` |
+  | `JARVIS_RESUMED_TURN_INFERENCE_READINESS_TIMEOUT_MS` — готовность модели при возобновлении | 90 000 мс | `0x26a6c080` |
+  | `JARVIS_MESSAGE_EVENT_STREAM_IDLE_TIMEOUT_MS` — тишина в потоке событий | 90 000 мс | `0x26a6bfe0` |
+  | `JARVIS_SUBAGENT_CONTROL_OP_TIMEOUT_MS` — команда подагенту | 90 000 мс | `0x26a6bf40` |
+  | `JARVIS_COMMENTARY_END_TURN_MERGE_TIMEOUT_MS` — склейка промежуточного текста в конце хода | 60 000 мс | `0x26a6bfc0` |
+  | `JARVIS_TOOL_DISPATCH_HEARTBEAT_SECS` — пульс инструмента | 60 с | `0x958df82` |
+  | `JARVIS_COMPACTION_HEARTBEAT_SECS` — пульс сжатия | 30 с | `0x9585a8f` |
+  | `JARVIS_RUNTIME_WORK_STALE_AFTER_SECS` — работа считается зависшей | 180 с | `0x106bce19` (значение в `0x106bce9d`) |
+  | `JARVIS_RUNTIME_WORK_TOOL_DISPATCH_STALE_AFTER_SECS` — инструмент считается зависшим | 600 с | `0x106bd179` (`0x106bd1fd`) |
+  | `JARVIS_RUNTIME_WORK_SUPERVISOR_INTERVAL_SECS` — обход зависших работ | 30 с | `0x106bcfc9` (`0x106bd04d`) |
+  | `JARVIS_SUMMARIZATION_RECHECK_STALE_SECS` — повторная проверка сводки | 86 400 с (сутки) | `0x1c0bc01b` (`0x1c0bc0b9`) |
+  | `JARVIS_AVOCADO_CONTEXT_WINDOW_TOKENS` / `JARVIS_AVOCADO_COMPACTION_TRIGGER_TOKENS` | 350 000 / 150 000 токенов | функция `0x20954580` |
+
+  Способ: адрес имени настройки в `.rodata` → команда `lea` с RIP-адресацией на него в `.text` → соседние команды (`objdump -d --start-address=…`). Повторы вызова модели — правила из `A/strings-all.txt:54778-54781` (раздел 2.1); числа попыток в ядре не найдено.
+- **Сжатие:** по форме `hatch-compaction` и текстам `P/hatch-compaction/prompts/compact/*.md`. Порог — доля окна из настройки модели (у muse 150 000 из 350 000). Перед сжатием — сброс памяти (`memory_flush`, текст `P/hatch-agent/prompts/session/memory_flush_prompt.md`). Сводка пишется моделью назначения `maintenance`.
 - **Подагенты:** по форме `subagents_tool/*` и `subagent_execution.rs`: `subagent.spawn/send/list/close/resume`, итог приходит родителю; тексты `P/hatch-agent/prompts/session/subagent_*.md`, `blocks/agent/*.md`; таблица `agent.subagent_spawns` (`A/sql.txt:717`).
 
 ### 4.3. Инструменты — П4
@@ -252,7 +278,7 @@
 - **Задание, по порядку:**
   1. файлы — `muse.read/write/edit` (`file_io*`, `edit_matching.rs`);
   2. исполнение — `muse.exec` + `process.*` (`subprocesses/*`, скрытие секретов `redaction.rs`);
-  3. сеть — `browser.search` (бэкенд поиска выбирается настройкой; у muse свой крейт `web-search`, его поставщик в разборе не назван), `browser.open` (текст страницы), `browser.find`, `browser.lookup_citation_url`;
+  3. сеть — `browser.search` (бэкенд поиска выбирается настройкой: у muse это внутренние службы Meta MSL/CAGI, а у инструментов браузера — `perplexity`, `firecrawl`, `page_cache`; у нас — свой поставщик из настройки), `browser.open` (текст страницы), `browser.find`, `browser.lookup_citation_url`;
   4. память — `muse.memory_search/get/explain`, забывание (`hatch-memory/*`, таблицы `memory.*`);
   5. навыки — `muse.skill_search`, `muse.connector_search` (поиск по `skill.yaml`/`connector.yaml`, своим и системным);
   6. расписания — `cron.*`, наблюдатели — `hooks.*` (таблицы `scheduler.*`, `runtime.event_hook_*`);
@@ -265,7 +291,7 @@
 ### 4.4. Память — П4
 
 - **Разбор:** `A/source-files.txt:5463-5476`, `:4804-4807`; `A/sql.txt:4451-4461`; файлы `~/MEMORY.md`, `~/memory/` (`A/strings-all.txt:59655,59667-59671`); фоновая уборка — `P/hatch-self-improvement/prompts/memory/system/*`.
-- **Задание:** записи и утверждения (новое заменяет старое, след хранится в датированных заметках), поиск по нескольким формулировкам. Векторный поиск — только если в настройке есть модель эмбеддингов. Иначе поиск по тексту; как поступает muse без эмбеддингов, не найдено — ревизору решить.
+- **Задание:** записи и утверждения (новое заменяет старое, след хранится в датированных заметках), поиск по нескольким формулировкам. Поиск двойной, как у muse: по словам (у muse это tsquery/`ts_rank_cd`, `A/strings-all.txt:200445-200454`) и по векторам (384 измерения, cosine). Векторный поиск включается, только если в настройке есть модель эмбеддингов. Без неё — только по словам, а векторы дозаполняются позже (форма muse, `A/strings-all.txt:55090,86301`).
 
 ### 4.5. Расписания — П4
 
@@ -283,11 +309,14 @@
 
 ---
 
-## 5. Что не найдено или не проверено
+## 5. Дыры описи (П1б): что найдено и что осталось
 
-- Кода движка нет. Поведение частей восстановлено по именам исходников, строкам, SQL и текстам; частные правила (пороги, значения сроков) в разборе не видны — есть только имена настроек.
-- Поставщик поиска за крейтом `web-search` (`A/source-files.txt:7359-7362`) в строках не назван. Нашлись только `space_web_search/cagi_worker.rs` (`A/source-files.txt:2916`) и `jina_fallback_planner` (`A/tool-schemas.txt:24`); что они значат, не установлено.
-- Модель эмбеддингов памяти по имени не найдена. Не найдено и то, что muse делает без эмбеддингов.
-- Как muse передаёт системный текст посреди разговора модели без флага `mid_conversation_system_messages`, не найдено.
-- Тексты `blocks/user_chat/*` (88) есть только в `strings-all.txt`. Их полноту (не обрезаны ли строки) проверит П5.
-- Номера строк `R/home/hatch/docs/*.md` сверены через `git show HEAD:` (после сужения рабочей папки этих файлов на диске нет).
+Способы П1б (слово владельца «можно всё»): `strings-all.txt`, ядро `core-v2/hatch-2026-11-25-v2.bin` через `objdump` (не запускалось), опись снимка, `git show HEAD:`. Ссылка «адрес» — виртуальный адрес в ядре.
+
+1. **Поиск за `web-search`.** Найдено, раздел 2.2. Это внутренние службы Meta: MSL (`A/strings-all.txt:80185`) и CAGI на закрытых машинах (`A/strings-all.txt:149863`). Для инструментов браузера есть варианты бэкенда `perplexity`, `firecrawl`, `page_cache` (`A/strings-all.txt:245415`), Perplexity в главном чате — по флагу (`A/strings-all.txt:226996`). `cagi_worker.rs` — поиск через CAGI для Spaces. `jina_fallback_planner` к поиску в сети не относится: это подбор голоса («voice shortlist reranking failed; retaining Jina retrieval» — `A/strings-all.txt:55770`; `A/strings-all.txt:59132`). Открытого адреса или ключа поставщика в ядре нет: к нашему агенту из этого переходит только форма инструмента.
+2. **Эмбеддинги.** Найдено, раздел 3: `hatch-memory-default`, 384 измерения, cosine, служба за прокси; без векторов — поиск по словам и дозаполнение позже. Какая модель стоит за `hatch-memory-default` на стороне Meta, в снимке не видно.
+3. **Системный текст посреди разговора без флага.** Найдено частично, раздел 3. Внутренняя роль «developer», уведомления — текстом в `<system-reminder>`. Ветку кода для выключенного флага в `convert_prompt` (функции около `0x20abb170`, `0x20cd95b0`) я не нашёл; есть только строка `system_merged` (`A/strings-all.txt:237408`).
+4. **Пороги и сроки.** Найдено, раздел 4.2. Не найдено: число повторов вызова модели; какое из двух значений тишины в потоке (90 с / 180 с) к какому пути относится.
+5. **Полнота 88 блоков `user_chat`.** Проверено по ядру: для 86 блоков текст после имени в `.rodata` — печатный UTF-8 без управляющих байтов, и каждый его кусок между переводами строк есть в `strings-all.txt` как есть. Значит, `strings-all.txt` их не обрезал (делил только по переводу строки). У 2 блоков (`conversation.md`, `secure_vault.md`) в ядре есть только имя, а текста рядом нет (`A/strings-all.txt:48975`, `:48691`). Вероятно, их текст совпал с другим блоком, и линкер оставил одну копию (так, `secure_vault_code_from_user.md` начинается с «## Secure Vault», `A/strings-all.txt:59886`) — но это не доказано.
+
+Осталось общее: кода движка нет; что не названо выше, восстановлено по именам, строкам, SQL и текстам. Номера строк `R/home/hatch/docs/*.md` и `R/etc/hatch/env` сверены через `git show HEAD:`.
