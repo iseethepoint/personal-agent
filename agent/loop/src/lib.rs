@@ -4,6 +4,7 @@
 pub mod compaction;
 pub mod monitor;
 pub mod prompt;
+pub mod quarantine;
 pub mod spill;
 pub mod subagents;
 pub mod tool;

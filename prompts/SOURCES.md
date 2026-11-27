@@ -480,3 +480,19 @@
 - категория не сохраняется в прогоне: у muse — `retain_cron_verification_category` в `scheduler.job_runs.pending_terminal_result_json`, у нас ступени отложенного итога нет; проверка, оборванная перезапуском, не продолжается.
 
 Ворота завершения окна браузера (`browser/completion_gate/report_required.md`) уже были (П4к). Ворота артефактов, Spaces и Ideas — со своими строками (П17, П22).
+
+## Карантин куска подсказки (П3ж-3)
+
+Новых текстов нет; ошибка хода — строка ядра «request failed because part of the input context is unsupported; the failing input was excluded from future context to keep the session recoverable (…)» (`strings-all.txt:54781`).
+
+Устройство — как у muse (`message_execution › prompt_quarantine.rs`, `turn_execution › anthropic_prompt_poison.rs`):
+- «prompt poison» — отказ поставщика (`invalid_request`, 400) с признаком битой картинки; список признаков — строки ядра около `0x22478f2` («turbojpeg decompress failed», «premature end of jpeg file», «could not decode image», «could not process image», «unable to decode image», «failed to decode image», «image decode failed», «invalid image data», «invalid base64 image», «unsupported gif variant»);
+- кусок удаляется из истории и из `agent.context_items` (`DELETE FROM agent.context_items WHERE agent_id = $1 AND seq = ANY($2)`, `removed_context_seq_count`), вызов инструмента — вместе с результатом (`tool_call_count`); строки поиска по разговорам — тоже;
+- кусок из прошлого — карантин и повтор вызова модели («quarantine historical poison»); кусок текущего шага (`current_iteration_input_quarantined`) — карантин и ошибка хода; кандидата нет («prompt poison recovery found no quarantine candidate») — ошибка как есть; удаление не удалось — «prompt poison recovery failed».
+
+Своё:
+- место — из `messages.N` / `messages[N]` текста ошибки, если там картинка (строки `messages[`, `messages.` рядом со списком признаков), иначе последнее сообщение с картинкой;
+- сообщение ассистента с вызовом уходит целиком;
+- текущий шаг — сообщения после последнего ответа модели;
+- в скобках ошибки — текст ошибки поставщика;
+- правило одно для обоих поставщиков (у muse разбор — в `anthropic_prompt_poison.rs`, а признаки лежат рядом с кодом других поставщиков).

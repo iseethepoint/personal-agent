@@ -1,6 +1,8 @@
 //! Тесты П3е-1: запись истории по мере хода, граница подсказки после
 //! сжатия, восстановление после повторного открытия.
 
+#[path = "../../loop/tests/common/mod.rs"]
+mod common;
 #[path = "../../memory/tests/pg/mod.rs"]
 mod pg;
 
@@ -165,4 +167,84 @@ async fn todo_and_continuation_guard_survive_restart() {
         .await
         .unwrap();
     assert_eq!(row, (2, 2, 1));
+}
+
+fn image() -> agent_model::Image {
+    agent_model::Image { media_type: "image/png".into(), data_base64: "iVBORbroken".into() }
+}
+
+/// П3ж-3: карантин куска подсказки. Битая картинка в прошлом результате
+/// инструмента — вызов и результат уходят из истории и из
+/// `agent.context_items`, вызов модели повторяется, ход идёт; после
+/// повторного открытия их нет. Битая картинка в строке текущего шага —
+/// карантин и ошибка хода текстом ядра. Ошибка без картинки в истории —
+/// как есть. Без карантина в `Turn::infer` — красный.
+async fn poisoned_context_is_quarantined(wire: common::Wire) {
+    use agent_loop::{quarantine, Tools, Turn, TurnError};
+    use common::Step;
+    let url = pg::database();
+    let store = Store::connect(&url).await.unwrap();
+    let now = Arc::new(|| 1_800_000_000_000i64);
+    let h = Arc::new(AgentHistory::open(&store, "root", "root", "fake/main", now.clone()).await.unwrap());
+    h.pin_prefix(&Prefix { system: "SYSTEM".into(), tools: vec![] }).await.unwrap();
+    let tools = Tools::new();
+    let mut history = vec![
+        msg(Role::User, "сделай снимок"),
+        Message { role: Role::Assistant, content: vec![Part::ToolCall { id: "c0".into(), name: "screenshot".into(), arguments: json!({}) }] },
+        Message { role: Role::User, content: vec![Part::ToolResult { call_id: "c0".into(), content: vec![ToolResultPart::Image(image())], is_error: false }] },
+        msg(Role::Assistant, "снимок готов"),
+        msg(Role::User, "что дальше?"),
+    ];
+    let (server, p) = common::model(
+        wire,
+        vec![Step::Rejected(400, "messages.2.content.0.content.0.image.source.base64: Could not process image"), Step::Text("Дальше — ничего.")],
+        false,
+    );
+    let mut turn = Turn::new(&p, &tools, "SYSTEM", common::temp_dir("quarantine").join("spill"));
+    turn.record = Some(h.clone());
+    let resp = turn.run(&mut history, &mut |_| {}).await.unwrap();
+    assert_eq!(resp.text(), "Дальше — ничего.", "{wire:?}");
+    let texts: Vec<String> = history.iter().map(|m| format!("{:?}", m.content)).collect();
+    assert_eq!(history.len(), 4, "{texts:?}");
+    assert!(!texts.iter().any(|t| t.contains("c0")), "{texts:?}");
+    let reqs = server.requests();
+    assert_eq!(reqs.len(), 2);
+    assert!(reqs[0].to_string().contains("iVBORbroken") && !reqs[1].to_string().contains("iVBORbroken"));
+    // В базе вызова и результата нет; после повторного открытия — тоже.
+    let calls: i64 = sqlx::query_scalar("select count(*) from agent.context_items where agent_id = 'root' and call_id = 'c0'").fetch_one(store.pool()).await.unwrap();
+    assert_eq!(calls, 0);
+    let again = AgentHistory::open(&store, "root", "root", "fake/main", now.clone()).await.unwrap();
+    assert_eq!(again.load().await.unwrap().unwrap().history, history);
+
+    // Картинка в строке текущего шага — карантин и ошибка хода.
+    history.push(Message { role: Role::User, content: vec![Part::Text { text: "а это что?".into() }, Part::Image(image())] });
+    let (_s2, p2) = common::model(wire, vec![Step::Rejected(400, "Could not process image")], false);
+    let mut turn = Turn::new(&p2, &tools, "SYSTEM", common::temp_dir("quarantine2").join("spill"));
+    turn.record = Some(h.clone());
+    match turn.run(&mut history, &mut |_| {}).await {
+        Err(TurnError::Model(e)) => assert!(e.message.starts_with(&format!("{} (", quarantine::CURRENT_INPUT_QUARANTINED)), "{}", e.message),
+        other => panic!("{wire:?}: {other:?}"),
+    }
+    assert_eq!(history.len(), 4);
+    let again = AgentHistory::open(&store, "root", "root", "fake/main", now.clone()).await.unwrap();
+    assert_eq!(again.load().await.unwrap().unwrap().history, history);
+
+    // Картинок нет — ошибка как есть.
+    let (_s3, p3) = common::model(wire, vec![Step::Rejected(400, "Could not process image")], false);
+    let turn = Turn::new(&p3, &tools, "SYSTEM", common::temp_dir("quarantine3").join("spill"));
+    match turn.run(&mut history, &mut |_| {}).await {
+        Err(TurnError::Model(e)) => assert!(!e.message.contains(quarantine::CURRENT_INPUT_QUARANTINED), "{}", e.message),
+        other => panic!("{wire:?}: {other:?}"),
+    }
+    assert_eq!(history.len(), 4);
+}
+
+#[tokio::test]
+async fn poisoned_context_is_quarantined_anthropic() {
+    poisoned_context_is_quarantined(common::Wire::Anthropic).await
+}
+
+#[tokio::test]
+async fn poisoned_context_is_quarantined_openai_compat() {
+    poisoned_context_is_quarantined(common::Wire::OpenaiCompat).await
 }
