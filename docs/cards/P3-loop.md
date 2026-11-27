@@ -68,3 +68,14 @@
 3. `forget.plan` / `forget.confirm` поверх наследуемого подагента — по `strings-all.txt:78661`, `:55418-55420`; связь с `~/workspace/memory/forget/pending.json` из П4д.
 4. Тексты — с правками П10 (Hamlet, без Muse/Meta), записать в `prompts/SOURCES.md`; метки `personal-muse-only` / `group-muse-only` при переносе переименовать в `personal-only` / `group-only` (и в уже перенесённых файлах), `personal()` — под новые метки.
 5. Тесты на обоих поставщиках: подагент видит историю родителя по правилу muse; родитель не изменён; `forget.plan` → `forget.confirm` → записи сняты из поиска; тест имён П10 зелёный.
+
+## П3е — история и восстановление в Postgres
+
+Слово владельца 27.11 — Postgres, как у muse. `docs/coverage/core.md`, «Нет в плане» п.2 (215 файлов). Можно бить на П3е-1, П3е-2…
+
+1. Форма — `session/impl_session/history_persistence/*` (`history_persistence.rs`, `assistant_messages.rs`, `cancellation.rs`), `hatch-db-conversations` (`agent_state/conversations`, `agent_state/(прочее) › history`, `message_mailbox`, `recovery_owners`, `runtime_restart_checkpoints`, `subagent_*`, `transcript/chat_events`, `transcript/(прочее)`), `message_execution/restart_*`, `hatch-db-execution › runtime_work`, `hatch-db-execution-state`, `agent_manager/control › restart_ctl`.
+2. Таблицы — по SQL muse: `agent.agents`, `agent.message_mailbox`, `runtime.events`, `runtime.messages`, `runtime.tool_calls`, `agent.agent_compactions`, `agent.agent_message_token_usage`, `agent.agent_todo_snapshots`, `agent.volatile_context_pins` и `…_bodies`, `agent.context_items`, `agent.subagent_spawns`, `agent.subagent_progress`, `agent.runtime_restart_checkpoints`, `agent.recovery_owners`, `runtime.work_items` — какие из них нужны для того, что у нас уже есть (разговор главного агента, подагенты, исследователь, работники расписаний и наблюдателей, окна браузера, workflow, ящик, список дел, сжатия, закреплённое начало и заметки изменчивого).
+3. Запись хода: каждое сообщение, вызов и результат, сжатие, счёт токенов — в базу по мере хода (как `history_persistence`), не в конце.
+4. Перезапуск `hamlet`: разговор главного агента продолжается с того же места (закреплённое начало и история из базы — байт в байт, чтобы кэш подсказки уцелел); ящик не теряет вестей; незаконченные ходы, подагенты, работы — по точкам перезапуска и владельцам восстановления muse (`restart_boundary`, `restart_state`, `recovery_owners`), а не «всё заново».
+5. «Past conversations» в выдаче памяти (`hamlet.memory_search`) — по истории в базе (П4д, долг б20).
+6. Тесты на обоих проводах с временным Postgres: разговор → остановка программы посреди хода → запуск → продолжение с той же историей и тем же началом подсказки; весть, пришедшая во время остановки, доходит; подагент, работавший при остановке, восстанавливается по правилу muse; память находит прошлый разговор.
