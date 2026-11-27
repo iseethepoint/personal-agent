@@ -11,7 +11,7 @@ use std::time::Duration;
 use crate::http::{self, config, Timeouts};
 use crate::registry::{AnthropicFacts, ProviderKind, Resolved};
 use crate::types::{ProviderError, Request, Response};
-use crate::Provider;
+use crate::{OnText, Provider};
 
 pub use convert::{request_body, MAX_REQUEST_BYTES};
 
@@ -78,7 +78,7 @@ impl AnthropicProvider {
 }
 
 impl Provider for AnthropicProvider {
-    async fn complete(&self, req: &Request) -> Result<Response, ProviderError> {
+    async fn stream(&self, req: &Request, on_text: &mut OnText<'_>) -> Result<Response, ProviderError> {
         let body = request_body(&self.model, req, &self.facts)?;
         let mut call = self
             .client
@@ -93,7 +93,7 @@ impl Provider for AnthropicProvider {
         }
         let resp = http::send(call, self.timeouts).await?;
         let mut state = sse::State::default();
-        http::read_events(resp, self.timeouts, |data| state.event(data)).await?;
+        http::read_events(resp, self.timeouts, |data| state.event(data, on_text)).await?;
         state.finish()
     }
 }

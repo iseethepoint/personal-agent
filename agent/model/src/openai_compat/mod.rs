@@ -14,7 +14,7 @@ use serde_json::{json, Value};
 use crate::http::{self, config, decode_err, Timeouts};
 use crate::registry::{OpenaiCompatFacts, ProviderKind, Resolved};
 use crate::types::{ProviderError, ProviderErrorKind, Request, Response, ToolSpec};
-use crate::Provider;
+use crate::{OnText, Provider};
 
 pub use convert::{request_body, TOOL_ERROR_PREFIX};
 
@@ -158,7 +158,7 @@ impl OpenaiCompatProvider {
 }
 
 impl Provider for OpenaiCompatProvider {
-    async fn complete(&self, req: &Request) -> Result<Response, ProviderError> {
+    async fn stream(&self, req: &Request, on_text: &mut OnText<'_>) -> Result<Response, ProviderError> {
         let body = request_body(&self.model, req, &self.facts)?;
         let resp = match http::send(
             self.post("/chat/completions", &body).header("accept", "text/event-stream"),
@@ -175,7 +175,7 @@ impl Provider for OpenaiCompatProvider {
             other => other?,
         };
         let mut state = stream::State::new(self.facts.reasoning);
-        http::read_events(resp, self.timeouts, |data| state.event(data)).await?;
+        http::read_events(resp, self.timeouts, |data| state.event(data, on_text)).await?;
         state.finish()
     }
 }

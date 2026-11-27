@@ -3,6 +3,17 @@
 version = 4
 
 [[package]]
+name = "agent-loop"
+version = "0.1.0"
+dependencies = [
+ "agent-model",
+ "futures-util",
+ "serde_json",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
 name = "agent-model"
 version = "0.1.0"
 dependencies = [
