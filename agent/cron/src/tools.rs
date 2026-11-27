@@ -95,7 +95,8 @@ fn schedule_schema() -> Value {
             "at": {"type": "string", "pattern": field("schedule.at.pattern"), "description": field("schedule.at")},
             "every": s(field("schedule.every")),
             "time": {"type": "string", "pattern": field("schedule.time.pattern"), "description": field("schedule.time")},
-            "flexible_time": {"type": "boolean", "description": field("schedule.flexible_time")},
+            "timing": {"type": "string", "enum": ["exact", "window", "anytime"], "description": field("schedule.timing")},
+            "window": {"type": "string", "description": field("schedule.window")},
             "dow": {"type": "array", "items": {"type": "string", "enum": days}, "description": field("schedule.dow")},
             "dom": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 31}, "description": field("schedule.dom")},
             "month": {"type": "array", "items": {"type": "integer", "minimum": 1, "maximum": 12}, "description": field("schedule.month")},
@@ -375,7 +376,7 @@ impl CronTool {
             d.metadata.notification_requested = Some(n);
         }
         if let Some(v) = args.get("schedule") {
-            d.schedule = Schedule::from_input(v, (!adding).then_some(&d.schedule), self.user_tz(), &d.id).map_err(bad)?;
+            d.schedule = Schedule::from_input(v, (!adding).then_some(&d.schedule), self.user_tz(), &self.core.machine(), self.core.now()).map_err(bad)?;
         }
         Ok(())
     }
@@ -469,7 +470,7 @@ impl CronTool {
             delivery: vec![],
             timeout_secs: None,
             retry: Retry::default(),
-            schedule: Schedule::from_input(&args["schedule"], None, self.user_tz(), &id).map_err(bad)?,
+            schedule: Schedule::from_input(&args["schedule"], None, self.user_tz(), &self.core.machine(), now).map_err(bad)?,
             metadata: Metadata { created_by: "chat".into(), notification_requested: None, created_at_ms: now },
             body: String::new(),
         };

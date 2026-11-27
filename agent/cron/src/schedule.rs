@@ -1,6 +1,7 @@
 //! Расписание задания — форма muse `CronScheduleInput` / `ScheduleExpr`
-//! (`strings-all.txt:48681`, описание поля `schedule`, вариант без `timing`,
-//! 0xbe2…; проверки — тексты ошибок ядра, `strings-all.txt:84932`, `:84961`).
+//! (`strings-all.txt:48681`, описание поля `schedule` — вариант с `timing`,
+//! `0xbe39a4`, за ключом `cron_runtime_timing` / `gk.hatch_cron_runtime_timing`;
+//! проверки — тексты ошибок ядра, `strings-all.txt:84932`, `:84943`, `:17450`).
 //!
 //! Виды: `runonce` (`at`), `interval` (`every`, `at` — необязательная точка
 //! отсчёта), `daily` (`time`), `weekly` (`time`, `dow`), `monthly` (`time`,
@@ -8,11 +9,19 @@
 //! повторяющихся видов без пояса хранится `@user.current`, у `runonce` и
 //! `interval` — пояс, известный при создании.
 //!
+//! Время дня — `timing` (`0xbe3c7b`): `exact` — как дано; `window` — окно
+//! длиной `window` (`15m`…`12h`, по умолчанию `1h`, `0xbe3ed1`) от `time`
+//! (или `at`), сохраняется одно время внутри, своё для машины; `anytime` —
+//! сохраняется дневное время машины, у `runonce` `at` задаёт только дату.
+//! Разовое `window`/`anytime`, попавшее в прошлое, переносится на день.
+//! `flexible_time` при этом варианте недоступно (ошибка ядра).
+//!
 //! Своё (в ядре не видно): ключ расписания в имени файла для daily–yearly
 //! (`daily@0730`, `weekly@mon.fri-0730`, `monthly@1.15-0730`,
-//! `yearly@3.1-0730`); «не круглая» минута `flexible_time` — из отпечатка id
-//! задания. Поля `timing` и `window` (второй вариант описания muse) не
-//! делаются.
+//! `yearly@3.1-0730`); «машина» — строка, которую передаёт служба (путь дома
+//! агента; у muse — ВМ); время внутри окна и дневное время — FNV-1a от
+//! затравок ядра `cron-timing-window:` и `cron:timing-anytime` с машиной, с
+//! точностью до минуты; дневное время `anytime` — любая минута суток.
 
 use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, NaiveTime, TimeZone, Timelike, Utc, Weekday};
 use chrono_tz::Tz;
@@ -39,7 +48,9 @@ pub struct Schedule {
     pub month: Vec<u32>,
     pub timezone: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub flexible_time: Option<bool>,
+    pub timing: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub window: Option<String>,
 }
 
 fn err(s: &str) -> String {
@@ -83,7 +94,7 @@ pub fn tz(name: &str) -> Result<Tz, String> {
     name.parse::<Tz>().map_err(|_| err("invalid timezone (expected IANA timezone such as America/New_York or UTC)"))
 }
 
-/// Отпечаток строки (FNV-1a) — для устойчивой «не круглой» минуты.
+/// Отпечаток строки (FNV-1a) — для устойчивого времени машины.
 fn fnv(s: &str) -> u64 {
     let mut h: u64 = 0xcbf29ce484222325;
     for b in s.bytes() {
@@ -93,10 +104,34 @@ fn fnv(s: &str) -> u64 {
     h
 }
 
-/// Минута, не кратная пяти, одна и та же для задания.
-fn non_round_minute(id: &str) -> u32 {
-    let choices: Vec<u32> = (1..60).filter(|m| m % 5 != 0).collect();
-    choices[(fnv(id) % choices.len() as u64) as usize]
+const TIMINGS: [&str; 3] = ["exact", "window", "anytime"];
+
+/// Длина окна `Nm`/`Nh` → минуты, `15m`…`12h`.
+fn window_minutes(raw: &str) -> Result<i64, String> {
+    let t = raw.trim().to_ascii_lowercase();
+    let bad = || err("schedule.window must be minutes or hours, as Nm or Nh");
+    let (n, unit) = t.split_at(t.len().saturating_sub(1));
+    let n: i64 = n.trim().parse().map_err(|_| bad())?;
+    let m = match unit {
+        "m" => n,
+        "h" => n * 60,
+        _ => return Err(bad()),
+    };
+    if !(15..=720).contains(&m) {
+        return Err(err("schedule.window must be between 15m and 12h"));
+    }
+    Ok(m)
+}
+
+/// Сдвиг внутри окна, свой для машины.
+fn window_offset(machine: &str, minutes: i64) -> Duration {
+    Duration::minutes((fnv(&format!("cron-timing-window:{machine}")) % minutes as u64) as i64)
+}
+
+/// Дневное время машины для `anytime`.
+fn anytime_time(machine: &str) -> NaiveTime {
+    let m = (fnv(&format!("cron:timing-anytime{machine}")) % 1440) as u32;
+    NaiveTime::from_hms_opt(m / 60, m % 60, 0).unwrap()
 }
 
 impl Schedule {
@@ -106,9 +141,13 @@ impl Schedule {
 
     /// Разобрать `schedule` из аргументов. `prev` — сохранённое расписание
     /// (при `cron.update` пропущенные поля берутся из него); `user_tz` —
-    /// текущий пояс владельца, если известен.
-    pub fn from_input(v: &Value, prev: Option<&Schedule>, user_tz: Option<&str>, id: &str) -> Result<Schedule, String> {
+    /// текущий пояс владельца, если известен; `machine` — затравка времени
+    /// машины; `now_ms` — сейчас (перенос разового в прошлом).
+    pub fn from_input(v: &Value, prev: Option<&Schedule>, user_tz: Option<&str>, machine: &str, now_ms: i64) -> Result<Schedule, String> {
         let o = v.as_object().ok_or_else(|| err("schedule must be a JSON object"))?;
+        if o.contains_key("flexible_time") {
+            return Err(err("schedule.flexible_time is not available; use schedule.timing"));
+        }
         let s = |k: &str| o.get(k).and_then(Value::as_str).map(String::from);
         let kind = s("kind").or_else(|| prev.map(|p| p.kind.clone())).ok_or_else(|| err("schedule required"))?;
         if !["runonce", "interval", "daily", "weekly", "monthly", "yearly"].contains(&kind.as_str()) {
@@ -141,7 +180,8 @@ impl Schedule {
                 .or_else(|| same_kind.map(|p| p.month.clone()))
                 .unwrap_or_default(),
             timezone: String::new(),
-            flexible_time: o.get("flexible_time").and_then(Value::as_bool).or_else(|| prev.and_then(|p| p.flexible_time)),
+            timing: None,
+            window: None,
         };
         // Пояс: явный, сохранённый или текущий владельца.
         let given = s("timezone").or_else(|| prev.map(|p| p.timezone.clone()));
@@ -180,14 +220,9 @@ impl Schedule {
                     parse_at(a)?;
                 }
             }
-            _ => {
-                let t = parse_time(out.time.as_deref().ok_or_else(|| err("schedule.time must use HH:MM[:SS]"))?)?;
-                if out.flexible_time == Some(true) && t.minute() % 5 == 0 {
-                    let fixed = t.with_minute(non_round_minute(id)).unwrap();
-                    out.time = Some(fixed.format("%H:%M").to_string());
-                }
-            }
+            _ => {}
         }
+        out.place(o, same_kind, machine, now_ms)?;
         match kind.as_str() {
             "weekly" => {
                 if out.dow.is_empty() {
@@ -203,6 +238,101 @@ impl Schedule {
             _ => {}
         }
         Ok(out)
+    }
+
+    /// `timing` и `window`: проверки ядра и сохранённое время.
+    fn place(&mut self, o: &serde_json::Map<String, Value>, prev: Option<&Schedule>, machine: &str, now_ms: i64) -> Result<(), String> {
+        let given = o.get("timing").map(|t| t.as_str().map(str::to_string).filter(|t| TIMINGS.contains(&t.as_str())));
+        let given = match given {
+            Some(None) => return Err(err("schedule.timing must be one of exact|window|anytime")),
+            Some(Some(t)) => Some(t),
+            None => None,
+        };
+        let prev_timing = prev.and_then(|p| p.timing.clone());
+        let moved = o.contains_key("time") || o.contains_key("at");
+        let timing = match (&given, &prev_timing) {
+            (Some(t), _) => Some(t.clone()),
+            (None, Some(p)) => {
+                if moved && p != "exact" {
+                    return Err(err("the runtime picked this schedule's time, so changing schedule.time or schedule.at needs schedule.timing"));
+                }
+                Some(p.clone())
+            }
+            (None, None) if prev.is_none() && self.kind != "interval" => {
+                return Err(format!("schedule.timing required for kind={}: exact, window, or anytime", self.kind));
+            }
+            (None, None) => None,
+        };
+        if o.contains_key("window") && timing.as_deref() != Some("window") {
+            return Err(err("schedule.window was given without schedule.timing=window"));
+        }
+        self.timing = timing.clone();
+        let Some(timing) = timing else {
+            self.require_time()?;
+            return Ok(());
+        };
+        let window = match (timing.as_str(), o.get("window").and_then(Value::as_str)) {
+            ("window", Some(w)) => Some(w.trim().to_ascii_lowercase()),
+            ("window", None) => Some(prev.and_then(|p| p.window.clone()).unwrap_or_else(|| "1h".into())),
+            _ => None,
+        };
+        if let Some(w) = &window {
+            window_minutes(w)?;
+        }
+        self.window = window.clone();
+        // Время пересчитывается, только когда дано заново или сменился `timing`.
+        let changes = given.is_some() && given != prev_timing;
+        if !moved && !changes && prev.is_some() {
+            return Ok(());
+        }
+        if timing == "anytime" && o.contains_key("time") {
+            return Err(err("schedule.time does not apply with schedule.timing=anytime"));
+        }
+        match self.kind.as_str() {
+            "runonce" | "interval" => {
+                if prev.is_some() && changes && !o.contains_key("at") && self.kind == "runonce" {
+                    return Err(err("schedule.timing needs schedule.at in this update"));
+                }
+                let Some(at) = self.at.as_deref().map(parse_at).transpose()? else { return Ok(()) };
+                let mut placed = match timing.as_str() {
+                    "window" => at + window_offset(machine, window_minutes(window.as_deref().unwrap())?),
+                    "anytime" => at.date().and_time(anytime_time(machine)),
+                    _ => at,
+                };
+                if self.kind == "runonce" && timing != "exact" {
+                    let zone = tz(&self.timezone)?;
+                    let ms = |n: NaiveDateTime| zone.from_local_datetime(&n).earliest().map(|d| d.timestamp_millis()).ok_or_else(|| err("placed time is not a valid clock time"));
+                    if ms(placed)? <= now_ms {
+                        placed += Duration::days(1);
+                        ms(placed)?;
+                    }
+                }
+                self.at = Some(placed.format("%Y-%m-%dT%H:%M:%S").to_string());
+            }
+            _ => {
+                if timing == "anytime" {
+                    self.time = Some(anytime_time(machine).format("%H:%M").to_string());
+                    return Ok(());
+                }
+                if prev.is_some() && changes && !o.contains_key("time") {
+                    return Err(err("schedule.timing needs schedule.time (the window start) when it changes a schedule's timing"));
+                }
+                let t = self.require_time()?;
+                if timing == "window" {
+                    let placed = t.overflowing_add_signed(window_offset(machine, window_minutes(window.as_deref().unwrap())?)).0;
+                    self.time = Some(placed.format("%H:%M").to_string());
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Время повторяющегося вида: обязательно и в формате `HH:MM[:SS]`.
+    fn require_time(&self) -> Result<NaiveTime, String> {
+        if !self.recurring() {
+            return Ok(NaiveTime::MIN);
+        }
+        parse_time(self.time.as_deref().ok_or_else(|| err("schedule.time is required for this schedule kind"))?)
     }
 
     fn zone(&self, user_tz: Option<&str>) -> Result<Tz, String> {

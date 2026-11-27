@@ -186,7 +186,7 @@ async fn interval_fires_on_fake_clock_and_hands_off_to_main_agent() {
 async fn nothing_to_report_is_silent_and_runonce_does_not_repeat() {
     for wire in WIRES {
         let c = ctx("quiet", wire, vec![Step::Text("Nothing new."), quiet("q1")], None).await;
-        c.call("cron.add", water(json!({"kind": "runonce", "at": "2027-01-15T08:01", "timezone": "UTC"}))).await.unwrap();
+        c.call("cron.add", water(json!({"kind": "runonce", "at": "2027-01-15T08:01", "timezone": "UTC", "timing": "exact"}))).await.unwrap();
         c.clock.advance_secs(60);
         c.sched.tick().await.unwrap();
         c.sched.settle().await.unwrap();
@@ -218,7 +218,7 @@ async fn nothing_to_report_is_rejected_after_a_failed_call() {
             notify("n1", "failed", "Не вышло: disk is on fire."),
         ];
         let c = ctx("rejected", wire, worker, None).await;
-        c.call("cron.add", water(json!({"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC"}))).await.unwrap();
+        c.call("cron.add", water(json!({"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC", "timing": "exact"}))).await.unwrap();
         c.sched.tick().await.unwrap();
         c.sched.settle().await.unwrap();
         let reqs = c.server.requests();
@@ -239,7 +239,7 @@ async fn execution_timeout_goes_to_resolution_with_notice() {
     for wire in WIRES {
         let worker = vec![Step::Calls(vec![("s1", "slow", json!({"ms": 5000}))]), notify("n1", "failed", "Не успел.")];
         let c = ctx("timeout", wire, worker, None).await;
-        let mut job = water(json!({"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC"}));
+        let mut job = water(json!({"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC", "timing": "exact"}));
         job["timeout_secs"] = json!(1);
         c.call("cron.add", job).await.unwrap();
         c.sched.tick().await.unwrap();
@@ -259,7 +259,7 @@ async fn execution_timeout_goes_to_resolution_with_notice() {
 async fn run_without_terminal_call_fails_and_tells_main_agent() {
     for wire in WIRES {
         let c = ctx("unresolved", wire, vec![Step::Text("Done."), Step::Text("All good, nothing to add.")], None).await;
-        c.call("cron.add", water(json!({"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC"}))).await.unwrap();
+        c.call("cron.add", water(json!({"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC", "timing": "exact"}))).await.unwrap();
         c.sched.tick().await.unwrap();
         c.sched.settle().await.unwrap();
         let runs = c.runs("water").await;
@@ -274,7 +274,7 @@ async fn runtime_failure_is_retried_by_policy() {
     for wire in WIRES {
         let worker = vec![Step::Text("Done."), Step::Text("no tool"), Step::Text("Done again."), quiet("q1")];
         let c = ctx("retry", wire, worker, None).await;
-        let mut job = water(json!({"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC"}));
+        let mut job = water(json!({"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC", "timing": "exact"}));
         job["retry"] = json!({"on_failure": true, "max_retries": 1});
         c.call("cron.add", job).await.unwrap();
         c.sched.tick().await.unwrap();
@@ -292,9 +292,9 @@ async fn runtime_failure_is_retried_by_policy() {
 #[tokio::test]
 async fn add_validates_like_muse() {
     let c = ctx("validate", Wire::Anthropic, vec![], None).await;
-    let e = c.call("cron.add", water(json!({"kind": "daily", "time": "09:00"}))).await.unwrap_err();
+    let e = c.call("cron.add", water(json!({"kind": "daily", "time": "09:00", "timing": "exact"}))).await.unwrap_err();
     assert!(e.contains("schedule.timezone required (the user's current timezone is not known yet)"), "{e}");
-    let e = c.call("cron.add", water(json!({"kind": "runonce", "at": "2027-01-15T09:00", "timezone": "@user.current"}))).await.unwrap_err();
+    let e = c.call("cron.add", water(json!({"kind": "runonce", "at": "2027-01-15T09:00", "timezone": "@user.current", "timing": "exact"}))).await.unwrap_err();
     assert!(e.contains("symbolic timezone (@user.*) is only valid for recurring schedules"), "{e}");
     let mut job = water(json!({"kind": "interval", "every": "1h", "timezone": "UTC"}));
     job["body"] = json!("Check mail, then call notify_main_agent.");
@@ -313,16 +313,65 @@ async fn add_validates_like_muse() {
 }
 
 #[tokio::test]
-async fn recurring_job_follows_user_timezone_and_flexible_minute() {
+async fn recurring_job_follows_user_timezone_and_timing() {
     let c = ctx("tz", Wire::Anthropic, vec![], Some("Europe/Moscow")).await;
-    let r = c.call("cron.add", water(json!({"kind": "daily", "time": "09:00", "flexible_time": true}))).await.unwrap();
+    // `timing=window`: одно время внутри окна от `time`, своё для машины.
+    let r = c.call("cron.add", water(json!({"kind": "daily", "time": "09:00", "timing": "window", "window": "2h"}))).await.unwrap();
     assert_eq!(r["schedule"]["timezone"], "@user.current", "{r}");
     assert_eq!(r["timezone"], "@user.current (Europe/Moscow)");
-    let time = r["schedule"]["time"].as_str().unwrap();
-    assert!(time.starts_with("09:") && time != "09:00", "{time}");
-    // 08:00 UTC = 11:00 в Москве: ближайшие 09:xx — завтра, в субботу.
-    assert!(r["next_run_local"].as_str().unwrap().starts_with("Sat 2027-01-16 09:"), "{r}");
+    assert_eq!((r["schedule"]["timing"].as_str(), r["schedule"]["window"].as_str()), (Some("window"), Some("2h")));
+    let time = r["schedule"]["time"].as_str().unwrap().to_string();
+    assert!(("09:00".."11:00").contains(&time.as_str()), "{time}");
+    // 08:00 UTC = 11:00 в Москве: ближайшее — завтра, в субботу.
+    assert!(r["next_run_local"].as_str().unwrap().starts_with("Sat 2027-01-16 "), "{r}");
     assert!(c.home.join(format!("workspace/cron.d/daily/water__daily@{}.md", time.replace(':', ""))).exists());
+    // Правка без времени сохраняет выбранное; другое время — только с `timing`.
+    let r = c.call("cron.update", json!({"id": "water", "title": "Вода"})).await.unwrap();
+    assert_eq!(r["schedule"]["time"], time.as_str());
+    let e = c.call("cron.update", json!({"id": "water", "schedule": {"time": "10:00"}})).await.unwrap_err();
+    assert!(e.contains("the runtime picked this schedule's time, so changing schedule.time or schedule.at needs schedule.timing"), "{e}");
+    let e = c.call("cron.update", json!({"id": "water", "schedule": {"timing": "exact"}})).await.unwrap_err();
+    assert!(e.contains("schedule.timing needs schedule.time (the window start) when it changes a schedule's timing"), "{e}");
+    let r = c.call("cron.update", json!({"id": "water", "schedule": {"timing": "exact", "time": "10:00"}})).await.unwrap();
+    assert_eq!((r["schedule"]["time"].as_str(), r["schedule"].get("window")), (Some("10:00"), None), "{r}");
+
+    // `anytime`: дневное время машины, одно на все задания.
+    let any = |id: &str, sched: serde_json::Value| {
+        let mut j = water(sched);
+        j["id"] = json!(id);
+        j
+    };
+    let a = c.call("cron.add", any("a1", json!({"kind": "daily", "timing": "anytime"}))).await.unwrap();
+    let b = c.call("cron.add", any("a2", json!({"kind": "weekly", "dow": ["Mon"], "timing": "anytime"}))).await.unwrap();
+    let daily = a["schedule"]["time"].as_str().unwrap().to_string();
+    assert_eq!(b["schedule"]["time"], daily.as_str());
+    // Разовое `anytime`: `at` задаёт дату; попав в прошлое — на день позже.
+    let once = c.call("cron.add", any("a3", json!({"kind": "runonce", "at": "2027-01-15T00:00", "timezone": "UTC", "timing": "anytime"}))).await.unwrap();
+    let at = once["schedule"]["at"].as_str().unwrap();
+    let day = if daily.as_str() > "08:00" { "2027-01-15" } else { "2027-01-16" };
+    assert_eq!(at, format!("{day}T{daily}:00"), "{once}");
+
+    // Ошибки ядра.
+    let e = c.call("cron.add", any("e1", json!({"kind": "daily", "time": "09:00"}))).await.unwrap_err();
+    assert!(e.contains("schedule.timing required for kind=daily: exact, window, or anytime"), "{e}");
+    let e = c.call("cron.add", any("e2", json!({"kind": "daily", "time": "09:00", "flexible_time": true}))).await.unwrap_err();
+    assert!(e.contains("schedule.flexible_time is not available; use schedule.timing"), "{e}");
+    let e = c.call("cron.add", any("e3", json!({"kind": "daily", "time": "09:00", "timing": "soon"}))).await.unwrap_err();
+    assert!(e.contains("schedule.timing must be one of exact|window|anytime"), "{e}");
+    let e = c.call("cron.add", any("e4", json!({"kind": "daily", "time": "09:00", "timing": "exact", "window": "1h"}))).await.unwrap_err();
+    assert!(e.contains("schedule.window was given without schedule.timing=window"), "{e}");
+    let e = c.call("cron.add", any("e5", json!({"kind": "daily", "time": "09:00", "timing": "window", "window": "5m"}))).await.unwrap_err();
+    assert!(e.contains("schedule.window must be between 15m and 12h"), "{e}");
+    let e = c.call("cron.add", any("e6", json!({"kind": "daily", "time": "09:00", "timing": "window", "window": "1d"}))).await.unwrap_err();
+    assert!(e.contains("schedule.window must be minutes or hours, as Nm or Nh"), "{e}");
+    let e = c.call("cron.add", any("e7", json!({"kind": "daily", "time": "09:00", "timing": "anytime"}))).await.unwrap_err();
+    assert!(e.contains("schedule.time does not apply with schedule.timing=anytime"), "{e}");
+    let e = c.call("cron.add", any("e8", json!({"kind": "daily", "timing": "exact"}))).await.unwrap_err();
+    assert!(e.contains("schedule.time is required for this schedule kind"), "{e}");
+    // Окно по умолчанию — 1h.
+    let w = c.call("cron.add", any("w1", json!({"kind": "daily", "time": "09:00", "timing": "window"}))).await.unwrap();
+    assert_eq!(w["schedule"]["window"], "1h");
+    assert!(("09:00".."10:00").contains(&w["schedule"]["time"].as_str().unwrap()), "{w}");
 }
 
 #[tokio::test]
@@ -428,7 +477,7 @@ async fn resolution_phase_runs_on_resolve_model() {
         let mut c = ctx("resolve", wire, vec![Step::Text("Checked.")], None).await;
         let (resolve_server, rp) = model(wire, vec![quiet("q1")], true);
         c.sched.resolver(Arc::new(rp));
-        c.call("cron.add", water(json!({"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC"}))).await.unwrap();
+        c.call("cron.add", water(json!({"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC", "timing": "exact"}))).await.unwrap();
         c.sched.tick().await.unwrap();
         c.sched.settle().await.unwrap();
         assert_eq!(c.server.requests().len(), 1, "{wire:?}: исполнение — на модели работника");
