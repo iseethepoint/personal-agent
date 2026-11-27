@@ -15,7 +15,7 @@
 
 [defaults]
 model = "anthropic/claude-opus-5-5"
-maintenance = "anthropic/claude-haiku-4-5"
+maintenance = "anthropic/claude-haiku-5-5"
 
 # Веса `cedar` у muse — это claude-opus-5-5 (strings-all.txt:235795-235806, :236080).
 # compaction и tool_search у muse включены; здесь выключены: прослойка их не
@@ -35,16 +35,22 @@ anthropic.output_effort = "supported"
 anthropic.image_resolution = "high"
 anthropic.runtime_output_ceiling = 64000
 anthropic.prompt_cache = true
+# На claude-opus-5-5 tool_choice `tool`/`any` даёт 400 (документация API).
+anthropic.forced_tool_choice = false
 
-# claude-haiku-4.5 у muse (strings-all.txt:235857-235863).
-[weights."claude-haiku-4.5"]
-knowledge_cutoff = "2026-01-04"
-context_window = 200000
+# claude-haiku-5-5 — текущий Haiku. У muse этих весов нет (в реестре muse только
+# claude-haiku-4.5, strings-all.txt:235857); значения — из документации API:
+# окно 1M, thinking adaptive, effort low–max (по умолчанию medium), ответ до 128K,
+# системные сообщения посреди разговора есть, принудительный вызов инструмента есть.
+[weights."claude-haiku-5-5"]
+context_window = 1000000
 compaction_trigger = 150000
-anthropic.adaptive_thinking = false
-anthropic.output_effort = "unsupported"
-anthropic.image_resolution = "standard"
+anthropic.adaptive_thinking = true
+anthropic.mid_conversation_system_messages = true
+anthropic.output_effort = "supported"
+anthropic.runtime_output_ceiling = 128000
 anthropic.prompt_cache = true
+anthropic.forced_tool_choice = true
 
 # Локальная модель через сервер «как OpenAI» (Ollama). Окно и порог — как запущен
 # сервер; подбирается под свою модель (план, П7).
@@ -60,7 +66,7 @@ openai_compat.runtime_output_ceiling = 8192
 
 [wires]
 "claude-opus-5-5" = { weights = "claude-opus-5-5" }
-"claude-haiku-4-5" = { weights = "claude-haiku-4.5" }
+"claude-haiku-5-5" = { weights = "claude-haiku-5-5" }
 "qwen3:8b" = { weights = "qwen3-8b", local_inference = true }
 
 [[models]]
@@ -71,10 +77,10 @@ model = "claude-opus-5-5"
 api_key_env = "ANTHROPIC_API_KEY"
 
 [[models]]
-id = "anthropic/claude-haiku-4-5"
-display_name = "Claude Haiku 4.5"
+id = "anthropic/claude-haiku-5-5"
+display_name = "Claude Haiku 5.5"
 provider = "anthropic"
-model = "claude-haiku-4-5"
+model = "claude-haiku-5-5"
 api_key_env = "ANTHROPIC_API_KEY"
 
 [[models]]

@@ -17,6 +17,11 @@ pub use types::{
 };
 
 /// Один вход → один выход. Каждый поставщик переводит их в свой протокол.
+/// Async и `Send`: цикл хода исполняет вызовы параллельно, как muse
+/// (`tool_dispatch_batch`, `source-files.txt:1357`).
 pub trait Provider {
-    fn complete(&self, req: &Request) -> Result<Response, ProviderError>;
+    fn complete(
+        &self,
+        req: &Request,
+    ) -> impl std::future::Future<Output = Result<Response, ProviderError>> + Send;
 }

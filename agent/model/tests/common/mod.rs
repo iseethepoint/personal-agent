@@ -39,6 +39,18 @@ pub struct FakeServer {
 impl FakeServer {
     /// Ответит на один запрос: код, лишние заголовки, тело.
     pub fn start(status: u16, content_type: &str, extra_headers: &[(&str, &str)], body: String) -> Self {
+        Self::start_paused(status, content_type, extra_headers, body, None)
+    }
+
+    /// То же, но после первой половины тела сервер молчит `pause`, а потом
+    /// дописывает остальное (для проверки срока тишины в потоке).
+    pub fn start_paused(
+        status: u16,
+        content_type: &str,
+        extra_headers: &[(&str, &str)],
+        body: String,
+        pause: Option<std::time::Duration>,
+    ) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind 127.0.0.1");
         let base_url = format!("http://{}", listener.local_addr().unwrap());
         let mut head = format!("HTTP/1.1 {status} X\r\ncontent-type: {content_type}\r\nconnection: close\r\n");
@@ -71,8 +83,21 @@ impl FakeServer {
             let mut raw = vec![0u8; len];
             reader.read_exact(&mut raw).unwrap();
             stream.write_all(head.as_bytes()).unwrap();
-            stream.write_all(body.as_bytes()).unwrap();
-            stream.flush().unwrap();
+            match pause {
+                None => {
+                    stream.write_all(body.as_bytes()).unwrap();
+                }
+                Some(p) => {
+                    let bytes = body.as_bytes();
+                    let mid = bytes.len() / 2;
+                    stream.write_all(&bytes[..mid]).unwrap();
+                    stream.flush().unwrap();
+                    std::thread::sleep(p);
+                    // Клиент мог уже закрыть соединение — это и проверяется.
+                    let _ = stream.write_all(&bytes[mid..]);
+                }
+            }
+            let _ = stream.flush();
             Captured {
                 request_line: request_line.trim_end().to_string(),
                 headers,

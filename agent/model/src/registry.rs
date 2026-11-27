@@ -100,6 +100,10 @@ pub struct AnthropicFacts {
     /// `cache_control` на неизменном начале подсказки (system и инструменты).
     /// Своё имя: в списке умений весов muse такого флага нет.
     pub prompt_cache: bool,
+    /// Принудительный вызов инструмента (`tool_choice` `tool`/`any`).
+    /// На claude-opus-5-5, Sonnet 5.5, Fable 5.1/5.2 сервер отвечает 400 —
+    /// там умение выключено. Своё имя: у muse такого флага нет.
+    pub forced_tool_choice: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]

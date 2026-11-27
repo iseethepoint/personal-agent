@@ -2,8 +2,6 @@
 //! `sse_parser_state_machine.rs` (`source-files.txt:5269,5273`).
 //! Поток собирается в один `Response`; блоки идут в порядке индексов.
 
-use std::io::BufRead;
-
 use serde_json::Value;
 
 use crate::types::{Part, ProviderError, ProviderErrorKind, Response, StopReason, Usage};
@@ -180,30 +178,54 @@ impl State {
     }
 }
 
-/// Читает поток до конца. Ошибка чтения (обрыв связи) — ошибка потока,
-/// её можно повторить.
-pub fn read_stream(reader: impl BufRead) -> Result<Response, ProviderError> {
-    let mut state = State::default();
-    let mut data = String::new();
-    for line in reader.lines() {
-        let line = line.map_err(|e| stream_err(format!("чтение потока: {e}")))?;
+/// Разбор потока по кускам байтов: куски режутся на строки, строки — на события.
+#[derive(Default)]
+pub struct SseParser {
+    state: State,
+    data: String,
+    buf: Vec<u8>,
+}
+
+impl SseParser {
+    fn line(&mut self, line: &str) -> Result<(), ProviderError> {
+        let line = line.strip_suffix('\r').unwrap_or(line);
         if line.is_empty() {
-            if !data.is_empty() {
-                state.event(&data)?;
-                data.clear();
+            if !self.data.is_empty() {
+                let data = std::mem::take(&mut self.data);
+                self.state.event(&data)?;
             }
-            continue;
+            return Ok(());
         }
         if let Some(rest) = line.strip_prefix("data:") {
-            if !data.is_empty() {
-                data.push('\n');
+            if !self.data.is_empty() {
+                self.data.push('\n');
             }
-            data.push_str(rest.strip_prefix(' ').unwrap_or(rest));
+            self.data.push_str(rest.strip_prefix(' ').unwrap_or(rest));
         }
         // Строки `event:` и комментарии не нужны: тип есть в самом JSON.
+        Ok(())
     }
-    if !data.is_empty() {
-        state.event(&data)?;
+
+    /// Очередной кусок потока.
+    pub fn feed(&mut self, chunk: &[u8]) -> Result<(), ProviderError> {
+        self.buf.extend_from_slice(chunk);
+        while let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
+            let raw: Vec<u8> = self.buf.drain(..=pos).collect();
+            let line = std::str::from_utf8(&raw[..raw.len() - 1])
+                .map_err(|e| decode_err(format!("SSE не UTF-8: {e}")))?
+                .to_string();
+            self.line(&line)?;
+        }
+        Ok(())
     }
-    state.finish()
+
+    /// Поток кончился: собрать ответ. Без `message_stop` — обрыв.
+    pub fn finish(mut self) -> Result<Response, ProviderError> {
+        if !self.buf.is_empty() {
+            let rest = String::from_utf8_lossy(&std::mem::take(&mut self.buf)).to_string();
+            self.line(&rest)?;
+        }
+        self.line("")?;
+        self.state.finish()
+    }
 }

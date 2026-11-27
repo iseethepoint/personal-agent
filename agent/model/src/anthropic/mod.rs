@@ -1,24 +1,29 @@
 //! Поставщик `anthropic` — свой HTTP-клиент на Messages API, по форме muse
 //! `hatch-inference/src/model/anthropic/*` (`source-files.txt:5263-5275`):
 //! перевод подсказки (`convert`), поток SSE (`sse`), запрос и ошибка HTTP (здесь).
+//! Async на tokio и reqwest, как у muse (`crates.txt:10,94`).
 
 mod convert;
 mod sse;
 
-use std::io::{BufReader, Read};
 use std::time::Duration;
+
+use futures_util::StreamExt;
 
 use crate::registry::{AnthropicFacts, ProviderKind, Resolved};
 use crate::types::{ProviderError, ProviderErrorKind, Request, Response};
 use crate::Provider;
 
 pub use convert::{request_body, MAX_REQUEST_BYTES};
-pub use sse::read_stream;
+pub use sse::SseParser;
 
 /// Версия API, как у muse (`strings-all.txt:237329`).
 pub const ANTHROPIC_VERSION: &str = "2023-06-01";
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
-/// Тишина в потоке, после которой чтение обрывается: 90 с —
+/// Ожидание ответа сервера до начала потока: 600 с —
+/// `JARVIS_MODEL_STREAM_FIRST_CHUNK_TIMEOUT_MS` muse (ядро, `0x26a6bfa0`).
+pub const FIRST_CHUNK_TIMEOUT: Duration = Duration::from_millis(600_000);
+/// Тишина между кусками потока: 90 с —
 /// `JARVIS_MODEL_STREAM_CHUNK_IDLE_TIMEOUT_MS` muse (ядро, `0x26a6bf80`).
 pub const STREAM_IDLE_TIMEOUT: Duration = Duration::from_millis(90_000);
 
@@ -27,11 +32,17 @@ pub struct AnthropicProvider {
     facts: AnthropicFacts,
     base_url: String,
     api_key: String,
-    agent: ureq::Agent,
+    client: reqwest::Client,
+    first_chunk_timeout: Duration,
+    idle_timeout: Duration,
 }
 
 fn config(msg: impl Into<String>) -> ProviderError {
     ProviderError::new(ProviderErrorKind::Config, msg)
+}
+
+fn stream_err(msg: impl Into<String>) -> ProviderError {
+    ProviderError::new(ProviderErrorKind::Stream, msg)
 }
 
 impl AnthropicProvider {
@@ -42,10 +53,10 @@ impl AnthropicProvider {
         api_key: impl Into<String>,
     ) -> Result<Self, ProviderError> {
         convert::check_supported(&facts)?;
-        let agent = ureq::AgentBuilder::new()
-            .timeout_connect(Duration::from_secs(30))
-            .timeout_read(STREAM_IDLE_TIMEOUT)
-            .build();
+        let client = reqwest::Client::builder()
+            .connect_timeout(Duration::from_secs(30))
+            .build()
+            .map_err(|e| config(format!("HTTP-клиент: {e}")))?;
         Ok(AnthropicProvider {
             model: model.into(),
             facts,
@@ -54,8 +65,17 @@ impl AnthropicProvider {
                 .trim_end_matches('/')
                 .to_string(),
             api_key: api_key.into(),
-            agent,
+            client,
+            first_chunk_timeout: FIRST_CHUNK_TIMEOUT,
+            idle_timeout: STREAM_IDLE_TIMEOUT,
         })
+    }
+
+    /// Другие сроки ожидания (для тестов и настройки).
+    pub fn with_timeouts(mut self, first_chunk: Duration, idle: Duration) -> Self {
+        self.first_chunk_timeout = first_chunk;
+        self.idle_timeout = idle;
+        self
     }
 
     /// Поставщик для выбранной модели. Ключ — из переменной окружения,
@@ -81,13 +101,15 @@ impl AnthropicProvider {
 }
 
 /// Ошибка HTTP Messages API: тип и текст из тела, `retry-after` в секундах.
-fn http_error(status: u16, resp: ureq::Response) -> ProviderError {
+async fn http_error(resp: reqwest::Response) -> ProviderError {
+    let status = resp.status().as_u16();
     let retry_after_ms = resp
-        .header("retry-after")
+        .headers()
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
         .and_then(|s| s.trim().parse::<f64>().ok())
         .map(|s| (s * 1000.0) as u64);
-    let mut body = String::new();
-    let _ = resp.into_reader().take(64 * 1024).read_to_string(&mut body);
+    let body = resp.text().await.unwrap_or_default();
     let message = serde_json::from_str::<serde_json::Value>(&body)
         .ok()
         .map(|v| {
@@ -101,26 +123,43 @@ fn http_error(status: u16, resp: ureq::Response) -> ProviderError {
     ProviderError::http(status, message, retry_after_ms)
 }
 
+fn transport(e: reqwest::Error) -> ProviderError {
+    ProviderError::new(ProviderErrorKind::Transport, e.without_url().to_string())
+}
+
 impl Provider for AnthropicProvider {
-    fn complete(&self, req: &Request) -> Result<Response, ProviderError> {
+    async fn complete(&self, req: &Request) -> Result<Response, ProviderError> {
         let body = request_body(&self.model, req, &self.facts)?;
         let mut call = self
-            .agent
-            .post(&format!("{}/v1/messages", self.base_url))
-            .set("content-type", "application/json")
-            .set("accept", "text/event-stream")
-            .set("anthropic-version", ANTHROPIC_VERSION)
-            .set("x-api-key", &self.api_key);
+            .client
+            .post(format!("{}/v1/messages", self.base_url))
+            .header("content-type", "application/json")
+            .header("accept", "text/event-stream")
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("x-api-key", &self.api_key)
+            .json(&body);
         if let Some(beta) = &self.facts.beta {
-            call = call.set("anthropic-beta", beta);
+            call = call.header("anthropic-beta", beta);
         }
-        match call.send_json(body) {
-            Ok(resp) => read_stream(BufReader::new(resp.into_reader())),
-            Err(ureq::Error::Status(status, resp)) => Err(http_error(status, resp)),
-            Err(ureq::Error::Transport(t)) => Err(ProviderError::new(
-                ProviderErrorKind::Transport,
-                t.to_string(),
-            )),
+        let resp = tokio::time::timeout(self.first_chunk_timeout, call.send())
+            .await
+            .map_err(|_| stream_err("сервер не ответил до начала потока"))?
+            .map_err(transport)?;
+        if !resp.status().is_success() {
+            return Err(http_error(resp).await);
         }
+        let mut stream = resp.bytes_stream();
+        let mut parser = SseParser::default();
+        loop {
+            match tokio::time::timeout(self.idle_timeout, stream.next()).await {
+                Err(_) => return Err(stream_err("тишина в потоке дольше предела")),
+                Ok(None) => break,
+                Ok(Some(Err(e))) => {
+                    return Err(stream_err(format!("чтение потока: {}", e.without_url())))
+                }
+                Ok(Some(Ok(chunk))) => parser.feed(&chunk)?,
+            }
+        }
+        parser.finish()
     }
 }

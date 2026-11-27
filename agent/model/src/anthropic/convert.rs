@@ -83,53 +83,83 @@ fn part_to_block(p: &Part) -> Value {
     }
 }
 
-/// Заметка движка без поддержки системных сообщений посреди разговора:
-/// текст в обёртке `<system-reminder>` внутри сообщения пользователя —
-/// так muse передаёт уведомления (`strings-all.txt:59333-59349`).
-fn developer_as_user_text(m: &Message) -> Value {
-    let text: String = m
-        .content
+fn text_of(m: &Message) -> String {
+    m.content
         .iter()
         .filter_map(|p| match p {
             Part::Text { text } => Some(text.as_str()),
             _ => None,
         })
         .collect::<Vec<_>>()
-        .join("\n");
-    json!({"type": "text", "text": format!("<system-reminder>\n{text}\n</system-reminder>")})
+        .join("\n")
 }
 
-fn messages(req: &Request, facts: &AnthropicFacts) -> Vec<Value> {
-    let mut out: Vec<Value> = Vec::new();
-    for m in &req.messages {
-        let (role, blocks): (&str, Vec<Value>) = match m.role {
-            Role::User => ("user", m.content.iter().map(part_to_block).collect()),
-            Role::Assistant => ("assistant", m.content.iter().map(part_to_block).collect()),
-            Role::Developer if facts.mid_conversation_system_messages => {
-                let text: String = m
-                    .content
-                    .iter()
-                    .filter_map(|p| match p {
-                        Part::Text { text } => Some(text.as_str()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                out.push(json!({"role": "system", "content": text}));
-                continue;
+/// Сообщение до склейки ролей: обычное или заметка движка.
+enum Item {
+    Normal(&'static str, Vec<Value>),
+    Developer(String),
+}
+
+fn push_merged(out: &mut Vec<Value>, role: &str, blocks: Vec<Value>) {
+    // Подряд идущие сообщения одной роли склеиваются в одно.
+    if let Some(last) = out.last_mut() {
+        if last["role"] == role {
+            if let Some(arr) = last["content"].as_array_mut() {
+                arr.extend(blocks);
+                return;
             }
-            Role::Developer => ("user", vec![developer_as_user_text(m)]),
-        };
-        // Подряд идущие сообщения одной роли склеиваются в одно.
-        if let Some(last) = out.last_mut() {
-            if last["role"] == role {
-                if let Some(arr) = last["content"].as_array_mut() {
-                    arr.extend(blocks);
-                    continue;
+        }
+    }
+    out.push(json!({"role": role, "content": blocks}));
+}
+
+/// Сообщения запроса. Заметка движка (`Role::Developer`) идёт сообщением
+/// `role: system` посреди разговора, только если у весов включено
+/// `mid_conversation_system_messages` и место допустимо: сразу после
+/// сообщения пользователя и перед ответом модели или в конце. Так проверяет
+/// и muse («system section must follow a user message», «system section must
+/// precede an assistant message or end the array», `strings-all.txt:235512`),
+/// и сам API. Иначе — текст в `<system-reminder>` внутри сообщения
+/// пользователя (форма уведомлений muse, `strings-all.txt:59333-59349`).
+fn messages(req: &Request, facts: &AnthropicFacts) -> Vec<Value> {
+    let mut items: Vec<Item> = Vec::new();
+    for m in &req.messages {
+        match m.role {
+            Role::User => items.push(Item::Normal("user", m.content.iter().map(part_to_block).collect())),
+            Role::Assistant => {
+                items.push(Item::Normal("assistant", m.content.iter().map(part_to_block).collect()))
+            }
+            Role::Developer => {
+                let text = text_of(m);
+                // Несколько заметок подряд — одна.
+                if let Some(Item::Developer(prev)) = items.last_mut() {
+                    prev.push('\n');
+                    prev.push_str(&text);
+                } else {
+                    items.push(Item::Developer(text));
                 }
             }
         }
-        out.push(json!({"role": role, "content": blocks}));
+    }
+    let mut out: Vec<Value> = Vec::new();
+    for i in 0..items.len() {
+        match &items[i] {
+            Item::Normal(role, blocks) => push_merged(&mut out, role, blocks.clone()),
+            Item::Developer(text) => {
+                let after_user = out.last().is_some_and(|l| l["role"] == "user");
+                let before_ok = match items.get(i + 1) {
+                    None => true,
+                    Some(Item::Normal(role, _)) => *role == "assistant",
+                    Some(Item::Developer(_)) => false,
+                };
+                if facts.mid_conversation_system_messages && after_user && before_ok {
+                    out.push(json!({"role": "system", "content": text}));
+                } else {
+                    let block = json!({"type": "text", "text": format!("<system-reminder>\n{text}\n</system-reminder>")});
+                    push_merged(&mut out, "user", vec![block]);
+                }
+            }
+        }
     }
     out
 }
@@ -182,6 +212,15 @@ pub fn request_body(model: &str, req: &Request, facts: &AnthropicFacts) -> Resul
             body.insert("tool_choice".into(), json!({"type": "none"}));
         }
         ToolChoice::Tool { name } => {
+            if !facts.forced_tool_choice {
+                // Ответ в заданной форме для таких моделей — в П3 по форме muse
+                // `output_contract.rs`: `tool_choice` auto и текст «Complete the task
+                // by calling `…` exactly once» (`strings-all.txt:235518`).
+                return Err(config(format!(
+                    "принудительный вызов `{name}` выключен у весов (anthropic.forced_tool_choice = false): \
+                     сервер ответил бы 400; нужен tool_choice auto и указание в подсказке"
+                )));
+            }
             body.insert("tool_choice".into(), json!({"type": "tool", "name": name}));
         }
     }

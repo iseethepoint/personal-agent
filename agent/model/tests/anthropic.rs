@@ -9,6 +9,7 @@ use agent_model::{
 };
 use common::{fixture, FakeServer};
 use serde_json::json;
+use std::time::Duration;
 
 fn full_facts() -> AnthropicFacts {
     AnthropicFacts {
@@ -56,10 +57,10 @@ fn provider(server: &FakeServer, facts: AnthropicFacts) -> AnthropicProvider {
     AnthropicProvider::new("claude-opus-5-5", facts, Some(server.base_url.clone()), "test-key").unwrap()
 }
 
-#[test]
-fn text_answer_and_request_shape() {
+#[tokio::test]
+async fn text_answer_and_request_shape() {
     let server = FakeServer::sse("anthropic/text.sse");
-    let r = provider(&server, full_facts()).complete(&request()).unwrap();
+    let r = provider(&server, full_facts()).complete(&request()).await.unwrap();
     assert_eq!(r.text(), "Hello, world");
     assert_eq!(r.stop_reason, StopReason::EndTurn);
     assert_eq!(r.usage.input_tokens, 25);
@@ -82,10 +83,10 @@ fn text_answer_and_request_shape() {
     assert_eq!(b["messages"][0]["content"][0]["text"], "Привет");
 }
 
-#[test]
-fn two_tool_calls_in_order() {
+#[tokio::test]
+async fn two_tool_calls_in_order() {
     let server = FakeServer::sse("anthropic/two_tools.sse");
-    let r = provider(&server, full_facts()).complete(&request()).unwrap();
+    let r = provider(&server, full_facts()).complete(&request()).await.unwrap();
     assert_eq!(r.stop_reason, StopReason::ToolUse);
     let calls: Vec<_> = r.tool_calls().collect();
     assert_eq!(calls.len(), 2);
@@ -105,10 +106,10 @@ fn two_tool_calls_in_order() {
     server.captured();
 }
 
-#[test]
-fn thinking_round_trip() {
+#[tokio::test]
+async fn thinking_round_trip() {
     let server = FakeServer::sse("anthropic/thinking.sse");
-    let r = provider(&server, full_facts()).complete(&request()).unwrap();
+    let r = provider(&server, full_facts()).complete(&request()).await.unwrap();
     server.captured();
     assert_eq!(
         r.content[0],
@@ -134,53 +135,53 @@ fn thinking_round_trip() {
     assert_eq!(a[2], json!({"type": "text", "text": "42"}));
 }
 
-fn http_error(status: u16, file: &str, headers: &[(&str, &str)]) -> agent_model::ProviderError {
+async fn http_error(status: u16, file: &str, headers: &[(&str, &str)]) -> agent_model::ProviderError {
     let server = FakeServer::start(status, "application/json", headers, fixture(file));
-    let e = provider(&server, full_facts()).complete(&request()).unwrap_err();
+    let e = provider(&server, full_facts()).complete(&request()).await.unwrap_err();
     server.captured();
     e
 }
 
-#[test]
-fn http_errors_retryable_or_not() {
-    let e = http_error(429, "anthropic/error_429.json", &[("retry-after", "2")]);
+#[tokio::test]
+async fn http_errors_retryable_or_not() {
+    let e = http_error(429, "anthropic/error_429.json", &[("retry-after", "2")]).await;
     assert_eq!(e.kind, ProviderErrorKind::Http { status: 429 });
     assert!(e.retryable);
     assert_eq!(e.retry_after_ms, Some(2000));
     assert!(e.message.contains("rate_limit_error"));
 
-    let e = http_error(500, "anthropic/error_500.json", &[]);
+    let e = http_error(500, "anthropic/error_500.json", &[]).await;
     assert!(e.retryable);
     assert!(e.message.contains("api_error"));
 
-    let e = http_error(400, "anthropic/error_400.json", &[]);
+    let e = http_error(400, "anthropic/error_400.json", &[]).await;
     assert_eq!(e.kind, ProviderErrorKind::Http { status: 400 });
     assert!(!e.retryable);
     assert!(e.message.contains("invalid_request_error"));
 }
 
-#[test]
-fn cut_stream_is_retryable() {
+#[tokio::test]
+async fn cut_stream_is_retryable() {
     let server = FakeServer::sse("anthropic/cut.sse");
-    let e = provider(&server, full_facts()).complete(&request()).unwrap_err();
+    let e = provider(&server, full_facts()).complete(&request()).await.unwrap_err();
     server.captured();
     assert_eq!(e.kind, ProviderErrorKind::Stream);
     assert!(e.retryable);
 
     let server = FakeServer::sse("anthropic/error_event.sse");
-    let e = provider(&server, full_facts()).complete(&request()).unwrap_err();
+    let e = provider(&server, full_facts()).complete(&request()).await.unwrap_err();
     server.captured();
     assert_eq!(e.kind, ProviderErrorKind::Stream);
     assert!(e.retryable);
     assert!(e.message.contains("overloaded_error"));
 }
 
-#[test]
-fn flags_on_fields_present() {
+#[tokio::test]
+async fn flags_on_fields_present() {
     let mut facts = full_facts();
     facts.beta = Some("context-1m-2025-08-07".into());
     let server = FakeServer::sse("anthropic/text.sse");
-    provider(&server, facts).complete(&request()).unwrap();
+    provider(&server, facts).complete(&request()).await.unwrap();
     let c = server.captured();
     assert_eq!(c.header("anthropic-beta"), Some("context-1m-2025-08-07"));
     let b = &c.body;
@@ -190,10 +191,10 @@ fn flags_on_fields_present() {
     assert_eq!(b["tools"][0]["cache_control"], json!({"type": "ephemeral"}));
 }
 
-#[test]
-fn flags_off_fields_absent() {
+#[tokio::test]
+async fn flags_off_fields_absent() {
     let server = FakeServer::sse("anthropic/text.sse");
-    provider(&server, bare_facts()).complete(&request()).unwrap();
+    provider(&server, bare_facts()).complete(&request()).await.unwrap();
     let b = server.captured().body;
     let o = b.as_object().unwrap();
     assert!(!o.contains_key("thinking"));
@@ -213,23 +214,101 @@ fn effort_xhigh_as_max() {
     assert_eq!(b["output_config"]["effort"], "max");
 }
 
-#[test]
-fn developer_messages_by_flag() {
-    let mut req = request();
-    req.messages.push(Message {
+fn dev(text: &str) -> Message {
+    Message {
         role: Role::Developer,
-        content: vec![Part::Text { text: "[время 10:00]".into() }],
-    });
-    let on = request_body("m", &req, &full_facts()).unwrap();
-    assert_eq!(on["messages"][1], json!({"role": "system", "content": "[время 10:00]"}));
+        content: vec![Part::Text { text: text.into() }],
+    }
+}
 
+fn assistant(text: &str) -> Message {
+    Message {
+        role: Role::Assistant,
+        content: vec![Part::Text { text: text.into() }],
+    }
+}
+
+fn reminder(text: &str) -> serde_json::Value {
+    json!({"type": "text", "text": format!("<system-reminder>\n{text}\n</system-reminder>")})
+}
+
+#[test]
+fn system_message_only_where_allowed() {
+    // После user и в конце — role: system.
+    let mut req = request();
+    req.messages.push(dev("[время 10:00]"));
+    let b = request_body("m", &req, &full_facts()).unwrap();
+    assert_eq!(b["messages"][1], json!({"role": "system", "content": "[время 10:00]"}));
+
+    // После user и перед assistant — role: system.
+    let mut req = request();
+    req.messages = vec![user("а"), dev("заметка"), assistant("б")];
+    let b = request_body("m", &req, &full_facts()).unwrap();
+    assert_eq!(b["messages"][1]["role"], "system");
+    assert_eq!(b["messages"][2]["role"], "assistant");
+
+    // После assistant — нельзя: обёртка в сообщении пользователя.
+    let mut req = request();
+    req.messages = vec![user("а"), assistant("б"), dev("заметка"), user("в")];
+    let b = request_body("m", &req, &full_facts()).unwrap();
+    let msgs = b["messages"].as_array().unwrap();
+    assert!(msgs.iter().all(|m| m["role"] != "system"));
+    assert_eq!(msgs[2]["role"], "user");
+    assert_eq!(msgs[2]["content"][0], reminder("заметка"));
+    assert_eq!(msgs[2]["content"][1]["text"], "в");
+
+    // После user, но перед user — нельзя.
+    let mut req = request();
+    req.messages = vec![user("а"), dev("заметка"), user("в")];
+    let b = request_body("m", &req, &full_facts()).unwrap();
+    let msgs = b["messages"].as_array().unwrap();
+    assert_eq!(msgs.len(), 1);
+    assert_eq!(msgs[0]["content"][1], reminder("заметка"));
+}
+
+#[test]
+fn developer_without_flag_is_reminder() {
+    let mut req = request();
+    req.messages.push(dev("[время 10:00]"));
     let off = request_body("m", &req, &bare_facts()).unwrap();
     let msgs = off["messages"].as_array().unwrap();
     assert_eq!(msgs.len(), 1, "заметка склеена с сообщением пользователя");
-    assert_eq!(
-        msgs[0]["content"][1]["text"],
-        "<system-reminder>\n[время 10:00]\n</system-reminder>"
+    assert_eq!(msgs[0]["content"][1], reminder("[время 10:00]"));
+}
+
+#[test]
+fn forced_tool_choice_by_flag() {
+    let mut req = request();
+    req.settings.tool_choice = ToolChoice::Tool { name: "muse.read".into() };
+    let e = request_body("m", &req, &bare_facts()).unwrap_err();
+    assert_eq!(e.kind, ProviderErrorKind::Config);
+    assert!(!e.retryable);
+    assert!(e.message.contains("forced_tool_choice"));
+
+    let facts = AnthropicFacts {
+        forced_tool_choice: true,
+        ..bare_facts()
+    };
+    let b = request_body("m", &req, &facts).unwrap();
+    assert_eq!(b["tool_choice"], json!({"type": "tool", "name": "muse.read"}));
+}
+
+#[tokio::test]
+async fn idle_stream_times_out() {
+    let server = FakeServer::start_paused(
+        200,
+        "text/event-stream",
+        &[],
+        fixture("anthropic/text.sse"),
+        Some(Duration::from_millis(1500)),
     );
+    let p = provider(&server, full_facts())
+        .with_timeouts(Duration::from_secs(5), Duration::from_millis(200));
+    let e = p.complete(&request()).await.unwrap_err();
+    assert_eq!(e.kind, ProviderErrorKind::Stream);
+    assert!(e.retryable);
+    assert!(e.message.contains("тишина"));
+    server.captured();
 }
 
 #[test]
@@ -251,13 +330,13 @@ fn tool_results_and_choice() {
             is_error: true,
         }],
     });
-    req.settings.tool_choice = ToolChoice::Tool { name: "muse.read".into() };
+    req.settings.tool_choice = ToolChoice::None;
     let b = request_body("m", &req, &bare_facts()).unwrap();
     assert_eq!(b["messages"][1]["content"][0]["type"], "tool_use");
     let r = &b["messages"][2]["content"][0];
     assert_eq!(r["tool_use_id"], "toolu_01");
     assert_eq!(r["is_error"], true);
-    assert_eq!(b["tool_choice"], json!({"type": "tool", "name": "muse.read"}));
+    assert_eq!(b["tool_choice"], json!({"type": "none"}));
 }
 
 #[test]
