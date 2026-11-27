@@ -90,3 +90,14 @@
 4. **Сжатие по частям** — `hatch-compaction/segmented.rs`, `quality.rs`; тексты `hatch-compaction/prompts/compact/segmented_*`, `chat_worker_conversation.md`, `hatch-agent/prompts/compact/*` (`no_tools`, `output_cap_feedback`, `recent_conversation`, `segmented_output_cap_feedback`) — сжатие длинной истории по сегментам, проверка качества сводки, обратная связь при упоре в предел ответа.
 5. **Очистка разговора** (`turn_core` — нет очистки, `docs/coverage/core.md`).
 6. Тесты на обоих проводах: ход с невыполненным обещанием не заканчивается; кусок, на котором модель падает, уходит в карантин и ход идёт; сброс памяти в простое по подделанным часам; сжатие очень длинной истории по частям с проверкой качества.
+
+## П3з — подагенты как у muse целиком
+
+Реестр упрощений б13, б14, б15; `docs/coverage/core.md`; тексты, отложенные в П3г/П3д. Срезы по смыслу.
+
+0. Попутно из П3ж: в запросе сводки — заметка muse `hatch-agent/prompts/compact/no_tools.md` («The available tool set has been modified… No tools available.»), как ядро её подаёт; `recent_conversation.md`, `chat_worker_conversation.md` — с побочными чатами (П6/П19).
+1. **Роли подагентов** — определения ролей muse (`strings-all.txt:69124-74375`: профили с `id`, `name`, `model`, набором инструментов, `schema_gates`, `tool_loading`): каждая роль — свой набор инструментов, своя модель, свой системный текст; «только чтение» у `forget.plan` — набором роли, а не заданием; исследователь, дети workflow, исполнитель окна браузера — тоже через роли, как у muse.
+2. **Глубина больше 1** — подагенты подагентов изолированы (`subagent_history_inheritance_inherited.md`: «deeper than 1 start in isolated mode»), `scope: descendants` ≠ `direct`; тексты `depth_one_*`, `depth_one_coordinator`, `subagent_spawning`, `handoff_child.md` (заметка координатору); предел глубины — из ядра.
+3. **`items`** в `subagent.spawn` / `subagent.send` — картинки и файлы, как в описании muse.
+4. Монитор подагентов (П4ж-2а) — координатор и работник по-настоящему разные при глубине > 1.
+5. Тесты на обоих проводах: роль с урезанным набором не видит лишних инструментов; подагент второго уровня изолирован, первого — наследует; `descendants` видит внуков; `items` с картинкой доходят; перезапуск (П3е-5) сохраняет дерево.
