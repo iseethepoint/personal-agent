@@ -86,7 +86,8 @@ impl Inbox {
         Self::default()
     }
 
-    fn push(&self, m: Message) {
+    /// Положить заметку для родителя (итог подагента, итог фоновой команды).
+    pub fn push(&self, m: Message) {
         self.queue.lock().unwrap().push_back(m);
         self.notify.notify_one();
     }

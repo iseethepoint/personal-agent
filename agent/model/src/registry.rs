@@ -384,6 +384,15 @@ impl Registry {
         &self.defaults
     }
 
+    /// Имена переменных окружения с ключами всех моделей реестра — их
+    /// значения скрываются в выводе команд (`redaction.rs` muse).
+    pub fn api_key_envs(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.models.values().filter_map(|m| m.api_key_env.clone()).collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
     pub fn model(&self, id: &str) -> Option<&ModelOption> {
         self.models.get(id)
     }

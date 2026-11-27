@@ -256,6 +256,9 @@ impl Tool for Write {
                     .await
                     .map_err(|e| io(&path, e))?;
                 f.write_all(content.as_bytes()).await.map_err(|e| io(&path, e))?;
+                // tokio::fs::File пишет в фоне: без flush запись может не
+                // дойти до диска к следующему вызову.
+                f.flush().await.map_err(|e| io(&path, e))?;
             } else {
                 let has_content = tokio::fs::metadata(&path).await.map(|m| m.len() > 0).unwrap_or(false);
                 if has_content && !self.0.read.lock().unwrap().contains(&key(&path)) {
