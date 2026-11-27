@@ -463,7 +463,7 @@ async fn memory_maintenance_runs_on_scheduler_tick() {
         let mm = m.clone();
         c.sched.background(Arc::new(move || {
             let mm = mm.clone();
-            Box::pin(async move { mm.maintain().await })
+            Box::pin(async move { mm.maintain().await.map(|_| None) })
         }));
         c.sched.tick().await.unwrap();
         assert!(search().await.contains("MEMORY.md"), "{wire:?}");
@@ -500,4 +500,54 @@ fn plan_picks_worker_and_resolve_models() {
     assert_eq!(p.resolve.option.id, "anthropic/small");
     let p = agent_cron::Plan::from_registry(&reg, None).unwrap();
     assert_eq!(p.resolve.option.id, "anthropic/main");
+}
+
+/// П4л-8: ровного такта нет — служба спит до ближайшего срока (часы
+/// службы), а правка расписания будит её сразу.
+async fn service_sleeps_until_due_and_wakes_on_change(wire: Wire) {
+    let steps = vec![Step::Text("Reminder."), notify("n1", "succeeded", "Drink water."), Step::Text("Again."), notify("n2", "succeeded", "Drink water now.")];
+    let Ctx { clock, core, sched, inbox, server: _server, .. } = ctx(&format!("wake-{wire:?}"), wire, steps, None).await;
+    let call = |name: &str, args: Value| {
+        let t = tools(&core).into_iter().find(|t| t.spec().name == name).unwrap();
+        async move { t.call(args).await.unwrap() }
+    };
+    call("cron.add", water(json!({"kind": "interval", "every": "1h", "timezone": "UTC"}))).await;
+    let sched = Arc::new(sched);
+    let s = sched.clone();
+    let service = tokio::spawn(async move { s.run_forever().await });
+    let wait_inbox = |what: &'static str| {
+        let inbox = inbox.clone();
+        async move {
+            for _ in 0..200 {
+                let got: Vec<String> = inbox.drain().iter().map(text_of).collect();
+                if let Some(t) = got.into_iter().find(|t| t.contains(what)) {
+                    return t;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            panic!("нет вести «{what}»");
+        }
+    };
+    // До срока прогона нет.
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    // Ближайший срок — пульс (30m), который служба заводит при старте.
+    assert_eq!(core.store.next_due().await.unwrap(), Some(t0() + 1_800_000));
+    assert!(core.store.queued().await.unwrap().is_empty() && core.store.running().await.unwrap().is_empty());
+    // Часы дошли до срока — служба просыпается сама.
+    clock.advance_secs(3600);
+    assert!(wait_inbox("Drink water.").await.contains("[SCHEDULED TASK HANDOFF]"));
+    // `cron.run` будит службу без хода часов.
+    call("cron.run", json!({"id": "water", "reason": "now"})).await;
+    wait_inbox("Drink water now.").await;
+    service.abort();
+}
+
+#[tokio::test]
+async fn service_sleeps_until_due_and_wakes_on_change_anthropic() {
+    service_sleeps_until_due_and_wakes_on_change(Wire::Anthropic).await
+}
+
+#[tokio::test]
+async fn service_sleeps_until_due_and_wakes_on_change_openai_compat() {
+    service_sleeps_until_due_and_wakes_on_change(Wire::OpenaiCompat).await
 }

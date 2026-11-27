@@ -99,7 +99,7 @@ fn agent_dir_with(name: &str, wire: Wire, server: &Server, search_base: &str) ->
 }
 
 async fn build(dir: &Path, clock: FakeClock) -> Arc<Hamlet> {
-    let opts = Options { clock: Arc::new(clock), tick: Duration::from_millis(50) };
+    let opts = Options { clock: Arc::new(clock) };
     Arc::new(Hamlet::build(AgentDir::load(dir).unwrap(), &opts).await.unwrap())
 }
 
@@ -183,7 +183,7 @@ async fn conversation_writes_searches_schedules_and_wakes_on_handoff() {
         let dir = agent_dir("e2e", wire, &server);
         let clock = FakeClock::at(t0());
         let h = build(&dir, clock.clone()).await;
-        let services = Services::start(&h, Duration::from_millis(50));
+        let services = Services::start(&h);
         // Первый такт сверяет память с файлами.
         tokio::time::sleep(Duration::from_millis(400)).await;
 
@@ -361,4 +361,33 @@ async fn trash_reaper_runs_on_service_tick() {
     assert_eq!(info(&dir)["status"], "expired");
     assert!(!dir.join(format!("home/.local/share/Trash/hamlet/{id}/files")).exists());
     h.browsers.shutdown().await;
+}
+
+/// П4л-8: сверку памяти будит наблюдатель файлов — новый файл памяти
+/// находится поиском без хода часов и без ровного такта.
+#[tokio::test]
+async fn memory_file_change_wakes_reindex() {
+    let (server, _p) = model(Wire::OpenaiCompat, vec![], false);
+    let dir = agent_dir("watch", Wire::OpenaiCompat, &server);
+    let h = build(&dir, FakeClock::at(t0())).await;
+    let services = Services::start(&h);
+    let search = || async {
+        let out = h.tools.get("hamlet.memory_search").unwrap().call(json!({"queries": ["zanzibar"]})).await.unwrap();
+        let agent_model::ToolResultPart::Text { text } = &out[0] else { panic!() };
+        text.clone()
+    };
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!search().await.contains("memory/trip.md"));
+    std::fs::create_dir_all(dir.join("home/memory")).unwrap();
+    std::fs::write(dir.join("home/memory/trip.md"), "# Trip\n\nThe owner plans a trip to Zanzibar in March.\n").unwrap();
+    let mut found = String::new();
+    for _ in 0..100 {
+        found = search().await;
+        if found.contains("memory/trip.md") {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    assert!(found.contains("memory/trip.md"), "{found}");
+    services.stop(&h).await;
 }

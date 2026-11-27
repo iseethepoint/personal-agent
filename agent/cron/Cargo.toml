@@ -18,6 +18,8 @@ sqlx = { version = "0.8", default-features = false, features = ["postgres", "run
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 chrono-tz = "0.10"
 sha2 = "0.10"
+# Наблюдатель файлов — как у muse (notify-8.2.0, inotify; core-v2-analysis/crates.txt).
+notify = { version = "=8.2.0", default-features = false, features = ["macos_fsevent"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

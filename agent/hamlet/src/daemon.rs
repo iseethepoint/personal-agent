@@ -10,7 +10,6 @@
 //! `session/browser_task_time_context.md` до П5.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use agent_loop::{Conversation, Turn};
 use agent_model::{Message, Part, Role};
@@ -25,10 +24,10 @@ pub struct Services {
 }
 
 impl Services {
-    /// Такт расписаний и наблюдателей (сверка памяти — фоновая работа того
-    /// же такта). Перед первым тактом — восстановление прогонов и пульс,
-    /// как `Scheduler::run_forever`.
-    pub fn start(h: &Hamlet, tick: Duration) -> Services {
+    /// Служба расписаний и наблюдателей (`Scheduler::run_forever`: сон до
+    /// ближайшего срока или события; сверка памяти и уборщик корзины —
+    /// фоновые работы её такта).
+    pub fn start(h: &Hamlet) -> Services {
         // Исследования, прерванные перезапуском, — снова в работу
         // (`research_reattach` muse).
         let research = h.research.clone();
@@ -44,20 +43,7 @@ impl Services {
             }
         });
         let s = h.scheduler.clone();
-        let handle = tokio::spawn(async move {
-            if let Err(e) = s.recover().await {
-                eprintln!("scheduler recovery: {e}");
-            }
-            if let Err(e) = s.ensure_heartbeat().await {
-                eprintln!("scheduler heartbeat: {e}");
-            }
-            loop {
-                if let Err(e) = s.tick().await {
-                    eprintln!("scheduler tick: {e}");
-                }
-                tokio::time::sleep(tick).await;
-            }
-        });
+        let handle = tokio::spawn(async move { s.run_forever().await });
         Services { handles: vec![handle, reattach, recover] }
     }
 

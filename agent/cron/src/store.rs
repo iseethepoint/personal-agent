@@ -274,6 +274,11 @@ impl Store {
     }
 
     /// Созревшие задания: включены и срок наступил.
+    /// Ближайший срок включённого задания.
+    pub async fn next_due(&self) -> Result<Option<i64>> {
+        sqlx::query_scalar("select min(next_run_at_utc) from scheduler.jobs where enabled and next_run_at_utc > 0").fetch_one(&self.pool).await.map_err(db)
+    }
+
     pub async fn due(&self, now_ms: i64) -> Result<Vec<Job>> {
         let rows = sqlx::query(&format!(
             "{} where j.enabled and j.next_run_at_utc > 0 and j.next_run_at_utc <= $1 order by j.next_run_at_utc, j.job_id",

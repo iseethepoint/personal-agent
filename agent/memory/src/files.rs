@@ -132,6 +132,24 @@ pub fn memory_files(home: &Path) -> Vec<String> {
     out
 }
 
+/// Файл памяти ли `rel` (путь от дома) — те же правила, что у
+/// `memory_files`: `MEMORY.md` и `memory/**/*.md` дома и боковых чатов.
+pub fn is_memory_path(rel: &Path) -> bool {
+    let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().to_string()).collect();
+    let local = match parts.as_slice() {
+        [first, _chat, rest @ ..] if first == "side-chats" => rest,
+        all => all,
+    };
+    if local.iter().any(|p| p.starts_with('.')) {
+        return false;
+    }
+    match local {
+        [one] => one == "MEMORY.md" || one == "memory",
+        [dir, .., last] => dir == "memory" && last.ends_with(".md"),
+        [] => false,
+    }
+}
+
 /// `MEMORY.md` и `memory/**/*.md` одной папки; `prefix` — её путь от дома.
 fn collect(root: &Path, prefix: &str, out: &mut Vec<String>) {
     if root.join("MEMORY.md").is_file() {
