@@ -4,6 +4,7 @@
 
 use serde_json::Value;
 
+use crate::http::{decode_err, stream_err};
 use crate::types::{Part, ProviderError, ProviderErrorKind, Response, StopReason, Usage};
 
 /// Собираемый блок содержимого.
@@ -21,21 +22,15 @@ enum Block {
     Redacted(String),
 }
 
+/// Состояние разбора одного ответа: события SSE по очереди → `Response`.
 #[derive(Default)]
-struct State {
+pub(crate) struct State {
     blocks: Vec<Option<Block>>,
     usage: Usage,
     stop_reason: Option<StopReason>,
     stopped: bool,
 }
 
-fn stream_err(msg: impl Into<String>) -> ProviderError {
-    ProviderError::new(ProviderErrorKind::Stream, msg)
-}
-
-fn decode_err(msg: impl Into<String>) -> ProviderError {
-    ProviderError::new(ProviderErrorKind::Decode, msg)
-}
 
 fn u(v: &Value, key: &str) -> Option<u64> {
     v.get(key).and_then(Value::as_u64)
@@ -88,7 +83,7 @@ impl State {
         &mut self.blocks[index]
     }
 
-    fn event(&mut self, data: &str) -> Result<(), ProviderError> {
+    pub(crate) fn event(&mut self, data: &str) -> Result<(), ProviderError> {
         let v: Value = serde_json::from_str(data).map_err(|e| decode_err(format!("SSE data: {e}")))?;
         let index = u(&v, "index").unwrap_or(0) as usize;
         match v["type"].as_str().unwrap_or("") {
@@ -146,7 +141,7 @@ impl State {
         Ok(())
     }
 
-    fn finish(self) -> Result<Response, ProviderError> {
+    pub(crate) fn finish(self) -> Result<Response, ProviderError> {
         if !self.stopped {
             return Err(stream_err("поток оборвался до message_stop"));
         }
@@ -175,57 +170,5 @@ impl State {
             stop_reason,
             usage: self.usage,
         })
-    }
-}
-
-/// Разбор потока по кускам байтов: куски режутся на строки, строки — на события.
-#[derive(Default)]
-pub struct SseParser {
-    state: State,
-    data: String,
-    buf: Vec<u8>,
-}
-
-impl SseParser {
-    fn line(&mut self, line: &str) -> Result<(), ProviderError> {
-        let line = line.strip_suffix('\r').unwrap_or(line);
-        if line.is_empty() {
-            if !self.data.is_empty() {
-                let data = std::mem::take(&mut self.data);
-                self.state.event(&data)?;
-            }
-            return Ok(());
-        }
-        if let Some(rest) = line.strip_prefix("data:") {
-            if !self.data.is_empty() {
-                self.data.push('\n');
-            }
-            self.data.push_str(rest.strip_prefix(' ').unwrap_or(rest));
-        }
-        // Строки `event:` и комментарии не нужны: тип есть в самом JSON.
-        Ok(())
-    }
-
-    /// Очередной кусок потока.
-    pub fn feed(&mut self, chunk: &[u8]) -> Result<(), ProviderError> {
-        self.buf.extend_from_slice(chunk);
-        while let Some(pos) = self.buf.iter().position(|&b| b == b'\n') {
-            let raw: Vec<u8> = self.buf.drain(..=pos).collect();
-            let line = std::str::from_utf8(&raw[..raw.len() - 1])
-                .map_err(|e| decode_err(format!("SSE не UTF-8: {e}")))?
-                .to_string();
-            self.line(&line)?;
-        }
-        Ok(())
-    }
-
-    /// Поток кончился: собрать ответ. Без `message_stop` — обрыв.
-    pub fn finish(mut self) -> Result<Response, ProviderError> {
-        if !self.buf.is_empty() {
-            let rest = String::from_utf8_lossy(&std::mem::take(&mut self.buf)).to_string();
-            self.line(&rest)?;
-        }
-        self.line("")?;
-        self.state.finish()
     }
 }

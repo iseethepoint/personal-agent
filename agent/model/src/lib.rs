@@ -3,6 +3,8 @@
 //! один вход и один выход для всех поставщиков.
 
 pub mod anthropic;
+pub mod http;
+pub mod openai_compat;
 pub mod registry;
 pub mod types;
 

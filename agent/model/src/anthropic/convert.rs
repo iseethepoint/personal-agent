@@ -5,15 +5,13 @@
 use serde_json::{json, Map, Value};
 
 use crate::registry::{AnthropicFacts, OutputEffort};
-use crate::types::{Effort, Message, Part, ProviderError, ProviderErrorKind, Request, Role, ToolChoice, ToolResultPart};
+use crate::http::config;
+use crate::types::{system_reminder, Effort, Part, ProviderError, Request, Role, ToolChoice, ToolResultPart};
 
 /// Предел тела запроса Messages API — 32 МБ (документация API, ошибка 413);
 /// у muse проверка до отправки — `enforce_request_size_budget.rs` (`source-files.txt:5267`).
 pub const MAX_REQUEST_BYTES: usize = 32 * 1024 * 1024;
 
-fn config(msg: impl Into<String>) -> ProviderError {
-    ProviderError::new(ProviderErrorKind::Config, msg)
-}
 
 /// Умения, которые прослойка пока не умеет. Включены в весах — ошибка,
 /// а не тихое игнорирование.
@@ -83,17 +81,6 @@ fn part_to_block(p: &Part) -> Value {
     }
 }
 
-fn text_of(m: &Message) -> String {
-    m.content
-        .iter()
-        .filter_map(|p| match p {
-            Part::Text { text } => Some(text.as_str()),
-            _ => None,
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
 /// Сообщение до склейки ролей: обычное или заметка движка.
 enum Item {
     Normal(&'static str, Vec<Value>),
@@ -130,7 +117,7 @@ fn messages(req: &Request, facts: &AnthropicFacts) -> Vec<Value> {
                 items.push(Item::Normal("assistant", m.content.iter().map(part_to_block).collect()))
             }
             Role::Developer => {
-                let text = text_of(m);
+                let text = m.text();
                 // Несколько заметок подряд — одна.
                 if let Some(Item::Developer(prev)) = items.last_mut() {
                     prev.push('\n');
@@ -155,7 +142,7 @@ fn messages(req: &Request, facts: &AnthropicFacts) -> Vec<Value> {
                 if facts.mid_conversation_system_messages && after_user && before_ok {
                     out.push(json!({"role": "system", "content": text}));
                 } else {
-                    let block = json!({"type": "text", "text": format!("<system-reminder>\n{text}\n</system-reminder>")});
+                    let block = json!({"type": "text", "text": system_reminder(text)});
                     push_merged(&mut out, "user", vec![block]);
                 }
             }

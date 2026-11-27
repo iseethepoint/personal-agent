@@ -67,6 +67,27 @@ pub struct Message {
     pub content: Vec<Part>,
 }
 
+impl Message {
+    /// Текстовые части сообщения через перевод строки.
+    pub fn text(&self) -> String {
+        self.content
+            .iter()
+            .filter_map(|p| match p {
+                Part::Text { text } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+}
+
+/// Заметка движка там, где модель не принимает системный текст посреди
+/// разговора: обёртка `<system-reminder>` внутри сообщения пользователя —
+/// так muse передаёт уведомления (`strings-all.txt:59333-59349`).
+pub fn system_reminder(text: &str) -> String {
+    format!("<system-reminder>\n{text}\n</system-reminder>")
+}
+
 /// Описание инструмента: одно на всех поставщиков.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ToolSpec {
