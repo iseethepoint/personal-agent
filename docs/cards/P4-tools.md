@@ -69,8 +69,29 @@
 7. Тесты: запись и поиск по словам; утверждение заменяет старое; поиск с векторами (поддельный сервер `/v1/embeddings`) и без; забывание; файл `~/memory/…` попадает в поиск; один ход через цикл на обоих поставщиках. Живых вызовов нет.
 8. Заодно — `README.md` в корне: rustup, `git lfs install --local && git lfs pull`, Postgres, `cargo test --workspace`.
 
+## П4е — расписания и наблюдатели
+
+Ветка `e/P4f-cron`, после П3д.
+
+1. Форма — `hatch-cron`, `hatch-cron-core` (`source-files.txt:2220-2297`), `hatch-db-scheduler` (`:4880-…`); таблицы `scheduler.jobs`, `scheduler.job_runs`, `scheduler.cron_mutations`, `scheduler.delivery_outbox` (`sql.txt:310,4431,4591,4594,4623`) — схема и запросы по SQL muse, Postgres из П4д.
+2. Инструменты `cron.add/list/view/update/remove/run/runs/status/stop` (`P/hatch-agent/prompts/blocks/shared/environment/scheduled_work.md:1`, `strings-all.txt:59588,59594`) и `hooks.list/add/update/remove/dry_run/enable/disable/run/logs/view` (`hooks.md:1`, `source-files.txt:5988-5989`, `runtime.event_hook_admissions` `sql.txt:908`) — описания из ядра, с правками П10.
+3. Запуск задания — фоновый ход со своим текстом `P/hatch-cron/prompts/scheduler/worker_instruction.md` и др. (перенести с правками П10, записать в `prompts/SOURCES.md`); модель — задача `CronWorker` (П2а); срок первого куска ответа — 30 мин (`JARVIS_CRON_MODEL_STREAM_FIRST_CHUNK_TIMEOUT_MS`, опись 4.2). Итог — главному агенту заметкой в ящик (как подагенты), он решает, говорить ли владельцу (`R/home/hatch/docs/scheduling-and-watching.md:7-31`).
+4. Наблюдатель: скрипт-проверка по ритму (через `hamlet.exec`), при срабатывании будит агента; `HEARTBEAT.md` — по форме muse.
+5. Долг из П4д: сверка файлов памяти с базой — фоновой работой по расписанию, как у muse; из поиска убрать.
+6. Тесты: время подделывается (не ждать минуты); задание по cron-строке и разовое срабатывает, итог в ящике; `cron.*` и `hooks.*` через цикл на обоих поставщиках; наблюдатель срабатывает только когда скрипт сказал «да»; сверка памяти идёт фоном.
+
+## П4ж — цели
+
+Ветка `e/P4g-goals`, после П4е.
+
+1. Форма — `hatch-goals/*` (`source-files.txt:5205-5227`), таблицы `goals.goals`, `goals.updates`, `goals.briefings` (`sql.txt:269,515,4319`), инструмент `goals.*` (`source-files.txt:1594-1602`), справочник `R/home/hatch/docs/goals.md:3-12`.
+2. Папка цели `~/workspace/goals/<slug>/GOAL.md`, `files/`, `hidden_files/` (`strings-all.txt:59674-59677`).
+3. Расписание, принадлежащее цели (`strings-all.txt:59588`, `P/hatch-cron/prompts/scheduler/goal_*.md`) — поверх П4е.
+4. Изучение целей (`P/hatch-goals/prompts/studying/*.md`) — это фоновый цикл самоулучшения, здесь только форма хранения; сам цикл — со срезом самоулучшения.
+5. Тесты: цель с подцелями и записями; расписание цели; через цикл на обоих поставщиках.
+
 ## Дальше — после слова владельца
 
-- Расписания, наблюдатели, цели (у muse — тоже в базе), живой браузер — следующими карточками по порядку описи 4.3.
+- Живой браузер (`browser.browse/windows`, исполнитель — подагент с моделью задачи `BrowserAgent`; свой Chromium — П8) — следующей карточкой.
 
 **Сдача:** каждый срез — своя ветка и свой sha ревизору; следующий — после «Ок» на предыдущий.
