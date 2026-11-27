@@ -36,9 +36,10 @@
 //! Своё для отчётов: вход классификатора — `<task>` (тело задания) и
 //! `<report>`; исправленный отчёт заменяет исходный в итоге прогона и в
 //! заметке главному агенту; пометка о сбое — после отчёта через пустую
-//! строку; категория не сохраняется в прогоне (у muse —
-//! `retain_cron_verification_category` в `pending_terminal_result_json`,
-//! у нас ступени отложенного итога нет).
+//! строку. Итог работника до проверки лежит в `pending_terminal_result_json`
+//! прогона, категория — там же (`retain_cron_verification_category`); после
+//! перезапуска проверка продолжается с сохранённой категорией
+//! (`load_cron_verification_category`), классификатор снова не зовётся.
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -79,6 +80,15 @@ pub enum Category {
 }
 
 impl Category {
+    pub fn parse(s: &str) -> Option<Category> {
+        match s {
+            "health" => Some(Category::Health),
+            "bookings" => Some(Category::Bookings),
+            "purchases" => Some(Category::Purchases),
+            _ => None,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Category::Health => "health",
@@ -154,12 +164,7 @@ async fn submit_category<P: Provider>(provider: &P, tool: Submit, system: &str, 
         return None;
     }
     let got = slot.lock().unwrap().clone();
-    match got.as_deref() {
-        Some("health") => Some(Category::Health),
-        Some("bookings") => Some(Category::Bookings),
-        Some("purchases") => Some(Category::Purchases),
-        _ => None,
-    }
+    got.as_deref().and_then(Category::parse)
 }
 
 /// Отнести просьбу к категории. `recent` — недавние реплики (говорящий,
@@ -337,9 +342,29 @@ pub struct CronVerification<P> {
 
 impl<P: Provider + Send + Sync + 'static> CronVerification<P> {
     /// Отчёт после проверки: исправленный, исходный или с пометкой о сбое.
-    /// `worker` — история работника (для хода проверяющего).
-    pub async fn check(&self, task: &str, report: &str, worker: &[Message], spill: &std::path::Path) -> String {
-        let Some(category) = classify_cron(&*self.classifier, task, report, spill).await else {
+    /// `worker` — история работника (для хода проверяющего). Категория —
+    /// сохранённая в отложенном итоге прогона `run_id`, иначе — от
+    /// классификатора, и сразу сохраняется.
+    pub async fn check(&self, run_id: &str, task: &str, report: &str, worker: &[Message], spill: &std::path::Path) -> String {
+        let store = &self.verifier.store;
+        let retained = match store.pending(run_id).await {
+            Ok(p) => p.and_then(|p| p["verification_category"].as_str().map(str::to_string)),
+            Err(e) => {
+                eprintln!("load_cron_verification_category {run_id}: {e}");
+                None
+            }
+        };
+        let category = match retained {
+            Some(c) => Category::parse(&c),
+            None => {
+                let c = classify_cron(&*self.classifier, task, report, spill).await;
+                if let Err(e) = store.retain_category(run_id, c.map_or("none", Category::as_str)).await {
+                    eprintln!("retain_cron_verification_category {run_id}: {e}");
+                }
+                c
+            }
+        };
+        let Some(category) = category else {
             return report.to_string();
         };
         match self.verifier.verify(category, task, report, &trajectory(worker)).await {

@@ -51,6 +51,8 @@ pub enum Step {
     Garbage,
     /// Отказ в запросе: код и текст ошибки поставщика (`invalid_request_error`).
     Rejected(u16, &'static str),
+    /// Ответа нет: сервер молчит (обрыв перезапуском посреди вызова модели).
+    Hang,
 }
 
 fn sse(events: &[Value]) -> String {
@@ -127,6 +129,7 @@ fn anthropic_body(step: &Step) -> (u16, &'static str, String) {
             ev.pop();
         }
         Step::Garbage => return (200, "text/event-stream", "data: {не json\n\n".into()),
+        Step::Hang => unreachable!("Hang не отвечает"),
     }
     (200, "text/event-stream", sse(&ev))
 }
@@ -186,6 +189,7 @@ fn openai_body(step: &Step) -> (u16, &'static str, String) {
             return (200, "text/event-stream", sse(&ev));
         }
         Step::Garbage => return (200, "text/event-stream", "data: {не json\n\n".into()),
+        Step::Hang => unreachable!("Hang не отвечает"),
     }
     let mut body = sse(&ev);
     body.push_str("data: [DONE]\n\n");
@@ -227,6 +231,10 @@ impl Server {
                 let mut raw = vec![0u8; len];
                 reader.read_exact(&mut raw).unwrap();
                 seen.lock().unwrap().push((SEQ.fetch_add(1, Ordering::SeqCst), serde_json::from_slice(&raw).unwrap_or(Value::Null)));
+                if matches!(step, Step::Hang) {
+                    std::thread::sleep(std::time::Duration::from_secs(600));
+                    return;
+                }
                 let (status, ctype, body) = match wire {
                     Wire::Anthropic => anthropic_body(&step),
                     Wire::OpenaiCompat => openai_body(&step),

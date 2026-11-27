@@ -477,7 +477,7 @@
 - путь проверяющего — вызовы работника (как у ответа);
 - исправленный отчёт заменяет исходный в итоге прогона (`result_summary`) и в заметке главному агенту;
 - пометка о сбое — после отчёта через пустую строку;
-- категория не сохраняется в прогоне: у muse — `retain_cron_verification_category` в `scheduler.job_runs.pending_terminal_result_json`, у нас ступени отложенного итога нет; проверка, оборванная перезапуском, не продолжается.
+- (до долга П3ж) категория не сохранялась — теперь сохраняется, см. «Отложенный итог прогона».
 
 Ворота завершения окна браузера (`browser/completion_gate/report_required.md`) уже были (П4к). Ворота артефактов, Spaces и Ideas — со своими строками (П17, П22).
 
@@ -534,3 +534,16 @@
 - граница периодического сброса ставится на конец (старое покрыто сбросом перед очисткой);
 - после перезапуска история, которая кончается границей очистки, — не оборванный ход;
 - `conversation_epoch` ящика не ведётся (у нас 0), отмена — по состоянию `aborted`.
+
+## Отложенный итог прогона (долг П3ж)
+
+Устройство — как у muse (`scheduler/pending_terminal_result.rs`, `scheduler/cron_verification.rs`):
+- столбец `scheduler.job_runs.pending_terminal_result_json text`;
+- успешный отчёт работника при включённой проверке сначала ложится туда (прогон остаётся `running`), категория классификатора — туда же, ключ `verification_category` (`retain_cron_verification_category`: `select pending_terminal_result_json from scheduler.job_runs where run_id = $1 and status = 'running' and pending_terminal_result_json is not null for update`, `update scheduler.job_runs set pending_terminal_result_json = $2 where run_id = $1`);
+- после перезапуска идущий прогон с отложенным итогом не возвращается к работнику: проверка продолжается с сохранённой категорией (`load_cron_verification_category`), классификатор снова не зовётся; затем обычный итог прогона.
+
+Своё:
+- содержимое — сигнал работника (`outcome`, `message`, `blocked_reason`, `blocked_dependency`), `timed_out` и категория; `none` тоже сохраняется;
+- отложенный итог пишется, только когда проверка включена (без неё между работником и итогом шага нет);
+- проверка, оборванная перезапуском, начинается заново с той же категорией (прогон `verification` в `runtime.execute_resolve_runs` не продолжается);
+- путь проверяющего после перезапуска — история работника из базы.
