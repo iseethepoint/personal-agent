@@ -84,15 +84,20 @@ async fn all_tools() -> Tools {
     for t in subagents.tools() {
         tools.add(t);
     }
+    let cron = agent_cron::Core::new(agent_cron::Store::connect(&pg::database()).await.unwrap(), Arc::new(agent_cron::SystemClock), &home_dir, None);
+    for t in agent_cron::tools(&cron) {
+        tools.add(t);
+    }
     tools
 }
 
 #[tokio::test]
 async fn tool_descriptions_have_no_muse_or_meta() {
     let tools = all_tools().await;
-    let specs = tools.specs();
+    let mut specs = tools.specs();
+    specs.extend(agent_cron::resolution_specs());
     let names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
-    for want in ["hamlet.read", "hamlet.write", "hamlet.edit", "hamlet.exec", "hamlet.skill_search", "hamlet.connector_search", "hamlet.memory_search", "subagent.spawn", "browser.search", "todo.write", "forget.plan", "forget.confirm"] {
+    for want in ["hamlet.read", "hamlet.write", "hamlet.edit", "hamlet.exec", "hamlet.skill_search", "hamlet.connector_search", "hamlet.memory_search", "subagent.spawn", "browser.search", "todo.write", "forget.plan", "forget.confirm", "cron.add", "cron.stop", "hamlet.notify_main_agent", "hamlet.nothing_to_report"] {
         assert!(names.contains(&want), "нет {want} в {names:?}");
     }
     let mut bad = Vec::new();
@@ -131,6 +136,8 @@ fn prompts_have_no_muse_or_meta() {
     assert!(seen >= 8, "тексты prompts/ не найдены");
     assert_clean("summarization_prompt", &summarization_prompt(), &mut bad);
     assert_clean("first_message", &first_message("задача"), &mut bad);
+    assert_clean("worker_message", &agent_cron::worker_message("job", "task", Some("t"), "тело"), &mut bad);
+    assert_clean("handoff", &format!("{:?}", agent_cron::handoff(&serde_json::json!({"job_id": "job", "message": "m"}))), &mut bad);
     assert!(bad.is_empty(), "{}", bad.join("\n"));
 }
 

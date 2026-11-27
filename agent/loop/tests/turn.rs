@@ -345,3 +345,23 @@ async fn retry_after_thinking_only(wire: Wire) {
     assert_eq!((h[1].role, h[1].text()), (Role::Developer, THINKING_ONLY_NOTICE.to_string()));
 }
 both!(retry_after_thinking_only);
+
+/// Завершающий инструмент: успешный вызов кончает ход без нового вызова
+/// модели; неудачный — ход идёт дальше (`Turn::terminal`, П4е-1).
+async fn terminal_tool_ends_the_turn(wire: Wire) {
+    let steps = vec![
+        Step::Calls(vec![("c1", "fail", json!({}))]),
+        Step::Calls(vec![("c2", "echo", json!({"text": "done"}))]),
+        Step::Text("не должен понадобиться"),
+    ];
+    let (server, p) = model(wire, steps, false);
+    let t = tools();
+    let mut turn = Turn::new(&p, &t, "Ты — агент.", temp_dir("terminal"));
+    turn.terminal = vec!["fail".into(), "echo".into()];
+    let mut h = user("закончи");
+    turn.run(&mut h, &mut |_| {}).await.unwrap();
+    assert_eq!(server.requests().len(), 2, "после успешного завершающего вызова модель не зовётся");
+    assert!(results(&h[2])[0].2);
+    assert_eq!(results(h.last().unwrap()), [("c2".to_string(), "done".to_string(), false)]);
+}
+both!(terminal_tool_ends_the_turn);

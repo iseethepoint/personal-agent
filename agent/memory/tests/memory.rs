@@ -31,13 +31,40 @@ async fn store() -> Store {
     Store::connect(&pg::database()).await.unwrap()
 }
 
-fn tools_for(m: &MemoryTools) -> Tools {
-    let mut t = Tools::new();
-    m.add_to(&mut t);
-    t
+/// Инструменты памяти и её фоновая работа. Сверка с файлами идёт в фоне
+/// (`maintain`); помощники ниже прогоняют её перед вызовом — так, будто
+/// такт службы уже прошёл.
+struct Mem {
+    tools: Tools,
+    m: MemoryTools,
 }
 
-async fn call(tools: &Tools, name: &str, args: Value) -> Result<String, String> {
+impl std::ops::Deref for Mem {
+    type Target = Tools;
+    fn deref(&self) -> &Tools {
+        &self.tools
+    }
+}
+
+impl std::ops::DerefMut for Mem {
+    fn deref_mut(&mut self) -> &mut Tools {
+        &mut self.tools
+    }
+}
+
+fn tools_for(m: &MemoryTools) -> Mem {
+    let mut t = Tools::new();
+    m.add_to(&mut t);
+    Mem { tools: t, m: m.clone() }
+}
+
+async fn call(tools: &Mem, name: &str, args: Value) -> Result<String, String> {
+    tools.m.maintain().await.unwrap();
+    call_now(tools, name, args).await
+}
+
+/// Вызов без фоновой сверки.
+async fn call_now(tools: &Tools, name: &str, args: Value) -> Result<String, String> {
     match tools.get(name).unwrap().call(args).await {
         Ok(parts) => match &parts[0] {
             ToolResultPart::Text { text } => Ok(text.clone()),
@@ -47,7 +74,7 @@ async fn call(tools: &Tools, name: &str, args: Value) -> Result<String, String> 
     }
 }
 
-async fn search(tools: &Tools, q: &str) -> Value {
+async fn search(tools: &Mem, q: &str) -> Value {
     serde_json::from_str(&call(tools, "hamlet.memory_search", json!({"queries": [q]})).await.unwrap()).unwrap()
 }
 
@@ -286,12 +313,13 @@ async fn one_turn(wire: Wire) {
     let h = home(&format!("turn-{wire:?}"));
     write(&h, "MEMORY.md", MEMORY_MD);
     let tools = tools_for(&MemoryTools::new(&h, store().await, None));
+    tools.m.maintain().await.unwrap();
     let steps = vec![
         Step::Calls(vec![("c1", "hamlet.memory_search", json!({"queries": ["cat name", "Pushok"]}))]),
         Step::Text("Твою кошку зовут Пушок."),
     ];
     let (server, p) = model(wire, steps, false);
-    let turn = Turn::new(&p, &tools, "s", temp_dir("memory-spill"));
+    let turn = Turn::new(&p, &tools.tools, "s", temp_dir("memory-spill"));
     let mut hist = vec![Message { role: Role::User, content: vec![Part::Text { text: "как зовут мою кошку?".into() }] }];
     assert_eq!(turn.run(&mut hist, &mut |_: &str| {}).await.unwrap().text(), "Твою кошку зовут Пушок.");
     let reqs = server.requests();
@@ -381,7 +409,7 @@ async fn forget_flow(wire: Wire) {
         Step::Text("Убираю."),
     ];
     let (_parent_server, pp) = model(wire, parent_steps, false);
-    let mut turn = Turn::new(&pp, &tools, "Ты — Hamlet.", temp_dir("forget-parent"));
+    let mut turn = Turn::new(&pp, &tools.tools, "Ты — Hamlet.", temp_dir("forget-parent"));
     turn.transcript = Some(transcript);
     let mut hist = vec![Message { role: Role::User, content: vec![Part::Text { text: "забудь, в каком я банке".into() }] }];
     turn.run(&mut hist, &mut |_: &str| {}).await.unwrap();
@@ -415,4 +443,18 @@ async fn forget_flow_anthropic() {
 #[tokio::test(flavor = "multi_thread")]
 async fn forget_flow_openai_compat() {
     forget_flow(Wire::OpenaiCompat).await
+}
+
+#[tokio::test]
+async fn search_sees_files_after_background_maintenance() {
+    let h = home("lag");
+    write(&h, "MEMORY.md", MEMORY_MD);
+    let m = MemoryTools::new(&h, store().await, None);
+    let t = tools_for(&m);
+    // Поиск сам базу с файлами не сверяет — выдача отстаёт от записи.
+    let r: Value = serde_json::from_str(&call_now(&t, "hamlet.memory_search", json!({"queries": ["Pushok"]})).await.unwrap()).unwrap();
+    assert!(paths(&r).is_empty(), "{r}");
+    m.maintain().await.unwrap();
+    let r: Value = serde_json::from_str(&call_now(&t, "hamlet.memory_search", json!({"queries": ["Pushok"]})).await.unwrap()).unwrap();
+    assert_eq!(paths(&r), ["MEMORY.md#L3"]);
 }
