@@ -151,8 +151,13 @@ async fn main_agent_registry_has_every_tool() {
     assert!(!cron_add.description.contains("## "), "описание пространства не прикреплено к cron.add");
     let loaded = h.tools.load(&json!({"paths": ["cron"]}), &h.tools.loaded(&[]));
     assert!(loaded.starts_with("Loaded 9 function(s). Full schemas:\n\n## cron\n"), "{}", &loaded[..200]);
-    // Описание браузера и начало подсказки — от папки агента.
-    assert!(h.prefix.system.starts_with("You are Hamlet, a test agent."));
+    // Начало подсказки: системный текст из блоков muse (П5-1), за ним
+    // дополнения владельца из `system.md`; копия — в рабочей папке, как
+    // `system_prompt_copy.rs` muse.
+    let copy = std::fs::read_to_string(dir.join("home/workspace/system/system_prompt.md")).unwrap();
+    assert!(copy.starts_with("## Who You Are\n") && copy.ends_with("\n\nYou are Hamlet, a test agent."));
+    assert!(h.prefix.system.starts_with(&copy));
+    assert_eq!(h.prefix.system.matches("### Loading Tools").count(), 1);
     assert!(h.prefix.system.contains("<!-- INJECTED FILE: MEMORY.md -->") && h.prefix.system.contains("coffee without sugar"));
     h.browsers.shutdown().await;
 }

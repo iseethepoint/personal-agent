@@ -38,9 +38,9 @@ const GOAL_GUIDE_MAX_BYTES: usize = 64_000;
 
 pub const HEARTBEAT_ID: &str = "heartbeat";
 
-/// Шаблон `HEARTBEAT.md` — тело шаблона ядра (`strings-all.txt:84903-84908`)
-/// и первый вариант комментария (`:85426`).
-pub const HEARTBEAT_TEMPLATE: &str = "# HEARTBEAT.md\n\n# Keep this file empty (or with only comments) to skip heartbeat API calls.\n\n_Recurring checks for your heartbeat worker. Add one per line, and the next tick picks them up._\n";
+/// Шаблон `HEARTBEAT.md` — тело шаблона ядра (`0xbc8667`,
+/// `strings-all.txt:84903-84908`) как есть.
+pub const HEARTBEAT_TEMPLATE: &str = "# HEARTBEAT.md\n\n_Recurring checks for your heartbeat worker. Add one per line, and the next tick picks them up._\n";
 
 /// Предел `HEARTBEAT.md` в сообщении — 100 000 знаков (`strings-all.txt:84929`).
 const HEARTBEAT_MAX_CHARS: usize = 100_000;

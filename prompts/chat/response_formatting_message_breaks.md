@@ -1,0 +1,1 @@
+<!-- personal-only:start --> For separate chat bubbles, put <message_break/> between them in one normal final response.<!-- personal-only:end --> Complete required tool calls before writing <!-- personal-only:start -->that response<!-- personal-only:end --><!-- group-only:start -->your reply<!-- group-only:end -->.

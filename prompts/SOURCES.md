@@ -650,7 +650,7 @@
 
 `prompts/chat/` — 18 файлов `P/hatch-agent/prompts/blocks/chat/*.md`.
 
-Шаблоны домашних файлов `agents/hamlet/home/` (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `MEMORY.md`) — тела шаблонов ядра (`0x8635c4`–`0x863fb0`) без шапки YAML, как muse кладёт их в домашнюю папку. `HEARTBEAT.md` — прежний шаблон П4е (`agent/cron/src/service.rs:43`). Не взяты: `TOOLS.md` (в домашней папке muse его нет), `PROACTIVE_PREFERENCES.md` (П13).
+Шаблоны домашних файлов `agents/hamlet/home/` (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `MEMORY.md`) — тела шаблонов ядра (`0x8635c4`–`0x863fb0`) без шапки YAML, как muse кладёт их в домашнюю папку. `HEARTBEAT.md` — шаблон ядра (`0xbc8667`) как есть; лишняя строка-комментарий прежнего шаблона П4е убрана в части 2 (`agent/cron/src/service.rs:42`). Не взяты: `TOOLS.md` (в домашней папке muse его нет), `PROACTIVE_PREFERENCES.md` (П13).
 
 Общие правки (П10), во всех файлах: метки `personal-muse-only` / `group-muse-only` → `personal-only` / `group-only`; `` `muse.<инструмент>` `` → `` `hamlet.<инструмент>` ``; `Muse` → `Hamlet` (и в `Muses`, `Muse-to-Muse`, `Muse-network`); `muse.md` → `hamlet.md`; `/opt/muse/` → `/opt/hamlet/`.
 
@@ -670,7 +670,7 @@
 | `chat/how_you_work.md` | «Meta maintains these docs» | «The Hamlet team maintains these docs» |
 | `chat/who_you_work_for.md` | «You are not an assistant to Meta, a service,» | «You are not an assistant to a company, a service,» |
 
-Сборка подсказки из этих блоков — порядок, условия, варианты и блоки несделанных частей — часть 2 среза.
+Сборка подсказки из этих блоков — часть 2 (раздел ниже).
 
 Адреса текстов в ядре:
 
@@ -777,3 +777,109 @@
 | `user_chat/who_you_work_for_household.md` | `0x7a3c8f` | 829 |
 | `user_chat/who_you_work_for_principal.md` | `0x7a02c3` | 255 |
 | `user_chat/working_with_tools.md` | `0x7bf7c8` | 1478 |
+
+## Системный текст главного разговора — сборка (П5-1, часть 2)
+
+Сборка — `agent/hamlet/src/main_prompt.rs`, по форме `prompt_assembly` muse (`hatch-agent/src/session/impl_session/prompt_assembly/`, `source-files.txt:1365-1394`).
+
+**Откуда порядок.** Копия системного текста главного разговора, которую muse пишет при старте (`prompt_assembly/system_prompt_copy.rs`, `source-files.txt:1386`): `rootfs-full/home/hatch/workspace/system/system_prompt.md` в muse-live, стандартная обвязка. Взяты только порядок и состав блоков; данных пользователя muse в ней нет и в агент из неё ничего не перенесено. Сборка из блоков ядра повторяет эту копию строка в строку (кроме правок ниже и выкинутых блоков); стыки между блоками (сколько переводов строки) — оттуда же. Тексты верхних блоков лежат в ядре в том же порядке (`templates.txt:704-836`, адреса `0x7a1fe4`–`0x7b267a`) — это проверяет тест `blocks_in_core_order`; порядок заголовков — `headings_in_muse_order` (`agent/hamlet/tests/main_prompt.rs`).
+
+**Условия — по набору инструментов главного агента**, как варианты muse:
+- `todo.write` есть — `chat/keeping_track_of_active_work.md`, нет — `@without_todo_list`;
+- `hamlet.memory_search` — `### Memory` (`user_chat/memory_recall.md` с `user_chat/memory.md`);
+- `chat.read_messages` — пункт `chat/managing_context_chat_history.md`;
+- `browser_deep_research` — правило `chat/tool_rules_deep_research.md`;
+- есть отложенные пространства — блок «Loading Tools» со списком пространств (`tool_search.rs`, как и раньше; второй раз в начало подсказки он не добавляется — `Prefix::with_system`);
+- `subagent.spawn` — `session/subagents_doctrine.md` и `session/subagents_status.md` со значениями главного разговора (`blocks/subagents/chat/*`, `blocks/subagents/inherited_context/*`, `asker` = «the user», `failure_action` = «tell the user»);
+- `cron.add` — раздел расписаний; `hooks.add` — пункт `user_chat/recurring_work_hooks.md`.
+
+Варианты `@texting_style` не уходят: у muse их включает флаг стиля переписки, которого в стандартной обвязке нет (в копии — основные блоки).
+
+**Копия текста** — в `~/workspace/system/system_prompt.md` при сборке агента, как у muse (`blocks/chat/system_prompt_copy_file.md` говорит о ней модели).
+
+**Своё:**
+- дополнения владельца из `system.md` папки агента — после собранного текста через пустую строку (у muse такого файла нет; пустой файл ничего не добавляет). Системные тексты остальных ролей — пока `system.md`, их тексты — П5-2;
+- правило глубокого исследования у muse — переменная `deep_research_delegation_rule` блока `user_chat/tools_approvals.md`, которого у Hamlet нет (согласий на вызовы нет); здесь — отдельным пунктом на его месте, имя инструмента — `browser_deep_research`;
+- `cron_created_acknowledgement` подставлен без перевода строки в конце (в копии muse — с пробелом в конце, в ядре 25.11 — с переводом строки).
+
+**Не уходят — частей ещё нет** (строка плана, которая их вернёт):
+
+| Блок | Что | Строка плана |
+|---|---|---|
+| `user_chat/how_you_work_product_questions.md`, `user_chat/docs.md` | справочник о себе | П5-3 |
+| `chat/how_you_evolve.md` (`session/self_evolution.md`), `chat/alignment_status_pointer.md` | самоулучшение | П11 |
+| `chat/relationships.md` (`session/relationships.md`) | карта людей | П11 |
+| `user_chat/proactivity.md` | проактивность | П13 |
+| `chat/user_location_awareness.md` (`location/*`, `shared/current_location_*`), `shared/environment/devices.md` | устройства владельца | П21 |
+| `chat/task_acknowledgment.md`, `chat/writing_style_reacji_bullet.md`, `chat/response_formatting_attachments.md` | реакции и вложения в мессенджере | П6 |
+| `chat/voice_messages.md` | голос | П15 |
+| `chat/response_formatting_structured_content.md`, `chat/response_formatting_interactive_ui.md`, `user_chat/environment/deployments.md`, `shared/environment/artifacts.md` | виджеты, артефакты, сайты | П17 |
+| `chat/response_formatting_connect_links.md`, `user_chat/environment/connected_accounts.md`, `user_chat/environment/secure_vault.md` | коннекторы и хранилище секретов | П18 |
+| `session/chats_legacy.md` (Side Chats), `shared/environment/chats.md` | побочные чаты, связь с другими | П19 |
+| `chat/response_formatting_product_links.md`, `user_chat/environment/wallet.md`, `user_chat/tools_approvals.md` | покупки и согласия на оплату | П20 |
+| `shared/environment/feed.md` | лента | П22 |
+| `shared/who_built_you@subscriber_model.md` | вариант для подписки Meta — у Hamlet не будет | — |
+
+**Правки по месту** (общие правки П10 — как в части 1):
+
+| Файл | Было | Стало |
+|---|---|---|
+| `shared/who_built_you.md` | «You were created by Meta and are powered by Muse Spark 1.3 from the Muse model family, a new series of models from Meta. Muse is the product name for Meta's personal AI agent, as well as your default given name until changed. You may be referred to as Muse interchangeably. » | «Hamlet is your default given name until changed. » (модель у Hamlet выбирается настройкой) |
+| `user_chat/who_you_are.md` | «You have a name, persona, voice, and an avatar.» | «You have a name and a persona.» (голоса — П15, аватара нет) |
+| `shared/environment/browser.md` | «. The user can watch or take over a live session at any time» | (убрано: экрана живого окна нет) |
+| `shared/environment/user_goals.md` | «, shown in the Goals tab» | (убрано: вкладки нет) |
+| `shared/environment/tracking.md` | « live in the Goals tab and» | (убрано) |
+| `chat/filesystem.md` | «`~` (`/home/hatch`)» | «`~`» (дом — из настроек агента) |
+| `chat/filesystem.md` | два абзаца о встроенном хранилище файлов muse (`/opt/hatch/bin/remote-storage`) | (убраны: хранилище со ссылкой — П17) |
+
+Адреса текстов в ядре (взяты по записи блока, как в части 1):
+
+| Файл | Текст в ядре | Байт |
+|---|---|---|
+| `shared/who_built_you.md` | `0x7a3aa3` | 446 |
+| `chat/personalization.md` | `0x7a4dc4` | 1895 |
+| `chat/contextual_awareness.md` | `0x7a560d` | 25 |
+| `chat/timezones_save.md` | `0x7a5c49` | 508 |
+| `chat/date_validation_opener.md` | `0x7a5e62` | 285 |
+| `chat/date_validation_rest.md` | `0x7a5fa4` | 54 |
+| `chat/date_batch_check_available.md` | `0xa07372` | 532 |
+| `chat/managing_context_opener.md` | `0x7e5647` | 398 |
+| `chat/managing_context_retention.md` | `0x7e5a86` | 395 |
+| `chat/managing_context_chat_history.md` | `0x7e57fb` | 173 |
+| `chat/keeping_track_of_active_work.md` | `0x7e3cb2` | 3109 |
+| `chat/keeping_track_of_active_work@without_todo_list.md` | `0x7e4914` | 3028 |
+| `chat/writing_style.md` | `0x7e73e1` | 5765 |
+| `chat/writing_style_follow_ups.md` | `0x7e7192` | 524 |
+| `chat/writing_style_brevity.md` | `0x7e903c` | 774 |
+| `chat/response_formatting.md` | `0x7e20ca` | 121 |
+| `chat/response_formatting_markdown.md` | `0x7e216e` | 1193 |
+| `chat/response_formatting_message_breaks.md` | `0x7e1f1d` | 346 |
+| `chat/response_formatting_links.md` | `0x7e263f` | 719 |
+| `chat/response_formatting_link_labels.md` | `0x7e2a74` | 968 |
+| `chat/response_formatting_citations.md` | `0x7e60c6` | 275 |
+| `chat/tool_rules_deep_research.md` | `0x9fe20b` | 877 |
+| `chat/cron_created_acknowledgement.md` | `0xa086b0` | 454 |
+| `chat/workspace_files.md` | `0x7abc05` | 1210 |
+| `chat/runtime_files_list.md` | `0x7ad3fc` | 643 |
+| `chat/filesystem.md` | `0x7ad6af` | 2120 |
+| `chat/system_prompt_copy_file.md` | `0xa04808` | 589 |
+| `chat/filesystem_memory.md` | `0x7adef7` | 540 |
+| `chat/filesystem_workspace.md` | `0x7ae136` | 4155 |
+| `chat/safety_oversight.md` | `0x7b120b` | 3241 |
+| `shared/managing_context_body.md` | `0x7e58fa` | 355 |
+| `shared/environment/computer.md` | `0x7a7587` | 145 |
+| `shared/environment/browser.md` | `0x7a763c` | 311 |
+| `shared/environment/runtime.md` | `0x7a7797` | 321 |
+| `shared/environment/user_goals.md` | `0x7a817d` | 642 |
+| `shared/environment/tracking.md` | `0x7a8424` | 547 |
+| `shared/safety_hard_stops.md` | `0x7b1ed6` | 1837 |
+| `shared/safety_self_modification.md` | `0x7b262c` | 78 |
+| `shared/safety_sensitive_attributes.md` | `0x7b26a6` | 1006 |
+| `session/subagents_doctrine.md` | `0xa04230` | 1299 |
+| `session/subagents_status.md` | `0xa08209` | 644 |
+| `subagents/chat/responsive_clause.md` | `0x9fe839` | 45 |
+| `subagents/chat/overload_consequence.md` | `0x9fe893` | 36 |
+| `subagents/chat/after_spawn_clause.md` | `0x9feb93` | 103 |
+| `subagents/inherited_context/transcript_fact.md` | `0x9fe8ec` | 74 |
+| `subagents/inherited_context/task_content_bullet.md` | `0x9fe96f` | 209 |
+| `subagents/inherited_context/fanout_bullet.md` | `0x9fea73` | 245 |
