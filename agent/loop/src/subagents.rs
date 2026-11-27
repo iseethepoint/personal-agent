@@ -79,6 +79,8 @@ const LIST_LIMIT: &str = "Max entries to return. Default 20, max 200.";
 const SEND_DESCRIPTION: &str = "Deliver follow-up input to one of your running child agents by id.\n\nDelivery is ASYNC: a success response means the message was submitted, not applied. The instruction stays pending until the agent's handoff or completion result reports it, so do not describe it as done, do not poll for it, and do not fabricate the outcome. Handle anything else the turn needs, then end your response.\n\nProvide the input in `message`, or in `items` for images or files; `items` takes precedence when both are set. Set `interrupt` true to cut off the agent's current work first, so the new input starts a fresh turn instead of queueing behind the old one.\n\nBrowser task owners cannot be steered by agent id; their parent agent continues the task through its browser tools instead. To start ordinary delegated work when no suitable agent exists, use `subagent.spawn`.";
 const TARGET_ID: &str = "Target agent id (from subagent.spawn or subagent.list output).";
 const SEND_MESSAGE: &str = "Follow-up text for the agent. If items is also provided, items takes precedence.";
+const SEND_ITEMS: &str = "Multimodal input (text/image/file); takes precedence over message. Type \"text\" requires `text`. Types \"image\" and \"file\" require `path`, a file path as `read` takes it; `filename` and `caption` are optional.";
+const SPAWN_ITEMS: &str = "Multimodal input for the child's first message; takes precedence over message. Type \"text\" requires `text`. Types \"image\" and \"file\" require `path`, a file path as `read` takes it; `filename` and `caption` are optional.";
 const SEND_SCOPE: &str = "Where the target may live: 'direct' (default) covers your immediate children, 'descendants' the full subtree under you.";
 const SEND_INTERRUPT: &str = "If true, interrupt the agent's current work before delivering this input.";
 const CLOSE_DESCRIPTION: &str = "Stop one of your child agents by id and end its work.\n\nUse this when the delegated work is no longer needed, the agent is stuck, or it should not keep going. To redirect an agent instead of stopping it, use `subagent.send`; to find the right id and check state first, use `subagent.list`.\n\nClosing a browser task owner stops the whole browser task, and the response includes its `browser_task_id`. If the owner's task identity cannot be recovered, the close fails and nothing is stopped.";
@@ -367,7 +369,8 @@ pub type AfterDone = Arc<dyn Fn(Status, String) -> futures_util::future::BoxFutu
 type WatchFactory = Arc<dyn Fn(String, String, Inbox, Arc<dyn Fn() -> bool + Send + Sync>) -> crate::turn::StepHook + Send + Sync>;
 
 enum Input {
-    Message(String),
+    /// Новая работа: части сообщения роли user.
+    Message(Vec<Part>),
     Resume,
 }
 
@@ -624,7 +627,15 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
 
     /// `spawn`, но итог перед отправкой родителю проходит через `after`.
     pub fn spawn_then(&self, task: &str, after: Option<AfterDone>) -> String {
+        self.spawn_with(task, Vec::new(), after)
+    }
+
+    /// `spawn` с вложениями: `extra` (картинки, файлы из `items`) — в
+    /// первом сообщении за его текстом.
+    pub fn spawn_with(&self, task: &str, extra: Vec<Part>, after: Option<AfterDone>) -> String {
         let id = self.next_id();
+        let mut first = vec![Part::Text { text: first_message(task, self.inner.depth, self.inner.deeper.get().is_some()) }];
+        first.extend(extra);
         // Глубже 1 — изолированно: без разговора родителя.
         let mut history = if self.inner.depth == 1 { inherited_history(&self.inner.parent.snapshot()) } else { Vec::new() };
         if !history.is_empty() {
@@ -637,7 +648,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
             record: None,
             fresh: true,
             after,
-            first: Some(Input::Message(first_message(task, self.inner.depth, self.inner.deeper.get().is_some()))),
+            first: Some(Input::Message(first)),
             status: Status::Running,
             result: None,
             pending: Vec::new(),
@@ -755,8 +766,8 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                     state = Some(loaded);
                 }
                 let (prefix, history) = state.as_mut().unwrap();
-                if let Input::Message(text) = input {
-                    history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
+                if let Input::Message(content) = input {
+                    history.push(Message { role: Role::User, content });
                 }
                 Self::set(&inner, &agent_id, Status::Running, None);
                 if let Some(st) = &store {
@@ -890,7 +901,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         let mut agents = self.inner.agents.lock().unwrap();
         let (tx, mut rx) = mpsc::unbounded_channel();
         let interrupt = Arc::new(Notify::new());
-        let _ = tx.send(if kind.resume.is_some() { Input::Resume } else { Input::Message(kind.first.clone()) });
+        let _ = tx.send(if kind.resume.is_some() { Input::Resume } else { Input::Message(vec![Part::Text { text: kind.first.clone() }]) });
         let inner = self.inner.clone();
         let stop = interrupt.clone();
         let agent_id = id.clone();
@@ -905,8 +916,8 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
             let mut turns = 0u64;
             let rec = kind.record.clone();
             while let Some(input) = rx.recv().await {
-                if let Input::Message(text) = input {
-                    history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
+                if let Input::Message(content) = input {
+                    history.push(Message { role: Role::User, content });
                 }
                 Self::set(&inner, &agent_id, Status::Running, None);
                 turns += 1;
@@ -938,7 +949,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                     Some(Ok(resp)) if (kind.done)() => (Status::Done, resp.text()),
                     Some(Ok(_)) if !nudged && kind.nudge.is_some() => {
                         nudged = true;
-                        let _ = again.send(Input::Message(kind.nudge.clone().unwrap_or_default()));
+                        let _ = again.send(Input::Message(vec![Part::Text { text: kind.nudge.clone().unwrap_or_default() }]));
                         continue;
                     }
                     Some(Ok(resp)) => (Status::Failed, resp.text()),
@@ -963,17 +974,17 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
     }
 
     pub fn send(&self, id: &str, message: &str, interrupt: bool) -> Result<(), String> {
-        self.send_in(id, message, interrupt, false)
+        self.send_in(id, vec![Part::Text { text: message.to_string() }], interrupt, false)
     }
 
     /// `send` с `scope`: `descendants` — цель ищется во всём поддереве.
-    pub fn send_in(&self, id: &str, message: &str, interrupt: bool, descendants: bool) -> Result<(), String> {
+    pub fn send_in(&self, id: &str, content: Vec<Part>, interrupt: bool, descendants: bool) -> Result<(), String> {
         let agents = self.inner.agents.lock().unwrap();
         if let Some(a) = agents.iter().find(|a| a.id == id) {
             if a.status == Status::Closed {
                 return Err(format!("agent {id} is closed"));
             }
-            a.tx.send(Input::Message(message.to_string())).map_err(|_| format!("agent {id} is gone"))?;
+            a.tx.send(Input::Message(content)).map_err(|_| format!("agent {id} is gone"))?;
             if interrupt {
                 a.interrupt.notify_one();
             }
@@ -981,7 +992,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         }
         if descendants {
             for n in agents.iter().filter_map(|a| a.nested.as_ref()) {
-                match n.send_in(id, message, interrupt, true) {
+                match n.send_in(id, content.clone(), interrupt, true) {
                     Err(e) if e == unknown(id) => {}
                     r => return r,
                 }
@@ -1134,20 +1145,82 @@ fn prop(d: &str, t: &str) -> Value {
     json!({"type": t, "description": d})
 }
 
+/// Схема `items`: описание — строка ядра, поля — названные в нём.
+fn items(d: &str) -> Value {
+    json!({
+        "type": "array",
+        "description": d,
+        "items": {
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["text", "image", "file"]},
+                "text": {"type": "string"},
+                "path": {"type": "string"},
+                "filename": {"type": "string"},
+                "caption": {"type": "string"},
+            },
+            "required": ["type"],
+        },
+    })
+}
+
+/// Элемент `items`: текст или прочитанный файл.
+enum Item {
+    Text(String),
+    File(Vec<Part>),
+}
+
+/// Вход `items` по порядку. `image` и `file` читаются инструментом
+/// `hamlet.read` набора подагента («a file path as `read` takes it»): его
+/// результат — вложение, перед ним — строка с `filename` (или путём) и
+/// `caption`. Ошибка — код ядра `reason` (`invalid_spawn_input` у spawn).
+async fn read_items(tools: &Tools, list: &[Value], reason: &str) -> Result<Vec<Item>, ToolError> {
+    let bad = |m: String| ToolError::InvalidArguments(json!({"reason": reason, "error": m}).to_string());
+    let read = tools.get("hamlet.read").cloned();
+    let mut out = Vec::new();
+    for (i, item) in list.iter().enumerate() {
+        let field = |k: &str| item.get(k).and_then(Value::as_str);
+        match field("type") {
+            Some("text") => out.push(Item::Text(field("text").ok_or_else(|| bad(format!("items[{i}]: type \"text\" requires `text`")))?.to_string())),
+            Some(kind @ ("image" | "file")) => {
+                let path = field("path").ok_or_else(|| bad(format!("items[{i}]: type \"{kind}\" requires `path`")))?;
+                let read = read.as_ref().ok_or_else(|| bad("reading files is not available here".into()))?;
+                let got = read.call(json!({"path": path})).await.map_err(|e| bad(format!("items[{i}]: {e}")))?;
+                if kind == "image" && !got.iter().any(|p| matches!(p, ToolResultPart::Image(_))) {
+                    return Err(bad(format!("items[{i}]: {path} is not a supported image")));
+                }
+                let mut label = field("filename").unwrap_or(path).to_string();
+                if let Some(c) = field("caption") {
+                    label = format!("{label}: {c}");
+                }
+                let mut parts = vec![Part::Text { text: label }];
+                parts.extend(got.into_iter().map(|p| match p {
+                    ToolResultPart::Text { text } => Part::Text { text },
+                    ToolResultPart::Image(img) => Part::Image(img),
+                }));
+                out.push(Item::File(parts));
+            }
+            other => return Err(bad(format!("items[{i}]: unknown type {other:?}; expected \"text\", \"image\" or \"file\""))),
+        }
+    }
+    Ok(out)
+}
+
 /// Описание инструмента `subagent.*`.
 fn spec(op: Op) -> ToolSpec {
     let (name, description, props, required) = match op {
-        Op::Spawn => ("subagent.spawn", SPAWN_DESCRIPTION, json!({"message": prop(SPAWN_MESSAGE, "string")}), json!(["message"])),
+        Op::Spawn => ("subagent.spawn", SPAWN_DESCRIPTION, json!({"message": prop(SPAWN_MESSAGE, "string"), "items": items(SPAWN_ITEMS)}), json!([])),
         Op::Send => (
             "subagent.send",
             SEND_DESCRIPTION,
             json!({
                 "agent_id": prop(TARGET_ID, "string"),
                 "message": prop(SEND_MESSAGE, "string"),
+                "items": items(SEND_ITEMS),
                 "scope": {"type": "string", "enum": ["direct", "descendants"], "description": SEND_SCOPE},
                 "interrupt": prop(SEND_INTERRUPT, "boolean"),
             }),
-            json!(["agent_id", "message"]),
+            json!(["agent_id"]),
         ),
         Op::List => (
             "subagent.list",
@@ -1186,14 +1259,42 @@ impl<P: Provider + Send + Sync + 'static> Tool for SubagentTool<P> {
             let text = |v: Value| Ok(vec![ToolResultPart::Text { text: v.to_string() }]);
             match self.op {
                 Op::Spawn => {
-                    let id = self.agents.spawn(need("message")?);
+                    // `items` важнее `message`.
+                    let id = match args.get("items").and_then(Value::as_array).filter(|l| !l.is_empty()) {
+                        Some(list) => {
+                            // Текст — в шаблон первого сообщения (через пустую
+                            // строку), файлы — за ним.
+                            let (mut texts, mut extra) = (Vec::new(), Vec::new());
+                            for it in read_items(&self.agents.inner.tools, list, "invalid_spawn_input").await? {
+                                match it {
+                                    Item::Text(t) => texts.push(t),
+                                    Item::File(p) => extra.extend(p),
+                                }
+                            }
+                            self.agents.spawn_with(&texts.join("\n\n"), extra, None)
+                        }
+                        None => self.agents.spawn(need("message")?),
+                    };
                     text(json!({"agent_id": id, "status": "running"}))
                 }
                 Op::Send => {
                     let interrupt = args.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
                     let id = need("agent_id")?;
                     let descendants = s("scope") == Some("descendants");
-                    self.agents.send_in(id, need("message")?, interrupt, descendants).map_err(ToolError::Failed)?;
+                    let content = match args.get("items").and_then(Value::as_array).filter(|l| !l.is_empty()) {
+                        Some(list) => {
+                            let mut content = Vec::new();
+                            for it in read_items(&self.agents.inner.tools, list, "input_error").await? {
+                                match it {
+                                    Item::Text(text) => content.push(Part::Text { text }),
+                                    Item::File(p) => content.extend(p),
+                                }
+                            }
+                            content
+                        }
+                        None => vec![Part::Text { text: need("message")?.to_string() }],
+                    };
+                    self.agents.send_in(id, content, interrupt, descendants).map_err(ToolError::Failed)?;
                     text(json!({"agent_id": id, "submitted": true}))
                 }
                 Op::List => {

@@ -413,3 +413,81 @@ async fn grandchildren(wire: Wire) {
     assert!(recent.iter().any(|e| e["agent_id"] == "agent-2" && e["status"] == "closed"), "{all}");
 }
 both!(grandchildren);
+
+/// Поддельный `hamlet.read`: `.png` — картинка, прочее — текст файла.
+struct FakeRead;
+
+const PNG_B64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+impl agent_loop::Tool for FakeRead {
+    fn spec(&self) -> agent_model::ToolSpec {
+        agent_model::ToolSpec { name: "hamlet.read".into(), description: "read".into(), input_schema: json!({"type": "object"}) }
+    }
+    fn call(&self, args: Value) -> agent_loop::ToolFuture<'_> {
+        Box::pin(async move {
+            let path = args["path"].as_str().unwrap_or_default().to_string();
+            if path.ends_with(".png") {
+                Ok(vec![ToolResultPart::Image(agent_model::Image { media_type: "image/png".into(), data_base64: PNG_B64.into() })])
+            } else if path == "missing.txt" {
+                Err(agent_loop::ToolError::Failed(format!("{path}: No such file or directory")))
+            } else {
+                Ok(vec![ToolResultPart::Text { text: format!("1\tсодержимое {path}") }])
+            }
+        })
+    }
+}
+
+/// П3з-3: `items` в `subagent.spawn` и `subagent.send` (строки ядра —
+/// описания полей). Картинка доходит до подагента в первом сообщении за
+/// текстом задачи, с подписью; `items` важнее `message`; файл в `send` —
+/// текстом, как его читает `read`, в порядке элементов; ошибки — с кодом
+/// причины.
+async fn items_reach_child(wire: Wire) {
+    let steps = vec![
+        Step::Calls(vec![("c1", "slow", json!({"ms": 400}))]),
+        Step::Text("посмотрел"),
+        Step::Text("сделал"),
+    ];
+    let (server, p) = model(wire, steps, false);
+    let mut child_tools = tools();
+    child_tools.add(FakeRead);
+    let prefix = Prefix { system: "Ты — подагент.".into(), tools: child_tools.specs() };
+    let subs = Subagents::new(Arc::new(p), Arc::new(child_tools), prefix, temp_dir("items"), Inbox::new(), Transcript::new());
+
+    let a = call(
+        &subs,
+        "subagent.spawn",
+        json!({"message": "НЕ ЭТО", "items": [{"type": "text", "text": "опиши картинку"}, {"type": "image", "path": "cat.png", "caption": "кот на окне"}]}),
+    )
+    .await
+    .unwrap();
+    let id = a["agent_id"].as_str().unwrap().to_string();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    call(&subs, "subagent.send", json!({"agent_id": id, "items": [{"type": "file", "path": "notes.txt", "filename": "заметки"}, {"type": "text", "text": "и учти это"}]}))
+        .await
+        .unwrap();
+    let got = wait(subs.inbox()).await;
+    assert!(got[0].text().contains("сделал"), "{got:?}");
+
+    let r = server.requests();
+    let first = r[0].to_string();
+    assert!(first.contains("[Subagent Task]: опиши картинку") && !first.contains("НЕ ЭТО"), "{first}");
+    assert!(first.contains(PNG_B64), "{wire:?}: картинка не дошла: {first}");
+    assert!(first.find("[Subagent Task]: опиши картинку").unwrap() < first.find("кот на окне").unwrap());
+    assert!(first.find("cat.png: кот на окне").unwrap() < first.find(PNG_B64).unwrap());
+    let second = r[2].to_string();
+    let at = |t: &str| second.find(t).unwrap_or_else(|| panic!("нет «{t}» в {second}"));
+    assert!(at("заметки") < at("содержимое notes.txt") && at("содержимое notes.txt") < at("и учти это"));
+
+    // Ошибки: код причины, подагент не заводится.
+    let err = call(&subs, "subagent.spawn", json!({"items": [{"type": "image"}]})).await.unwrap_err();
+    assert!(err.contains("invalid_spawn_input") && err.contains("requires `path`"), "{err}");
+    let err = call(&subs, "subagent.spawn", json!({"items": [{"type": "image", "path": "notes.txt"}]})).await.unwrap_err();
+    assert!(err.contains("invalid_spawn_input") && err.contains("not a supported image"), "{err}");
+    let err = call(&subs, "subagent.spawn", json!({"items": [{"type": "file", "path": "missing.txt"}]})).await.unwrap_err();
+    assert!(err.contains("invalid_spawn_input") && err.contains("No such file"), "{err}");
+    let err = call(&subs, "subagent.send", json!({"agent_id": id, "items": [{"type": "text"}]})).await.unwrap_err();
+    assert!(err.contains("input_error") && err.contains("requires `text`"), "{err}");
+    assert_eq!(subs.list(20)["recent"].as_array().unwrap().len() + subs.list(20)["active"].as_array().unwrap().len(), 1);
+}
+both!(items_reach_child);
