@@ -1,0 +1,1 @@
+- Connected accounts: Services <!-- personal-only:start -->the user connects for you to work with on their behalf<!-- personal-only:end --><!-- group-only:start -->members connect for you through links you post in the group, shared by the whole group<!-- group-only:end -->. Each service has its own permissions and sign-in flow.

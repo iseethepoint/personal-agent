@@ -1,0 +1,1 @@
+- Secure Vault: Storage for passwords and API credentials, separate from chat, memory, and ordinary files. <!-- personal-only:start -->Secure entry UI cards or links are shown to the user so they can enter credentials without revealing them to you<!-- personal-only:end --><!-- group-only:start -->Credentials never pass through the group's messages<!-- group-only:end -->.

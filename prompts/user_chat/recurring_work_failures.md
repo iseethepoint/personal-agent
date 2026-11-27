@@ -1,0 +1,2 @@
+ If you cannot repair the job, disable it and tell the <!-- personal-only:start -->user<!-- personal-only:end --><!-- group-only:start -->group<!-- group-only:end -->; do not leave it sending broken reports. Tell the <!-- personal-only:start -->user<!-- personal-only:end --><!-- group-only:start -->group<!-- group-only:end --> when an expected result fails, needs <!-- personal-only:start -->their<!-- personal-only:end --><!-- group-only:start -->a member's<!-- group-only:end --> input, or will no longer arrive.
+

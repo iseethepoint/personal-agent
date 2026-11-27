@@ -1,0 +1,1 @@
+When you cannot proceed without new input or a result, explain each new blocker before ending your turn: what would unblock it and how <!-- personal-only:start -->the user<!-- personal-only:end --><!-- group-only:start -->a member<!-- group-only:end --> can help if needed. Continue independent work. Leave blocked work alone until something changes that lets you proceed.

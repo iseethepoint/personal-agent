@@ -642,3 +642,138 @@
 - снимок берётся в миг решения монитора: блоки «Coordinator» / «Worker» — `agent_id`, `depth`, `status` (у работника ещё `ordinal: n/m` — место среди детей его родителя, как `child_agent_ordinal`), «Coordinator Children» и `child_subagents` — строки `- <id> (depth N): <status>`, «Subtree Snapshot» — координатор и его дети с отступом;
 - `hamlet.nothing_to_do` — только у подагента, который сам заводит подагентов (у прочих заметок монитора нет); после молчания состояние подагента — прежний итог;
 - заметка корню — прежнего вида (П4ж-2а); шаблон ядра «## Subagent Progress» с `update_kind` — для итогов, его значения для промежуточных событий не видны.
+
+
+## Тексты главного разговора — блоки `user_chat` и `blocks/chat` (П5-1, часть 1)
+
+`prompts/user_chat/` — 101 блок ядра `blocks/user_chat/*.md`: 88 основных, 9 вариантов с `@` (`@without_todo_list`, `@texting_style`) и 4 `environment/*` (в описи П1б их не было). Текста в `prompts/` muse нет — только в ядре. Ядро держит блок записью из 72 байт: имя (указатель, длина), переменные, варианты, текст (указатель, длина) и вид (`2`). Записи лежат статическими таблицами в `.data.rel.ro` или собираются кодом функций-реестров разделов (`0xa9511e0`, `0xa9546f0`, `0xa954b90`, `0xa9551c0`, `0xa9c1090`, `0xa9cd930`, `0xcd54210`). Текст взят по указателю и длине из записи, байт в байт; где пара «имя — текст» выбирается флагом (`cmov`), — по дизассемблеру: `memory_search` / `memory_search_baseline` (`0xa951423`), `memory` / `memory_baseline` (`0xcd542eb`), `browser_and_sources_handoffs` (`0xa9519a0`), `turn_memory_search_reminder` / `turn_recollection_reminder` (`0xa952f0f`). Тексты `conversation.md` и `secure_vault.md`, которых П1б не нашёл, — в записях реестра (`0xa9511e0`, `0xa9cd930`).
+
+`prompts/chat/` — 18 файлов `P/hatch-agent/prompts/blocks/chat/*.md`.
+
+Шаблоны домашних файлов `agents/hamlet/home/` (`AGENTS.md`, `SOUL.md`, `IDENTITY.md`, `USER.md`, `MEMORY.md`) — тела шаблонов ядра (`0x8635c4`–`0x863fb0`) без шапки YAML, как muse кладёт их в домашнюю папку. `HEARTBEAT.md` — прежний шаблон П4е (`agent/cron/src/service.rs:43`). Не взяты: `TOOLS.md` (в домашней папке muse его нет), `PROACTIVE_PREFERENCES.md` (П13).
+
+Общие правки (П10), во всех файлах: метки `personal-muse-only` / `group-muse-only` → `personal-only` / `group-only`; `` `muse.<инструмент>` `` → `` `hamlet.<инструмент>` ``; `Muse` → `Hamlet` (и в `Muses`, `Muse-to-Muse`, `Muse-network`); `muse.md` → `hamlet.md`; `/opt/muse/` → `/opt/hamlet/`.
+
+Правки по месту:
+
+| Файл | Было | Стало |
+|---|---|---|
+| `user_chat/browser_and_sources_places.md` | «For Instagram, Facebook, Threads, and Meta AI links,» | «For Instagram, Facebook, and Threads links,» |
+| `user_chat/docs.md` | « - one guide per device, including Meta Quest (`quest.md`), Meta glasses, Meta Ray-Ban Display and Meta Neural Band (`glasses.md`), and Muse Charm (`charm.md`).» | « - one guide per device.» |
+| `user_chat/how_you_work_product_questions.md` | « In messaging apps without a section there, Muse app controls live in the Muse app or at muse.ai; say so.» | (убрано) |
+| `user_chat/how_you_work_product_questions.md` | «Nobody opens the Muse app or muse.ai for you,» | «Nobody opens an app for you,» |
+| `user_chat/how_you_work_product_questions.md` | «Muse's and Meta's policies» | «Hamlet's policies» |
+| `user_chat/how_you_work_product_questions.md` | «Meta's policies» | «Hamlet's policies» |
+| `user_chat/who_you_work_for.md` | «You are not an assistant to Meta, a service,» | «You are not an assistant to a company, a service,» |
+| `chat/how_you_work.md` | «, where Muse UI is not available. Never give in-app navigation as if they can tap it there: say it's in the Muse app or at muse.ai.» | «.» |
+| `chat/how_you_work.md` | «Meta's policies» | «Hamlet's policies» |
+| `chat/how_you_work.md` | «Meta maintains these docs» | «The Hamlet team maintains these docs» |
+| `chat/who_you_work_for.md` | «You are not an assistant to Meta, a service,» | «You are not an assistant to a company, a service,» |
+
+Сборка подсказки из этих блоков — порядок, условия, варианты и блоки несделанных частей — часть 2 среза.
+
+Адреса текстов в ядре:
+
+| Файл | Текст в ядре | Байт |
+|---|---|---|
+| `user_chat/active_work.md` | `0x7b871c` | 1184 |
+| `user_chat/active_work@without_todo_list.md` | `0x7b8569` | 435 |
+| `user_chat/active_work_blockers.md` | `0x7b7bff` | 564 |
+| `user_chat/active_work_blockers@without_todo_list.md` | `0x7b7e6d` | 393 |
+| `user_chat/active_work_finishing.md` | `0x7b801e` | 742 |
+| `user_chat/active_work_finishing@without_todo_list.md` | `0x7b833f` | 433 |
+| `user_chat/active_work_updates.md` | `0x7b8de3` | 743 |
+| `user_chat/active_work_updates@without_todo_list.md` | `0x7b8c1c` | 455 |
+| `user_chat/artifacts.md` | `0x7d2c71` | 718 |
+| `user_chat/background_results.md` | `0x7d2f5c` | 858 |
+| `user_chat/background_results_delivery.md` | `0x7d3b0b` | 1654 |
+| `user_chat/background_results_silence.md` | `0x7d32dc` | 747 |
+| `user_chat/browser_and_sources.md` | `0x7c054a` | 3465 |
+| `user_chat/browser_and_sources_handoffs.md` | `0x7c12fa` | 2207 |
+| `user_chat/browser_and_sources_places.md` | `0x7c1c51` | 467 |
+| `user_chat/captchas.md` | `0x7c4a74` | 2187 |
+| `user_chat/commentary_visibility.md` | `0xa08ebc` | 160 |
+| `user_chat/communication_and_delivery.md` | `0x7c66e6` | 608 |
+| `user_chat/context_and_active_work.md` | `0x7b2ac0` | 27 |
+| `user_chat/conversation.md` | `0x7c6974` | 3353 |
+| `user_chat/conversation@texting_style.md` | `0x7c76bb` | 4380 |
+| `user_chat/date_time_awareness.md` | `0x7a5649` | 1480 |
+| `user_chat/discretion_and_alignment.md` | `0x7a03f0` | 6757 |
+| `user_chat/docs.md` | `0x7ac111` | 4786 |
+| `user_chat/due_diligence.md` | `0x7b98d6` | 5311 |
+| `user_chat/due_diligence_follow_ups.md` | `0x7b93b3` | 1238 |
+| `user_chat/due_diligence_live_information.md` | `0x7badc7` | 3674 |
+| `user_chat/environment.md` | `0x7a6d7d` | 60 |
+| `user_chat/environment/connected_accounts.md` | `0x7a6dd8` | 350 |
+| `user_chat/environment/deployments.md` | `0x7a7361` | 279 |
+| `user_chat/environment/secure_vault.md` | `0x7a6f68` | 394 |
+| `user_chat/environment/wallet.md` | `0x7a711e` | 541 |
+| `user_chat/goals.md` | `0x7b7559` | 1677 |
+| `user_chat/handling_background_handoffs.md` | `0x7d6dc4` | 2955 |
+| `user_chat/handoff_orientation.md` | `0x7d4425` | 962 |
+| `user_chat/how_you_work.md` | `0x7a3fcc` | 1053 |
+| `user_chat/how_you_work_limitation.md` | `0x7a1e81` | 231 |
+| `user_chat/how_you_work_product_questions.md` | `0x7a441b` | 2107 |
+| `user_chat/identifiers_and_dates.md` | `0x7bd5d8` | 589 |
+| `user_chat/loading_tools.md` | `0x7a9c33` | 778 |
+| `user_chat/memory.md` | `0xa065eb` | 3226 |
+| `user_chat/memory_baseline.md` | `0xa05a0f` | 3001 |
+| `user_chat/memory_correction_baseline.md` | `0x7b69e9` | 1186 |
+| `user_chat/memory_recall.md` | `0x7a5561` | 28 |
+| `user_chat/memory_scope_and_custody.md` | `0x7b6eb9` | 1652 |
+| `user_chat/memory_search.md` | `0x7b4e94` | 3120 |
+| `user_chat/memory_search_baseline.md` | `0x7b333e` | 6956 |
+| `user_chat/offer_options.md` | `0xa04c7e` | 759 |
+| `user_chat/peer_collaboration.md` | `0x7c87d7` | 42100 |
+| `user_chat/proactive_work.md` | `0x7d797f` | 6164 |
+| `user_chat/proactivity.md` | `0x7a6086` | 3288 |
+| `user_chat/proactivity_follow_through.md` | `0x9fe5a6` | 421 |
+| `user_chat/proactivity_guidance.md` | `0x7d35f5` | 1262 |
+| `user_chat/proactivity_shared_preferences.md` | `0x7d57e8` | 5198 |
+| `user_chat/purchases.md` | `0x7c531b` | 3777 |
+| `user_chat/recurring_work.md` | `0x7aadab` | 519 |
+| `user_chat/recurring_work_failures.md` | `0x7aa366` | 578 |
+| `user_chat/recurring_work_hooks.md` | `0x7aa22d` | 273 |
+| `user_chat/recurring_work_operations.md` | `0x7aaffb` | 2516 |
+| `user_chat/recurring_work_recovery.md` | `0x7c61f9` | 1218 |
+| `user_chat/recurring_work_results.md` | `0x7aa5d3` | 1932 |
+| `user_chat/recurring_work_verification.md` | `0x7ab9fe` | 149 |
+| `user_chat/retaining_memories.md` | `0x7b5ae5` | 1887 |
+| `user_chat/retaining_memories@without_todo_list.md` | `0x7b627c` | 1863 |
+| `user_chat/safety_core.md` | `0x7b0cb0` | 1309 |
+| `user_chat/secure_vault.md` | `0x7c25a0` | 2322 |
+| `user_chat/secure_vault_code_from_user.md` | `0x7c2117` | 1114 |
+| `user_chat/secure_vault_credentials.md` | `0x7c2ede` | 6094 |
+| `user_chat/secure_vault_entry_card.md` | `0x7c1e52` | 666 |
+| `user_chat/secure_vault_resend.md` | `0x7c46d3` | 669 |
+| `user_chat/security.md` | `0x7af18d` | 2011 |
+| `user_chat/security_anti_phishing.md` | `0x7b05c7` | 660 |
+| `user_chat/security_anti_phishing_tail.md` | `0x7b088a` | 652 |
+| `user_chat/security_operations.md` | `0x7bd875` | 3531 |
+| `user_chat/security_operations_anti_phishing.md` | `0x7be675` | 542 |
+| `user_chat/security_operations_disclosure.md` | `0x7be8c5` | 2322 |
+| `user_chat/security_operations_sensitive_values.md` | `0x7bf20f` | 1327 |
+| `user_chat/security_secrets.md` | `0x7af98c` | 2509 |
+| `user_chat/security_service_limits.md` | `0x7b0384` | 537 |
+| `user_chat/service_limits.md` | `0x7bff31` | 1527 |
+| `user_chat/shared_spaces.md` | `0x7bfdb4` | 348 |
+| `user_chat/taking_ownership.md` | `0x7b2b06` | 1934 |
+| `user_chat/tools.md` | `0x7a92a8` | 1317 |
+| `user_chat/tools_approvals.md` | `0x7a980d` | 1029 |
+| `user_chat/tools_confirmation.md` | `0x7a8883` | 1460 |
+| `user_chat/tools_estimates.md` | `0x7a877e` | 226 |
+| `user_chat/tools_outward_discretion.md` | `0x7a8e5d` | 1030 |
+| `user_chat/turn_commentary_instructions.md` | `0x7bd590` | 24 |
+| `user_chat/turn_diligence_reminder.md` | `0x7bd188` | 1032 |
+| `user_chat/turn_diligence_reminder@texting_style.md` | `0x7bc1d2` | 1451 |
+| `user_chat/turn_diligence_reminder@texting_style_without_todo_list.md` | `0x7bcbf5` | 1427 |
+| `user_chat/turn_diligence_reminder@without_todo_list.md` | `0x7bc7ba` | 1008 |
+| `user_chat/turn_memory_search_reminder.md` | `0x7bbe4b` | 756 |
+| `user_chat/turn_proactivity_reminder.md` | `0x7d6c95` | 303 |
+| `user_chat/turn_public_commentary_instructions.md` | `0x7bd590` | 24 |
+| `user_chat/turn_recollection_reminder.md` | `0x7bbc21` | 508 |
+| `user_chat/who_you_are.md` | `0x7a1fd5` | 6380 |
+| `user_chat/who_you_work_for.md` | `0x79ff67` | 824 |
+| `user_chat/who_you_work_for_household.md` | `0x7a3c8f` | 829 |
+| `user_chat/who_you_work_for_principal.md` | `0x7a02c3` | 255 |
+| `user_chat/working_with_tools.md` | `0x7bf7c8` | 1478 |

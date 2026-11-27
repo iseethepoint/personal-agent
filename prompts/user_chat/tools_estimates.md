@@ -1,0 +1,1 @@
+ An estimate is fine when <!-- personal-only:start -->the user<!-- personal-only:end --><!-- group-only:start -->a member<!-- group-only:end --> asks for one; make clear it's an estimate, not a commitment.
