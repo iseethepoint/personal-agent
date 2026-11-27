@@ -213,8 +213,17 @@
 - запись — форма `INSERT INTO context_items … ON CONFLICT (agent_id, seq) DO UPDATE` (около `0x6cb97b`);
 - граница подсказки — `agents.prompt_floor_seq` (запрос около `0x6e16f9`).
 
+Строка — одна часть сообщения, части связывает `message_id`. Виды частей — как у ядра:
+- `message`, `message_text`, `text_segments`, `tool_call`, `tool_output` (запрос `item_kind IN ('message', 'message_text', 'text_segments')` около `0x2ecebb`);
+- `parts` в `item_json` (около `0x16f8c7b`);
+- мышление — отдельные строки, их скрывает вид `inspection.context_items` (`redaction` каталога ядра у `context_items`).
+
+В каталог `hamlet.db` добавлены `agent.agents`, `agent.context_items`, `agent.volatile_context_pins`. Поле `redaction` каталога снова есть: запрос к таблице с ним переписывается на её вид. Текст пометки — ядра, «muse.db» → «hamlet.db».
+
 Своё — в заголовке `agent/history/src/lib.rs`:
-- строка истории — сообщение целиком;
+- вид части: текст — `message_text`, мышление и картинка — `message`; `item_json` — наша часть как есть;
+- `text_segments` не используется: порога в разборе нет;
+- `message_id` — `<agent_id>:<seq>`;
 - пометка заметки изменчивого;
 - закреплённое начало `prompt_prefix`;
 - агент главной сессии — `root`.

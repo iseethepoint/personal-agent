@@ -130,6 +130,399 @@
         {
           "comment": null,
           "default": null,
+          "name": "agent_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "id",
+          "nullable": true,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "session_id",
+          "nullable": true,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'root'::text",
+          "name": "kind",
+          "nullable": false,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "parent_id",
+          "nullable": true,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "parent_agent_id",
+          "nullable": true,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "root_session_id",
+          "nullable": true,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "''::text",
+          "name": "model",
+          "nullable": false,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "status",
+          "nullable": false,
+          "position": 9,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "depth",
+          "nullable": false,
+          "position": 10,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": "(EXTRACT(epoch FROM now()))::bigint",
+          "name": "created_at",
+          "nullable": false,
+          "position": 11,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "(EXTRACT(epoch FROM now()))::bigint",
+          "name": "updated_at",
+          "nullable": false,
+          "position": 12,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_assistant_message",
+          "nullable": true,
+          "position": 13,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "seen_at_ms",
+          "nullable": true,
+          "position": 14,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "prompt_floor_seq",
+          "nullable": true,
+          "position": 15,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "false",
+          "name": "ephemeral",
+          "nullable": false,
+          "position": 16,
+          "type": "boolean"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "agent_type",
+          "nullable": true,
+          "position": 17,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "spawn_metadata_json",
+          "nullable": true,
+          "position": 18,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "id",
+          "name": "agents_id_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "agent_id",
+          "name": "agents_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "agents",
+      "schema": "agent"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": "nextval('context_items_context_item_id_seq'::regclass)",
+          "name": "context_item_id",
+          "nullable": false,
+          "position": 1,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "agent_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "seq",
+          "nullable": false,
+          "position": 3,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "item_kind",
+          "nullable": false,
+          "position": 4,
+          "type": "context_item_kind"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "message_id",
+          "nullable": true,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "role",
+          "nullable": true,
+          "position": 6,
+          "type": "runtime.message_role"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "call_id",
+          "nullable": true,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "tool_name",
+          "nullable": true,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "success",
+          "nullable": true,
+          "position": 9,
+          "type": "boolean"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "message_source",
+          "nullable": true,
+          "position": 10,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 11,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "text_content",
+          "nullable": true,
+          "position": 12,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "item_json",
+          "nullable": true,
+          "position": 13,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "agent_id",
+          "name": "context_items_agent_id_seq_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "seq",
+          "name": "context_items_agent_id_seq_key",
+          "position": 2,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "context_item_id",
+          "name": "context_items_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "context_items",
+      "redaction": {
+        "note": "Rows holding model reasoning (thinking and redacted-thinking items) are withheld. Stored commentary can be queried through `hamlet.db` for diagnosis. Commentary is hidden from the user's chat. A commentary record does not establish that the user received its contents.",
+        "view": "inspection.context_items",
+        "withheld_columns": []
+      },
+      "schema": "agent"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "agent_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "variant_hash",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "variant_json",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "prompt_floor_seq",
+          "nullable": false,
+          "position": 4,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "checkpoint_seq",
+          "nullable": false,
+          "position": 5,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "body",
+          "nullable": true,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 7,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "body_hash",
+          "nullable": true,
+          "position": 8,
+          "type": "bytea"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "agent_id",
+          "name": "volatile_context_pins_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        },
+        {
+          "column": "variant_hash",
+          "name": "volatile_context_pins_pkey",
+          "position": 2,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "volatile_context_pins",
+      "schema": "agent"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
           "name": "briefing_id",
           "nullable": false,
           "position": 1,

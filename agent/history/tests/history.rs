@@ -27,23 +27,42 @@ async fn history_is_written_as_it_grows_and_compaction_moves_the_floor() {
 
     let mut history = vec![msg(Role::User, "hi"), msg(Role::Developer, "Current date: today")];
     h.sync(&history, Some("Current date: today")).await.unwrap();
-    history.push(Message { role: Role::Assistant, content: vec![Part::ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({"x": 1}) }] });
+    history.push(Message {
+        role: Role::Assistant,
+        content: vec![
+            Part::Thinking { text: "think".into(), signature: Some("sig".into()) },
+            Part::RedactedThinking { data: "opaque".into() },
+            Part::Text { text: "calling".into() },
+            Part::ToolCall { id: "c1".into(), name: "echo".into(), arguments: json!({"x": 1}) },
+        ],
+    });
     h.record(&history).await.unwrap();
     history.push(Message { role: Role::User, content: vec![Part::ToolResult { call_id: "c1".into(), content: vec![ToolResultPart::Text { text: "1".into() }], is_error: false }] });
     h.record(&history).await.unwrap();
     // Повторная запись того же не дублирует.
     h.record(&history).await.unwrap();
-    let kinds: Vec<(i64, String, Option<String>, Option<String>)> =
-        sqlx::query_as("select seq, item_kind::text, call_id, message_source from agent.context_items where agent_id = 'root' order by seq").fetch_all(store.pool()).await.unwrap();
+    // Одна часть — одна строка; части сообщения связаны message_id.
+    type Row = (i64, String, String, Option<String>, Option<String>, Option<String>);
+    let rows: Vec<Row> = sqlx::query_as("select seq, item_kind::text, message_id, role::text, call_id, message_source from agent.context_items where agent_id = 'root' order by seq")
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+    let a = |s: &str| Some(s.to_string());
     assert_eq!(
-        kinds,
+        rows,
         [
-            (0, "message_text".into(), None, None),
-            (1, "message_text".into(), None, Some("volatile".into())),
-            (2, "tool_call".into(), Some("c1".into()), None),
-            (3, "tool_output".into(), Some("c1".into()), None),
+            (0, "message_text".into(), "root:0".into(), a("user"), None, None),
+            (1, "message_text".into(), "root:1".into(), a("developer"), None, a("volatile")),
+            (2, "message".into(), "root:2".into(), a("assistant"), None, None),
+            (3, "message".into(), "root:2".into(), a("assistant"), None, None),
+            (4, "message_text".into(), "root:2".into(), a("assistant"), None, None),
+            (5, "tool_call".into(), "root:2".into(), a("assistant"), a("c1"), None),
+            (6, "tool_output".into(), "root:6".into(), a("user"), a("c1"), None),
         ]
     );
+    // Мышление скрыто видом inspection.context_items (redaction каталога muse).
+    let visible: i64 = sqlx::query_scalar("select count(*) from inspection.context_items where agent_id = 'root'").fetch_one(store.pool()).await.unwrap();
+    assert_eq!(visible, 5);
 
     // Повторное открытие: всё на месте, последняя заметка изменчивого — та же.
     let again = AgentHistory::open(&store, "root", "root", "fake/main", now.clone()).await.unwrap();
@@ -56,11 +75,11 @@ async fn history_is_written_as_it_grows_and_compaction_moves_the_floor() {
     let compacted = vec![msg(Role::User, "summary"), msg(Role::User, "hi again")];
     again.replace(&compacted, None).await.unwrap();
     let floor: Option<i64> = sqlx::query_scalar("select prompt_floor_seq from agent.agents where agent_id = 'root'").fetch_one(store.pool()).await.unwrap();
-    assert_eq!(floor, Some(4));
+    assert_eq!(floor, Some(7));
     let reopened = AgentHistory::open(&store, "root", "root", "fake/main", now).await.unwrap();
     let saved = reopened.load().await.unwrap().unwrap();
     assert_eq!(saved.history, compacted);
     assert_eq!(saved.last_volatile, None);
     let total: i64 = sqlx::query_scalar("select count(*) from agent.context_items where agent_id = 'root'").fetch_one(store.pool()).await.unwrap();
-    assert_eq!(total, 6, "старая история остаётся в базе");
+    assert_eq!(total, 9, "старая история остаётся в базе");
 }

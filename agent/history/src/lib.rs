@@ -10,11 +10,22 @@
 //! DO UPDATE`, около `0x6cb97b`); граница — `SELECT COALESCE(MAX(seq), -1)
 //! FROM context_items WHERE agent_id = $1`.
 //!
+//! Строка — одна часть сообщения, части одного сообщения связывает
+//! `message_id` (как у ядра: `item_kind` — `message`, `message_text`,
+//! `text_segments`, `tool_call`, `tool_output`; `item_json` с `parts` или
+//! одной частью, `jsonb_array_elements(item -> 'parts')` около `0x16f8c7b`).
+//! Мышление — отдельные строки: каталог ядра скрывает у `context_items`
+//! «rows holding model reasoning (thinking and redacted-thinking items)»
+//! видом `inspection.context_items`.
+//!
 //! Своё (в разборе не видно или у muse иначе устроено):
-//! - строка — одно наше сообщение целиком (`item_json`), а не часть;
-//!   `item_kind`: сообщение с вызовами — `tool_call`, с результатами —
-//!   `tool_output`, иначе `message_text`; `call_id`/`tool_name` — когда вызов
-//!   или результат один;
+//! - вид части: текст — `message_text`, мышление, скрытое мышление и
+//!   картинка — `message`, вызов — `tool_call`, результат — `tool_output`;
+//!   `item_json` — наша часть как есть (мышление — с подписью);
+//!   `text_segments` (длинный текст в `agent.context_text_segments`) не
+//!   используется — порога в разборе нет;
+//! - сообщение без частей — одна строка `message` с `item_json = null`;
+//! - `message_id` — `<agent_id>:<seq первой части>`;
 //! - заметка изменчивого помечается `message_source = 'volatile'`, по ней
 //!   после перезапуска восстанавливается последняя заметка;
 //! - начало подсказки (системный текст и описания инструментов)
@@ -73,6 +84,8 @@ pub struct Saved {
 struct State {
     /// `seq` первой строки текущей подсказки.
     floor: i64,
+    /// Следующий свободный `seq`.
+    next: i64,
     /// Сколько сообщений текущей подсказки уже записано.
     written: usize,
 }
@@ -111,13 +124,15 @@ impl AgentHistory {
             .map_err(db)?;
         let floor: Option<i64> = sqlx::query_scalar("select prompt_floor_seq from agent.agents where agent_id = $1").bind(agent_id).fetch_one(&store.pool).await.map_err(db)?;
         let floor = floor.unwrap_or(0);
-        let written: i64 = sqlx::query_scalar("select count(*) from agent.context_items where agent_id = $1 and seq >= $2")
-            .bind(agent_id)
-            .bind(floor)
-            .fetch_one(&store.pool)
-            .await
-            .map_err(db)?;
-        Ok(AgentHistory { pool: store.pool.clone(), agent_id: agent_id.into(), now, state: tokio::sync::Mutex::new(State { floor, written: written as usize }) })
+        let (written, max): (i64, Option<i64>) =
+            sqlx::query_as("select count(distinct message_id), max(seq) from agent.context_items where agent_id = $1 and seq >= $2")
+                .bind(agent_id)
+                .bind(floor)
+                .fetch_one(&store.pool)
+                .await
+                .map_err(db)?;
+        let next = max.map_or(floor, |m| m + 1);
+        Ok(AgentHistory { pool: store.pool.clone(), agent_id: agent_id.into(), now, state: tokio::sync::Mutex::new(State { floor, next, written: written as usize }) })
     }
 
     /// Разговор из базы: закреплённое начало, история с границы, последняя
@@ -132,21 +147,33 @@ impl AgentHistory {
         let Some(pin) = pin else { return Ok(None) };
         let p: PrefixJson = serde_json::from_str(&pin).map_err(|e| format!("history: prompt_prefix: {e}"))?;
         let floor = self.state.lock().await.floor;
-        let rows = sqlx::query("select item_json, message_source from agent.context_items where agent_id = $1 and seq >= $2 order by seq")
+        let rows = sqlx::query("select message_id, role::text as role, item_json, message_source from agent.context_items where agent_id = $1 and seq >= $2 order by seq")
             .bind(&self.agent_id)
             .bind(floor)
             .fetch_all(&self.pool)
             .await
             .map_err(db)?;
-        let mut history = Vec::new();
+        let mut history: Vec<Message> = Vec::new();
         let mut last_volatile = None;
+        let mut current: Option<String> = None;
         for r in rows {
-            let json: String = r.get("item_json");
-            let m: Message = serde_json::from_str(&json).map_err(|e| format!("history: item_json: {e}"))?;
-            if r.get::<Option<String>, _>("message_source").as_deref() == Some(VOLATILE) {
-                last_volatile = Some(text_of(&m));
+            let id: Option<String> = r.get("message_id");
+            if current.is_none() || id != current {
+                let role = match r.get::<Option<String>, _>("role").as_deref() {
+                    Some("assistant") => Role::Assistant,
+                    Some("developer") => Role::Developer,
+                    _ => Role::User,
+                };
+                history.push(Message { role, content: Vec::new() });
+                current = id;
             }
-            history.push(m);
+            let json: String = r.get("item_json");
+            let part: Option<Part> = serde_json::from_str(&json).map_err(|e| format!("history: item_json: {e}"))?;
+            let m = history.last_mut().unwrap();
+            m.content.extend(part);
+            if r.get::<Option<String>, _>("message_source").as_deref() == Some(VOLATILE) {
+                last_volatile = Some(text_of(m));
+            }
         }
         Ok(Some(Saved { prefix: Prefix { system: p.system, tools: p.tools }, history, last_volatile }))
     }
@@ -175,8 +202,7 @@ impl AgentHistory {
         let mut st = self.state.lock().await;
         while st.written < history.len() {
             let m = &history[st.written];
-            let seq = st.floor + st.written as i64;
-            self.insert(seq, m, volatile).await?;
+            st.next = self.insert(st.next, m, volatile).await?;
             st.written += 1;
         }
         Ok(())
@@ -193,6 +219,7 @@ impl AgentHistory {
                 .await
                 .map_err(db)?;
             st.floor = max + 1;
+            st.next = st.floor;
             st.written = 0;
             sqlx::query("update agent.agents set prompt_floor_seq = $2, updated_at = $3 where agent_id = $1")
                 .bind(&self.agent_id)
@@ -205,60 +232,52 @@ impl AgentHistory {
         self.sync(history, volatile).await
     }
 
-    async fn insert(&self, seq: i64, m: &Message, volatile: Option<&str>) -> Result<(), String> {
-        let calls: Vec<(&str, &str)> = m
-            .content
-            .iter()
-            .filter_map(|p| match p {
-                Part::ToolCall { id, name, .. } => Some((id.as_str(), name.as_str())),
-                _ => None,
-            })
-            .collect();
-        let results: Vec<(&str, bool)> = m
-            .content
-            .iter()
-            .filter_map(|p| match p {
-                Part::ToolResult { call_id, is_error, .. } => Some((call_id.as_str(), !*is_error)),
-                _ => None,
-            })
-            .collect();
-        let (kind, call_id, tool_name, success) = if !calls.is_empty() {
-            ("tool_call", (calls.len() == 1).then(|| calls[0].0), (calls.len() == 1).then(|| calls[0].1), None)
-        } else if !results.is_empty() {
-            ("tool_output", (results.len() == 1).then(|| results[0].0), None, (results.len() == 1).then(|| results[0].1))
-        } else {
-            ("message_text", None, None, None)
-        };
+    /// Записать сообщение по частям с `seq`; вернуть следующий свободный.
+    async fn insert(&self, seq: i64, m: &Message, volatile: Option<&str>) -> Result<i64, String> {
         let role = match m.role {
             Role::User => "user",
             Role::Assistant => "assistant",
             Role::Developer => "developer",
         };
-        let text = text_of(m);
-        let source = (m.role == Role::Developer && volatile.is_some_and(|v| v == text)).then_some(VOLATILE);
-        let json = serde_json::to_string(m).map_err(|e| e.to_string())?;
-        sqlx::query(
-            "INSERT INTO agent.context_items (agent_id, seq, item_kind, text_content, role, call_id, tool_name, success, message_source, created_at, item_json) \
-             VALUES ($1, $2, $3::agent.context_item_kind, $4, $5::runtime.message_role, $6, $7, $8, $9, to_timestamp($10::double precision), $11) \
-             ON CONFLICT (agent_id, seq) DO UPDATE SET item_kind = excluded.item_kind, text_content = excluded.text_content, role = excluded.role, \
-             call_id = excluded.call_id, tool_name = excluded.tool_name, success = excluded.success, \
-             message_source = COALESCE(excluded.message_source, context_items.message_source), created_at = excluded.created_at, item_json = excluded.item_json",
-        )
-        .bind(&self.agent_id)
-        .bind(seq)
-        .bind(kind)
-        .bind(&text)
-        .bind(role)
-        .bind(call_id)
-        .bind(tool_name)
-        .bind(success)
-        .bind(source)
-        .bind((self.now)() as f64 / 1000.0)
-        .bind(json)
-        .execute(&self.pool)
-        .await
-        .map_err(db)?;
-        Ok(())
+        let message_id = format!("{}:{seq}", self.agent_id);
+        let source = (m.role == Role::Developer && volatile.is_some_and(|v| v == text_of(m))).then_some(VOLATILE);
+        let empty: [Option<&Part>; 1] = [None];
+        let parts: Vec<Option<&Part>> = if m.content.is_empty() { empty.to_vec() } else { m.content.iter().map(Some).collect() };
+        let mut next = seq;
+        for part in parts {
+            let (kind, text, call_id, tool_name, success): (&str, Option<&str>, Option<&str>, Option<&str>, Option<bool>) = match part {
+                Some(Part::Text { text }) => ("message_text", Some(text), None, None, None),
+                Some(Part::ToolCall { id, name, .. }) => ("tool_call", None, Some(id), Some(name), None),
+                Some(Part::ToolResult { call_id, is_error, .. }) => ("tool_output", None, Some(call_id), None, Some(!*is_error)),
+                Some(Part::Thinking { text, .. }) => ("message", Some(text), None, None, None),
+                Some(Part::RedactedThinking { .. }) | Some(Part::Image(_)) | None => ("message", None, None, None, None),
+            };
+            let json = serde_json::to_string(&part).map_err(|e| e.to_string())?;
+            sqlx::query(
+                "INSERT INTO agent.context_items (agent_id, seq, item_kind, message_id, text_content, role, call_id, tool_name, success, message_source, created_at, item_json) \
+                 VALUES ($1, $2, $3::agent.context_item_kind, $4, $5, $6::runtime.message_role, $7, $8, $9, $10, to_timestamp($11::double precision), $12) \
+                 ON CONFLICT (agent_id, seq) DO UPDATE SET item_kind = excluded.item_kind, message_id = excluded.message_id, text_content = excluded.text_content, role = excluded.role, \
+                 call_id = excluded.call_id, tool_name = excluded.tool_name, success = excluded.success, \
+                 message_source = COALESCE(excluded.message_source, context_items.message_source), created_at = excluded.created_at, item_json = excluded.item_json",
+            )
+            .bind(&self.agent_id)
+            .bind(next)
+            .bind(kind)
+            .bind(&message_id)
+            .bind(text)
+            .bind(role)
+            .bind(call_id)
+            .bind(tool_name)
+            .bind(success)
+            .bind(source)
+            .bind((self.now)() as f64 / 1000.0)
+            .bind(json)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+            next += 1;
+        }
+        Ok(next)
     }
 }
 

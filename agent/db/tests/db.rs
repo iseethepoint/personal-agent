@@ -30,6 +30,7 @@ async fn database() -> (String, PgPool) {
     agent_cron::Store::connect(&url).await.unwrap();
     agent_goals::Store::connect(&url, Arc::new(|| 0)).await.unwrap();
     agent_workflows::store::Store::connect(&url).await.unwrap();
+    agent_history::Store::connect(&url).await.unwrap();
     let pool = PgPoolOptions::new().max_connections(2).connect(&url).await.unwrap();
     (url, pool)
 }
@@ -54,11 +55,13 @@ async fn catalog_matches_database() {
     for (p, s) in &files {
         assert_eq!(&std::fs::read_to_string(p).unwrap(), s, "{}", p.display());
     }
-    assert_eq!(live.tables.len(), 19);
+    assert_eq!(live.tables.len(), 22);
     let entries = live.tables.iter().find(|t| t.schema == "memory" && t.name == "entries").unwrap();
     assert_eq!(entries.columns[0].default.as_deref(), Some("nextval('memory.entries_memory_entry_id_seq'::regclass)"));
     assert!(live.schema_md().contains("\n## `scheduler.jobs`\n"));
     assert!(!live.has_table("runtime", "event_hook_admissions"));
+    assert_eq!(live.view_for("agent", "context_items"), Some("inspection.context_items"));
+    assert!(live.schema_md().contains("Rows holding model reasoning (thinking and redacted-thinking items) are withheld."));
 }
 
 #[test]
@@ -86,6 +89,9 @@ fn validator_rejects_like_the_core() {
     assert_eq!(err("select pg_catalog.lower(key) as k from memory.metadata"), "function `pg_catalog.lower` is outside the `hamlet.db` safe function set");
     assert_eq!(err("select key::regclass as k from memory.metadata"), "cast type `regclass` is outside the `hamlet.db` safe type set");
     assert_eq!(err("select key collate \"C\" as k from memory.metadata"), validate::COLLATION);
+    // Таблица с redaction читается через свой вид.
+    let v = validate("select seq, item_json from agent.context_items where agent_id = 'root'", &c).unwrap();
+    assert!(v.contains("FROM inspection.context_items") && !v.contains("agent.context_items"), "{v}");
     // Разрешённое: CTE с приставкой, функции и приведения из списка.
     let ok = validate(
         "with hatch_cte_m as (select key, value from memory.metadata) select lower(key) as k, count(*)::int8 as n, cast(now() as timestamp with time zone) as t, value::varchar(10) as v from hatch_cte_m group by key, value",

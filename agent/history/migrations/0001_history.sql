@@ -1,9 +1,13 @@
 -- История агентов — таблицы по схеме базы muse (вшитый каталог ядра около
 -- 0x18a9a6a): agent.agents, agent.context_items, agent.volatile_context_pins.
--- Значения перечислений — из списка типов ядра (около 0x1740000:
--- «message_role developer assistant … context_item_kind message_text
--- text_segments tool_call tool_output»); роль `user` — своя (в выписке её
--- нет, а у Hamlet она есть).
+-- Значения перечислений — из списка типов ядра («message_role developer
+-- assistant … context_item_kind message_text text_segments tool_call
+-- tool_output») и запросов (`item_kind IN ('message', 'message_text',
+-- 'text_segments')`, около 0x2ecebb); роль `user` — из запросов
+-- (`role IN ('user', 'developer')`).
+-- Вид inspection.context_items — `redaction` каталога ядра у context_items:
+-- «Rows holding model reasoning (thinking and redacted-thinking items) are
+-- withheld»; у Hamlet это строки `message` с частью мышления.
 -- Не взяты (служб у Hamlet нет): у agents — request_id (нет runtime.requests),
 -- last_assistant_resources, presentation_root_session_id,
 -- originating_location_context_json, handoff_context_high_water_seq; у
@@ -19,7 +23,7 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 do $$ begin
-    create type agent.context_item_kind as enum ('message_text', 'text_segments', 'tool_call', 'tool_output');
+    create type agent.context_item_kind as enum ('message', 'message_text', 'text_segments', 'tool_call', 'tool_output');
 exception when duplicate_object then null; end $$;
 
 create table if not exists agent.agents (
@@ -71,3 +75,9 @@ create table if not exists agent.volatile_context_pins (
     body_hash bytea,
     primary key (agent_id, variant_hash)
 );
+
+create schema if not exists inspection;
+
+create or replace view inspection.context_items as
+    select * from agent.context_items
+    where not (item_kind = 'message' and item_json::jsonb ->> 'type' in ('thinking', 'redacted_thinking'));

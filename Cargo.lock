@@ -60,6 +60,7 @@ version = "0.1.0"
 dependencies = [
  "agent-cron",
  "agent-goals",
+ "agent-history",
  "agent-loop",
  "agent-memory",
  "agent-model",

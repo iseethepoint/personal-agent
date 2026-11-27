@@ -72,9 +72,20 @@ pub fn validate(sql: &str, catalog: &Catalog) -> Result<String, String> {
     if let ControlFlow::Break(e) = stmt.visit(&mut check) {
         return Err(e);
     }
+    // Таблица с `redaction` читается через свой вид.
+    let mut stmt = stmt.clone();
+    let _ = sqlparser::ast::visit_relations_mut(&mut stmt, |rel| {
+        if let [ObjectNamePart::Identifier(s), ObjectNamePart::Identifier(t)] = rel.0.as_slice() {
+            if let Some(view) = catalog.view_for(&s.value.to_lowercase(), &t.value.to_lowercase()) {
+                let (vs, vt) = view.split_once('.').unwrap_or(("", view));
+                rel.0 = vec![ObjectNamePart::Identifier(vs.into()), ObjectNamePart::Identifier(vt.into())];
+            }
+        }
+        ControlFlow::<()>::Continue(())
+    });
     let normalized = stmt.to_string();
     match Parser::parse_sql(&dialect, &normalized) {
-        Ok(again) if again.len() == 1 && again[0] == *stmt => Ok(normalized),
+        Ok(again) if again.len() == 1 && again[0] == stmt => Ok(normalized),
         _ => Err(ROUND_TRIP.into()),
     }
 }

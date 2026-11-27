@@ -4,9 +4,12 @@
 //! функции и приведения. Как у muse, каталог вшит в движок
 //! (`agent/db/catalog.json`), а тест сверяет его с базой после миграций.
 //!
+//! `redaction` — как у muse: таблица читается через вид, который скрывает
+//! строки или столбцы (у `agent.context_items` — строки мышления, вид
+//! `inspection.context_items`, текст пометки — ядра).
+//!
 //! Своё: в каталоге — наши таблицы, которые есть и в каталоге muse
-//! (`READABLE`); нет `migrations_sha256` (сверку держит тест) и `redaction`
-//! (скрытых столбцов у нас нет: рассуждений модели база не хранит).
+//! (`READABLE`); нет `migrations_sha256` (сверку держит тест).
 
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Row};
@@ -15,7 +18,10 @@ pub const FORMAT_VERSION: u32 = 3;
 pub const SCOPE: &str = "Hamlet application base tables readable by hamlet.db";
 
 /// Наши таблицы из каталога muse (`runtime.event_hook_admissions` в нём нет).
-pub const READABLE: [&str; 19] = [
+pub const READABLE: [&str; 22] = [
+    "agent.agents",
+    "agent.context_items",
+    "agent.volatile_context_pins",
     "goals.briefings",
     "goals.goals",
     "goals.updates",
@@ -75,7 +81,26 @@ pub struct Table {
     pub comment: Option<String>,
     pub constraints: Vec<Constraint>,
     pub name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub redaction: Option<Redaction>,
     pub schema: String,
+}
+
+/// Скрытое у таблицы: запрос к ней идёт через `view`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Redaction {
+    pub note: String,
+    pub view: String,
+    pub withheld_columns: Vec<String>,
+}
+
+/// `redaction` каталога muse у наших таблиц; «muse.db» → «hamlet.db».
+fn redaction(full: &str) -> Option<Redaction> {
+    (full == "agent.context_items").then(|| Redaction {
+        note: "Rows holding model reasoning (thinking and redacted-thinking items) are withheld. Stored commentary can be queried through `hamlet.db` for diagnosis. Commentary is hidden from the user's chat. A commentary record does not establish that the user received its contents.".into(),
+        view: "inspection.context_items".into(),
+        withheld_columns: vec![],
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -116,6 +141,11 @@ impl Catalog {
 
     pub fn has_table(&self, schema: &str, table: &str) -> bool {
         self.tables.iter().any(|t| t.schema == schema && t.name == table)
+    }
+
+    /// Вид, через который читается таблица, если у неё есть `redaction`.
+    pub fn view_for(&self, schema: &str, table: &str) -> Option<&str> {
+        self.tables.iter().find(|t| t.schema == schema && t.name == table).and_then(|t| t.redaction.as_ref()).map(|r| r.view.as_str())
     }
 
     /// Каталог по живой базе: таблицы `READABLE`, столбцы и ограничения
@@ -171,7 +201,7 @@ impl Catalog {
                 }
             })
             .collect();
-            tables.push(Table { columns, comment, constraints, name: name.into(), schema: schema.into() });
+            tables.push(Table { columns, comment, constraints, name: name.into(), redaction: redaction(full), schema: schema.into() });
         }
         Ok(Catalog {
             format_version: FORMAT_VERSION,
@@ -190,6 +220,9 @@ impl Catalog {
             s.push_str(&format!("\n## `{}.{}`\n\n", t.schema, t.name));
             if let Some(c) = &t.comment {
                 s.push_str(&format!("{c}\n\n"));
+            }
+            if let Some(r) = &t.redaction {
+                s.push_str(&format!("{}\n\n", r.note));
             }
             s.push_str("| column | type | nullable | default |\n|---|---|---|---|\n");
             for c in &t.columns {
