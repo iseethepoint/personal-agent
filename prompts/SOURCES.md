@@ -612,3 +612,19 @@
 - `subagent.close` останавливает и подагентов закрытого (в разборе не видно);
 - таблица `agent_ancestors` ядра не взята: поддерево читается из памяти, после перезапуска — из `subagent_spawns`;
 - `routing_scope` вести в ящике подагента — `root`, как у корня (значения ядра для подагентов не видно).
+
+## `items` в `subagent.spawn` и `subagent.send` (П3з-3)
+
+Описания полей — строки ядра как есть: у `subagent.send` — «Multimodal input (text/image/file); takes precedence over message…» (`0x2cdc078`), у `subagent.spawn` — «Multimodal input for the child's first message; takes precedence over message…» (`0x2cdcede`). Поля элемента названы там же: `type` (`text`, `image`, `file`), `text`, `path`, `filename`, `caption`.
+
+Устройство — как у muse:
+- `items` важнее `message` («items takes precedence when both are set»), поэтому ни одно из полей не обязательно;
+- `path` — «a file path as `read` takes it»: картинка и файл читаются тем же `hamlet.read` из набора подагента (картинка — картинкой, документ — переводом в Markdown, текст — строками);
+- отказ — со стабильным кодом причины, как велит описание spawn: `invalid_spawn_input` у spawn (`0x6ed40e`), `input_error` у send (`0x6ed504`, тот же список кодов).
+
+Своё (в ядре `subagents_tool/input_items.rs` не декомпилируется: функция у `0x9c93f20` уходит в таймаут):
+- у spawn части `text` идут в шаблон первого сообщения (`[Subagent Task]: …`) через пустую строку, прочитанные файлы — за этим текстом в том же сообщении; у send части идут по порядку;
+- перед вложением — строка `<filename или path>: <caption>`;
+- `image`, который не прочитался картинкой, — отказ;
+- `read_paths` в `runtime_tool_output` (ядро записывает прочитанные пути, `0xaaf3be0`) не ведутся: у Hamlet нет `runtime_tool_output`;
+- в `subagent_spawns.prompt` — текст задачи без вложений (вложения — в истории подагента).
