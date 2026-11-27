@@ -133,10 +133,12 @@ version = "0.1.0"
 dependencies = [
  "agent-model",
  "futures-util",
+ "serde",
  "serde_json",
  "thiserror",
  "tiktoken-rs",
  "tokio",
+ "toml",
 ]
 
 [[package]]

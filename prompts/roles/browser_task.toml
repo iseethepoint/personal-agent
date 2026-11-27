@@ -1,0 +1,28 @@
+id = "browser_task"
+name = "Browser Task"
+model = "session"
+provider = "model_registry"
+reasoning_strength = "session"
+tool_loading = "full"
+prompt_gates = ["browser_code"]
+schema_gates = ["browser_code"]
+tools = [
+    "browser.act",
+    "browser.bot_challenge",
+    "browser.cooldown",
+    "browser.files",
+    "browser.kill_specialist",
+    "browser.login",
+    "browser.observe",
+    "browser.pay",
+    "browser.report",
+    "browser.request_input",
+    "browser.run",
+    "browser.specialists",
+    "browser.steer_specialist",
+    "browser.tabs",
+]
+
+[[gated_tools]]
+tool = "browser.run"
+gate = "browser_code"
