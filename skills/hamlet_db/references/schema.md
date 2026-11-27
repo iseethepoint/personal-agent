@@ -2,6 +2,40 @@
 
 Tables readable by `hamlet.db`. Always use the schema-qualified name.
 
+## `agent.agent_compactions`
+
+The compaction detail payload is withheld because it carries the model reasoning retained across the checkpoint.
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `id` | bigint | no | `nextval('agent_compactions_id_seq'::regclass)` |
+| `agent_id` | text | no |  |
+| `summary` | text | no |  |
+| `first_kept_seq` | bigint | yes |  |
+| `checkpoint_seq` | bigint | yes |  |
+| `tokens_before` | bigint | yes |  |
+| `tokens_after` | bigint | yes |  |
+| `details_json` | text | yes |  |
+| `trigger` | text | no |  |
+| `will_retry` | boolean | no | `false` |
+| `created_at` | bigint | no |  |
+| `has_replacement_history` | boolean | no | `false` |
+
+- PRIMARY KEY `id` (`agent_compactions_pkey`)
+
+## `agent.agent_message_token_usage`
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `agent_id` | text | no |  |
+| `message_id` | text | no |  |
+| `input_tokens` | bigint | no |  |
+| `output_tokens` | bigint | no |  |
+| `created_at` | bigint | no |  |
+
+- PRIMARY KEY `agent_id` (`agent_message_token_usage_pkey`)
+- PRIMARY KEY `message_id` (`agent_message_token_usage_pkey`)
+
 ## `agent.agents`
 
 | column | type | nullable | default |

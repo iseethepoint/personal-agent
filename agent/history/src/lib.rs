@@ -40,8 +40,15 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-const MIGRATIONS: [&str; 3] =
-    [include_str!("../migrations/0001_history.sql"), include_str!("../migrations/0002_mailbox.sql"), include_str!("../migrations/0003_todo.sql")];
+const MIGRATIONS: [&str; 4] = [
+    include_str!("../migrations/0001_history.sql"),
+    include_str!("../migrations/0002_mailbox.sql"),
+    include_str!("../migrations/0003_todo.sql"),
+    include_str!("../migrations/0004_compactions.sql"),
+];
+/// Причина сжатия в `agent_compactions.trigger`. Своё: значения в разборе не
+/// видно; рядом — «context-pressure compaction failed…» ядра.
+const COMPACTION_TRIGGER: &str = "context_pressure";
 const PREFIX_PIN: &str = "prompt_prefix";
 const VOLATILE: &str = "volatile";
 
@@ -91,6 +98,8 @@ struct State {
     next: i64,
     /// Сколько сообщений текущей подсказки уже записано.
     written: usize,
+    /// `seq` первой части каждого записанного сообщения текущей подсказки.
+    starts: Vec<i64>,
 }
 
 /// История одного агента.
@@ -127,15 +136,21 @@ impl AgentHistory {
             .map_err(db)?;
         let floor: Option<i64> = sqlx::query_scalar("select prompt_floor_seq from agent.agents where agent_id = $1").bind(agent_id).fetch_one(&store.pool).await.map_err(db)?;
         let floor = floor.unwrap_or(0);
-        let (written, max): (i64, Option<i64>) =
-            sqlx::query_as("select count(distinct message_id), max(seq) from agent.context_items where agent_id = $1 and seq >= $2")
-                .bind(agent_id)
-                .bind(floor)
-                .fetch_one(&store.pool)
-                .await
-                .map_err(db)?;
+        let starts: Vec<i64> = sqlx::query_scalar("select min(seq) from agent.context_items where agent_id = $1 and seq >= $2 group by message_id order by 1")
+            .bind(agent_id)
+            .bind(floor)
+            .fetch_all(&store.pool)
+            .await
+            .map_err(db)?;
+        let max: Option<i64> = sqlx::query_scalar("select max(seq) from agent.context_items where agent_id = $1 and seq >= $2")
+            .bind(agent_id)
+            .bind(floor)
+            .fetch_one(&store.pool)
+            .await
+            .map_err(db)?;
         let next = max.map_or(floor, |m| m + 1);
-        Ok(AgentHistory { pool: store.pool.clone(), agent_id: agent_id.into(), now, state: tokio::sync::Mutex::new(State { floor, next, written: written as usize }) })
+        let state = State { floor, next, written: starts.len(), starts };
+        Ok(AgentHistory { pool: store.pool.clone(), agent_id: agent_id.into(), now, state: tokio::sync::Mutex::new(state) })
     }
 
     /// Разговор из базы: закреплённое начало, история с границы, последняя
@@ -205,15 +220,20 @@ impl AgentHistory {
         let mut st = self.state.lock().await;
         while st.written < history.len() {
             let m = &history[st.written];
-            st.next = self.insert(st.next, m, volatile).await?;
+            let start = st.next;
+            st.next = self.insert(start, m, volatile).await?;
+            st.starts.push(start);
             st.written += 1;
         }
         Ok(())
     }
 
     /// История заменена (сжатие): новая пишется после старой, граница
-    /// подсказки сдвигается на её начало.
-    pub async fn replace(&self, history: &[Message], volatile: Option<&str>) -> Result<(), String> {
+    /// подсказки сдвигается на её начало, сжатие — строка
+    /// `agent.agent_compactions` (`checkpoint_seq` — новая граница,
+    /// `first_kept_seq` — `seq` первого оставленного сообщения старой
+    /// истории, `details_json` — история, которой заменён разговор).
+    pub async fn replace(&self, history: &[Message], volatile: Option<&str>, compacted: &agent_loop::Compacted) -> Result<(), String> {
         {
             let mut st = self.state.lock().await;
             let max: i64 = sqlx::query_scalar("select coalesce(max(seq), -1) from agent.context_items where agent_id = $1")
@@ -221,18 +241,60 @@ impl AgentHistory {
                 .fetch_one(&self.pool)
                 .await
                 .map_err(db)?;
+            let first_kept = st.starts.get(compacted.first_kept).copied();
             st.floor = max + 1;
             st.next = st.floor;
             st.written = 0;
+            st.starts.clear();
+            let secs = (self.now)() / 1000;
+            let details = serde_json::to_string(&serde_json::json!({"replacement_history": history})).map_err(|e| e.to_string())?;
+            sqlx::query(
+                "INSERT INTO agent.agent_compactions (agent_id, summary, first_kept_seq, checkpoint_seq, tokens_before, tokens_after, details_json, has_replacement_history, trigger, will_retry, created_at) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, true, $8, false, $9)",
+            )
+            .bind(&self.agent_id)
+            .bind(&compacted.summary)
+            .bind(first_kept)
+            .bind(st.floor)
+            .bind(compacted.tokens_before as i64)
+            .bind(compacted.tokens_after as i64)
+            .bind(details)
+            .bind(COMPACTION_TRIGGER)
+            .bind(secs)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
             sqlx::query("update agent.agents set prompt_floor_seq = $2, updated_at = $3 where agent_id = $1")
                 .bind(&self.agent_id)
                 .bind(st.floor)
-                .bind((self.now)() / 1000)
+                .bind(secs)
                 .execute(&self.pool)
                 .await
                 .map_err(db)?;
         }
         self.sync(history, volatile).await
+    }
+
+    /// Счёт поставщика за последний записанный ответ модели —
+    /// `INSERT INTO agent_message_token_usage … ON CONFLICT(agent_id,
+    /// message_id) DO UPDATE` (ядро, около `0x1700cb4`). Своё: `input_tokens`
+    /// — вход вместе с чтением и записью кэша.
+    pub async fn record_usage(&self, usage: &agent_model::Usage) -> Result<(), String> {
+        let st = self.state.lock().await;
+        let Some(start) = st.starts.last() else { return Ok(()) };
+        sqlx::query(
+            "INSERT INTO agent.agent_message_token_usage (agent_id, message_id, input_tokens, output_tokens, created_at) VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT(agent_id, message_id) DO UPDATE SET input_tokens = excluded.input_tokens, output_tokens = excluded.output_tokens",
+        )
+        .bind(&self.agent_id)
+        .bind(format!("{}:{start}", self.agent_id))
+        .bind((usage.input_tokens + usage.cache_read_tokens + usage.cache_write_tokens) as i64)
+        .bind(usage.output_tokens as i64)
+        .bind((self.now)() / 1000)
+        .execute(&self.pool)
+        .await
+        .map_err(db)?;
+        Ok(())
     }
 
     /// Записать сообщение по частям с `seq`; вернуть следующий свободный.
@@ -287,6 +349,10 @@ impl AgentHistory {
 impl Record for AgentHistory {
     fn record<'a>(&'a self, history: &'a [Message]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(self.sync(history, None))
+    }
+
+    fn usage<'a>(&'a self, usage: &'a agent_model::Usage) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(self.record_usage(usage))
     }
 }
 

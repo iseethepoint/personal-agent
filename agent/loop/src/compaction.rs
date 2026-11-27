@@ -106,14 +106,15 @@ pub struct Compactor<'a, F, C> {
 }
 
 impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
-    /// Сжать, если оценка длины дошла до порога. `true` — сжато.
-    pub async fn compact_if_needed(&self, conv: &mut Conversation) -> Result<bool, TurnError> {
-        if conv.estimate_tokens() < self.trigger {
-            return Ok(false);
+    /// Сжать, если оценка длины дошла до порога. `Some` — сжато.
+    pub async fn compact_if_needed(&self, conv: &mut Conversation) -> Result<Option<Compacted>, TurnError> {
+        let tokens_before = conv.estimate_tokens();
+        if tokens_before < self.trigger {
+            return Ok(None);
         }
         let Some(cut) = last_owner_turn(&conv.history).filter(|&c| c > 0) else {
             // Весь разговор — один ход: старой части нет.
-            return Ok(false);
+            return Ok(None);
         };
 
         // 1. Ход сброса памяти — на копии истории, в разговор не идёт.
@@ -149,8 +150,18 @@ impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
         }];
         history.extend_from_slice(&conv.history[cut..]);
         conv.replace_history(history);
-        Ok(true)
+        Ok(Some(Compacted { summary, first_kept: cut, tokens_before, tokens_after: conv.estimate_tokens() }))
     }
+}
+
+/// Что сделало сжатие (строка `agent.agent_compactions` muse).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Compacted {
+    pub summary: String,
+    /// Индекс в старой истории первого оставленного сообщения.
+    pub first_kept: usize,
+    pub tokens_before: u64,
+    pub tokens_after: u64,
 }
 
 /// Начало последнего хода владельца: последнее сообщение `User` без

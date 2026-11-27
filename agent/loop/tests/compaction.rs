@@ -108,14 +108,14 @@ async fn below_trigger(wire: Wire) {
     let mut conv = conversation(&t);
     let before = conv.history.clone();
     let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1_000_000, spill_dir: temp_dir("spill") };
-    assert!(!c.compact_if_needed(&mut conv).await.unwrap());
+    assert!(c.compact_if_needed(&mut conv).await.unwrap().is_none());
     assert_eq!(conv.history, before);
 
     // Весь разговор — один ход: сжимать нечего, даже выше порога.
     let mut one = Conversation::new(conv.prefix.clone());
     one.push_user(text("привет"), "Время: 10:00");
     let c = Compactor { trigger: 1, ..c };
-    assert!(!c.compact_if_needed(&mut one).await.unwrap());
+    assert!(c.compact_if_needed(&mut one).await.unwrap().is_none());
     assert!(main.requests().is_empty() && small.requests().is_empty());
 }
 both!(below_trigger);
@@ -135,7 +135,8 @@ async fn flush_then_summary(wire: Wire) {
     let before = conv.history.clone();
     let prefix = conv.prefix.clone();
     let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill") };
-    assert!(c.compact_if_needed(&mut conv).await.unwrap());
+    let done = c.compact_if_needed(&mut conv).await.unwrap().unwrap();
+    assert!(done.first_kept > 0 && done.tokens_after < done.tokens_before, "{done:?}");
 
     // Сначала сброс памяти (два запроса главной), потом сводка.
     let (mo, so) = (main.order(), small.order());

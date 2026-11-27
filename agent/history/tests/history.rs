@@ -37,6 +37,8 @@ async fn history_is_written_as_it_grows_and_compaction_moves_the_floor() {
         ],
     });
     h.record(&history).await.unwrap();
+    // Счёт поставщика — за этот ответ (message_id root:2).
+    h.usage(&agent_model::Usage { input_tokens: 10, output_tokens: 5, cache_read_tokens: 100, cache_write_tokens: 1, reported: true }).await.unwrap();
     history.push(Message { role: Role::User, content: vec![Part::ToolResult { call_id: "c1".into(), content: vec![ToolResultPart::Text { text: "1".into() }], is_error: false }] });
     h.record(&history).await.unwrap();
     // Повторная запись того же не дублирует.
@@ -73,7 +75,21 @@ async fn history_is_written_as_it_grows_and_compaction_moves_the_floor() {
 
     // Сжатие: новая история после старой, граница — на её начало.
     let compacted = vec![msg(Role::User, "summary"), msg(Role::User, "hi again")];
-    again.replace(&compacted, None).await.unwrap();
+    let done = agent_loop::Compacted { summary: "summary".into(), first_kept: 2, tokens_before: 900, tokens_after: 100 };
+    again.replace(&compacted, None, &done).await.unwrap();
+    type CompactionRow = (String, Option<i64>, Option<i64>, Option<i64>, Option<i64>, String, bool);
+    let c: CompactionRow = sqlx::query_as(
+        "select summary, first_kept_seq, checkpoint_seq, tokens_before, tokens_after, trigger, has_replacement_history from agent.agent_compactions where agent_id = 'root'",
+    )
+    .fetch_one(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(c, ("summary".into(), Some(2), Some(7), Some(900), Some(100), "context_pressure".into(), true));
+    // details_json скрыт видом (redaction каталога muse).
+    let cols: Vec<String> = sqlx::query_scalar("select column_name::text from information_schema.columns where table_schema = 'inspection' and table_name = 'agent_compactions'").fetch_all(store.pool()).await.unwrap();
+    assert!(!cols.contains(&"details_json".to_string()) && cols.contains(&"summary".to_string()), "{cols:?}");
+    let usage: (String, i64, i64) = sqlx::query_as("select message_id, input_tokens, output_tokens from agent.agent_message_token_usage").fetch_one(store.pool()).await.unwrap();
+    assert_eq!(usage, ("root:2".into(), 111, 5));
     let floor: Option<i64> = sqlx::query_scalar("select prompt_floor_seq from agent.agents where agent_id = 'root'").fetch_one(store.pool()).await.unwrap();
     assert_eq!(floor, Some(7));
     let reopened = AgentHistory::open(&store, "root", "root", "fake/main", now).await.unwrap();

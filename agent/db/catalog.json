@@ -129,6 +129,188 @@
       "columns": [
         {
           "comment": null,
+          "default": "nextval('agent_compactions_id_seq'::regclass)",
+          "name": "id",
+          "nullable": false,
+          "position": 1,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "agent_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "summary",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "first_kept_seq",
+          "nullable": true,
+          "position": 4,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "checkpoint_seq",
+          "nullable": true,
+          "position": 5,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "tokens_before",
+          "nullable": true,
+          "position": 6,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "tokens_after",
+          "nullable": true,
+          "position": 7,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "details_json",
+          "nullable": true,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "trigger",
+          "nullable": false,
+          "position": 9,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "false",
+          "name": "will_retry",
+          "nullable": false,
+          "position": 10,
+          "type": "boolean"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "created_at",
+          "nullable": false,
+          "position": 11,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "false",
+          "name": "has_replacement_history",
+          "nullable": false,
+          "position": 12,
+          "type": "boolean"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "id",
+          "name": "agent_compactions_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "agent_compactions",
+      "redaction": {
+        "note": "The compaction detail payload is withheld because it carries the model reasoning retained across the checkpoint.",
+        "view": "inspection.agent_compactions",
+        "withheld_columns": [
+          "details_json"
+        ]
+      },
+      "schema": "agent"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "agent_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "message_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "input_tokens",
+          "nullable": false,
+          "position": 3,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "output_tokens",
+          "nullable": false,
+          "position": 4,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "created_at",
+          "nullable": false,
+          "position": 5,
+          "type": "bigint"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "agent_id",
+          "name": "agent_message_token_usage_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        },
+        {
+          "column": "message_id",
+          "name": "agent_message_token_usage_pkey",
+          "position": 2,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "agent_message_token_usage",
+      "schema": "agent"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
           "default": null,
           "name": "agent_id",
           "nullable": false,
