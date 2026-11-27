@@ -102,10 +102,17 @@ impl Tools {
     /// пространств; метки `client-tool-loading-only` снимаются (Hamlet
     /// грузит инструменты сам), строки, где были только метки, уходят.
     pub fn loading_block(&self) -> Option<String> {
+        self.client_loading(LOADING_TOOLS)
+    }
+
+    /// Текст о загрузке инструментов (`client-tool-loading-only`) с метками
+    /// отложенного: есть отложенные пространства — метки сняты, строки только
+    /// с метками ушли; нет — `None`.
+    pub fn client_loading(&self, raw: &str) -> Option<String> {
         if self.deferred.is_empty() {
             return None;
         }
-        let text = LOADING_TOOLS
+        let text = raw
             .replace("{deferred_stub_marker}", &text("markers", "stub"))
             .replace("{deferred_function_marker}", &text("markers", "function"));
         let lines: Vec<&str> = text.lines().filter(|l| !l.trim_start().starts_with("<!-- client-tool-loading-only:")).collect();

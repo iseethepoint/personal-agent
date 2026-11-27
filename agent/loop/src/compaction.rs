@@ -287,10 +287,16 @@ pub struct Compacted {
 }
 
 /// Начало последнего хода владельца: последнее сообщение `User` без
-/// результатов инструментов. С него и до конца — ни один вызов не
-/// отрывается от результата, мышление хода остаётся как есть.
+/// результатов инструментов вместе с заметками `Developer` прямо перед ним
+/// (метка времени входа стоит перед сообщением, `Conversation::push_user`).
+/// С него и до конца — ни один вызов не отрывается от результата, мышление
+/// хода остаётся как есть.
 fn last_owner_turn(history: &[Message]) -> Option<usize> {
-    history.iter().rposition(|m| {
+    let mut i = history.iter().rposition(|m| {
         m.role == Role::User && !m.content.iter().any(|p| matches!(p, Part::ToolResult { .. }))
-    })
+    })?;
+    while i > 0 && history[i - 1].role == Role::Developer {
+        i -= 1;
+    }
+    Some(i)
 }

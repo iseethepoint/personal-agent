@@ -81,8 +81,10 @@ fn volatile_note_only_when_changed() {
     conv.push_user(text("b"), "Время: 10:00");
     conv.push_user(text("c"), "Время: 10:01");
     let roles: Vec<Role> = conv.history.iter().map(|m| m.role).collect();
-    assert_eq!(roles, vec![Role::User, Role::Developer, Role::User, Role::User, Role::Developer]);
-    assert_eq!(conv.history[4].text(), "Время: 10:01");
+    // Заметка — перед сообщением (метка времени входа, `time_tag_before_input`).
+    assert_eq!(roles, vec![Role::Developer, Role::User, Role::User, Role::Developer, Role::User]);
+    assert_eq!(conv.history[3].text(), "Время: 10:01");
+    assert_eq!(conv.history[4].text(), "c");
 }
 
 async fn estimate_by_provider_usage(wire: Wire) {

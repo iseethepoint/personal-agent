@@ -604,7 +604,7 @@
 - в базе: `agents.depth` и `subagent_spawns.child_depth` — 2, `parent_agent_id` — подагент; после перезапуска дерево собирается по `subagent_spawns.parent_agent_id`, внук с точкой `before_inference` продолжает ход.
 
 Своё:
-- раздел `subagent_spawning.md` — в конце системного текста подагента глубины 1 (в шаблоне ядра это `subagent_spawning_section` при `can_spawn`, место в тексте не видно); описания `subagent.*` — за прочими;
+- описания `subagent.*` — за прочими (раздел `subagent_spawning.md` убран в П5-2: профиль его не рисует);
 - блоки глубины 1 в первом сообщении — у подагента глубины 1, который сам заводит подагентов (условие ядра не видно);
 - id подагентов — один счёт `agent-<n>` на всё дерево;
 - в записи поддерева `subagent.list` — поле `parent_agent_id` (имя — по столбцу `subagent_spawns`);
@@ -890,7 +890,7 @@
 **Раздел → блоки.** Функция-диспетчер `0xa9b9dc0` (таблица переходов `0x786d40`, 203 ветки; номера меньше `0x25` уходят в реестр `user_chat` `0xa9511e0`, `0x26` — в `0xd32dc40`, это `blocks/background/*`) по номеру раздела возвращает список записей блоков (запись — 72 байта: имя, переменные, варианты, текст, вид). Функция зависит только от номера, поэтому список снят прогоном: свой маленький эмулятор x86-64 по тексту objdump (рабочий скрипт, в репозиторий не идёт) для каждого из 352 номеров всех профилей. Итог — `prompts/profiles/sections.toml`: по разделу — блоки по порядку, переменные, где текст (вшит в ядро — адрес, или файл `P/…`), записи без имени — вставки (`"\n"`, `{commentary_visibility}`).
 
 Что карта ещё не закрывает:
-- `via = "assembler"` — диспетчер возвращает None (`b7`–`c4`, `c6`–`c9`, `12`, `23`, `24`, `82`, `224`). Это стек безопасности и соседние разделы. Их раскладывает сборщик агентских подсказок `0xcdbbdf0`: он ищет в профиле раздел `0x33` или `0x35` и берёт по его варианту стек из 7–12 записей (`0xcd52e60`, таблицы `0x29054028`–`0x29055e88`; подагенту — `0x290546e8`). Как `b7`…`c2` ложатся на записи стека — разбор сборщика, следующая часть; по порядку индексов не угадываем.
+- `via = "other_harness"` — диспетчер возвращает None (`b7`–`c4`, `c6`–`c9`, `12`, `23`, `24`, `82`, `224`). Все они стоят только в срезе 1 профилей: это разделы другой обвязки (флаг `system_prompt_harness_overrides`, срез отдают `0xcdb6520` / `0xcdb1920`); отрисовщик системного текста `0xcd56910` читает только срез 0 — в текст стандартной обвязки они не идут. (В первой версии карты здесь стояло «assembler» — ошибка, поправлено в продолжении части 1.) Стек безопасности — не отдельные разделы, а значение переменной `{prompt_injection_defense}` блока `shared/safety_security_policy.md` (см. «Системный текст подагента»).
 - `via = "unresolved"` — `0x64` (варианты 0–9) и `0x75`: ветка зовёт функцию через `0x29ace370` / `0x29ace378`; это профили 1–5 («не опознан»).
 - Разделы `d0` с вариантами 0–`15` — заметки хода (`turn_directives/*`), в системный текст не идут.
 - Правила отрисовки (когда блок `anthropic/cedar/*` вместо обычного; `agent/memory.md` и `agent/memory_read_only.md` в одном разделе) — в сборщике, следующая часть.
@@ -899,7 +899,7 @@
 
 У браузерного окна, монитора подагентов и сжатия профиля в таблице нет: их тексты собираются не по профилю (`prompts/browser/`, `prompts/subagent_monitor/`, `prompts/compaction/`).
 
-Тест — `agent/hamlet/tests/profiles.rs`: вся таблица (70 профилей, каждый номер раздела в карте), порядок разделов ролей Hamlet = массивы профилей ядра, блоки глубокого исследования в порядке профиля, карта на известных разделах.
+Тест — `agent/hamlet/tests/profiles.rs`: вся таблица (70 профилей, каждый номер раздела в карте), порядок разделов ролей Hamlet, чья сборка ещё не по профилю, = массивы профилей ядра, блоки глубокого исследования в порядке профиля, карта на известных разделах.
 
 Профили:
 
@@ -975,3 +975,56 @@
 | 66 | `0x290bcc70` | самоулучшение: proactive_notifier (`self_improvement_proactive_notifier`) | П13 | `0x990a72` (7) · `0x99059e` (14) · `0x9905ba` (22) |
 | 67 | `0x290bcca8` | самоулучшение: flight_tracking (`self_improvement_flight_tracking`) | П20 | `0x990a80` (6) · `0x99059e` (14) · `0x9905ba` (22) |
 | 68 | `0x290bcce0` | самоулучшение: flight_tracking (`self_improvement_flight_tracking`) | П20 | `0x990a8c` (6) · `0x99059e` (14) · `0x9905ba` (22) |
+
+## Системный текст подагента — сборка по профилю 0 (П5-2, часть 1, продолжение)
+
+**Порядок.** Профиль 0 (`0x290bbe00`), срез 0 (`0x990584`): `43 45 12e 132 39 3c 36 3f 35 42 44 2f 13b`. Раздел → записи — `prompts/profiles/sections.toml`. Сборка — `agent/hamlet/src/subagent_prompt.rs`: записи подряд, без разделителей (свёртка `0xbff27e0`), стыки — переводы строк самих блоков; запись — текст блока с подставленными переменными (`0x29aacef8`); записи без имени — вставки ядра (`"\n"` в разделе `2f`). Затем личный вариант меток (`personal`); края — без переводов строки (своё, как у главного). За текстом — дополнения владельца из `system.md` (своё, как у главного, `main_prompt::with_owner`) и файлы дома (`Prefix::with_system`). Подагент глубины 1 — `inherits = true`, свои подагенты есть; глубины 2 — изолирован, своих нет (`agent/hamlet/src/lib.rs`).
+
+**Главный профиль** (срез 0 `0 27 30 3 1 2 32 31 37 38 34 4 5 6 7 2d 8 9 a b 3b`) с `main_prompt.rs` совпадает. Разделы `27` и `3b` в снимке пусты:
+- `27` — `chat/conversation_context.md` («## Chats You're Part Of»: боковые чаты, группы, разговоры агент — агент). Заполняется, когда у агента есть другие чаты; у Hamlet чат один — нет части → П6 (боковые чаты), П19 (группы, агент — агент);
+- `3b` — `shared/runtime.md` с `{runtime_facts}` (`0xcd4ea40`: сведения о машине через « | » — общие ядра клетки, Secure/Confidential, имя модели). Отрисовщик `0xcd56910` пропускает раздел, когда флаг (аргумент `r8`, поле `0x128`) не поднят. Клетки исполнения у Hamlet нет → П8. У подагента то же — раздел `13b` (`shared/runtime`).
+
+**Таблица заполнения сборщика `0xcdbbdf0`** (28 переменных, имена — `0xcdbd87e`…`0xcdbdfce`). У подагента:
+
+| переменная | откуда в ядре | у Hamlet |
+|---|---|---|
+| `subagent_identity_intro` | постоянная `0xa14f2c` | `prompts/agent/subagent_identity_intro.md` |
+| `requester_description` | постоянная `0xa15016` (строителю идей — `0xa14faf`) | `prompts/agent/requester_description.md` |
+| `history_inheritance_section` | `0xcdc26d0(изолирован, есть subagent.spawn, глубина > 0)`: наследует — `0xa15cd4`; изолирован при глубине > 0 — `0xa15a18`, иначе `0xa15b56`; без `subagent.spawn` — плюс `0xa15c7c` («You work alone…») | `prompts/agent/history_inheritance_{inherited,isolated,alone}.md`; глубина 1 — inherited, глубина 2 — isolated + alone |
+| `time_tag_placement` | `0xcd51dd0`: бит поля `+0x383` контекста отрисовки поднят — `chat/time_tag_after_input` («are followed by», `0x290dd878`), нет — `chat/time_tag_before_input` («are prepended with», `0x290dd830`). Главный (`0xcd51461`) и сборщик агентов (`0xcdbd20b`, копия поля `0xb5b(%rsp)`; без контекста — 0, `0xcdbc1c0`) читают одно поле | before, как в снимке главного; метка у Hamlet — перед сообщением и у главного (`Conversation::push_user`), и у подагента (`Subagents::set_time_tag`) |
+| `nearby_dates_reference` | `0xcd52990`: текст, когда в заметке есть соседние даты | пусто: соседних дат в заметке Hamlet нет (как у главного) |
+| `date_batch_check_guidance` | `0xcd54390`: `chat/date_batch_check_available` / `…_unavailable` | available (как у главного: `hamlet.exec` есть всегда) |
+| `cron_created_acknowledgement` | `0xcd54910`: пусто при глубине > 0 или варианте 7; иначе файл без краёв + « » (`0x3be75c`) | пусто — подагент |
+| `subagents_section` | `0xcdc2560`: пусто без `subagent.spawn`; иначе `0xcd545c0`: учение `session/subagents_doctrine.md` (`0xcd53100`, клаузы глубины > 0 — `blocks/subagents/subagent/*`, таблица `0x290e09d0`; `extra_delegation_bullet` — «`\n- {}`» `0x33beeb`, `synthesis_sentence` — «` {}`» `0x3639e8`) и `session/subagents_status.md` (`asker`, `failure_action`, без краёв `0x29aa2030`) в формате `"{}\n\n{}"` (`0x385945`) | так же; `extra_delegation_bullet` пуст: пункт о том, что подагенты не делают артефактов, — артефактов у Hamlet нет → П17 |
+| `prompt_injection_defense` | стек безопасности: `0xcd52e60` берёт таблицу по варианту раздела `0x35`/`0x33` (подагент — `0x35` v0 → `0x290546e8`, 12 записей), записи подряд, без краёв, формат `"\n{}\n\n"` (`0x393cc5`) | так же, 12 блоков `prompts/shared/security_*`, `prompts/agent/security_*` |
+| `system_prompt_copy_file` | у агентов пусто | пусто |
+| `year_anchor_line`, `current_date_line` | «The year is {y}, not {y-1}.» (`0x2e6831`); строка даты | в тексте блоков подагента нет (запись `date_time_awareness_head` их перечисляет, текст — нет) — не нужны |
+| `temporal_awareness_window` (`0xcdc2380`), `requester_source`, `skills_section` | | в блоках подагента нет; у других ролей — с их сборкой (части 2–3) |
+| `tool_capabilities`, `child_depth` | «running commands, handling files, searching the web[, building web artifacts]» по глубине; `0xce538d0` | в блоках подагента нет |
+| `artifacts_environment_entry` | `shared/environment/artifacts.md` при инструментах артефактов | нет части → П17 (запись остаётся пустой) |
+| `artifact_capability`, `artifact_image_guidance`, `artifact_content_playbooks`, `lite_*_verify_steps` | при инструментах артефактов | нет части → П17 |
+| `current_location_section` | `0xcd549f0`: главный и `device.invoke` | нет части → П21 |
+| `runtime_facts` | `0xcd4ea40` | нет части → П8 (раздел `13b` не уходит) |
+| `ideas_build_hand_off_tool_name` | строитель идей | нет части → П22 |
+
+**Блоки профиля, которых у Hamlet нет** (тест `ABSENT`, `agent/hamlet/tests/subagent_prompt.rs`; в `prompts/` их не кладём):
+- `agent/environment_chats` — главный и боковые чаты → П6;
+- `agent/environment_feed` — лента → П22;
+- `shared/environment/devices` — устройства → П21;
+- `anthropic/cedar/tools_runtime_pointer` — только при поиске инструментов на стороне поставщика; у Hamlet загрузка своя;
+- `shared/discretion_connections` — весь в метке `agent-to-agent-only` → П19;
+- `shared/runtime` (`13b`) → П8.
+
+Условия по набору инструментов (как у главного): раздел `36` — при `cron.add`, `3f` — при `hamlet.memory_search`, `3c` — при своих подагентах, `shared/tools_runtime_pointer` — при отложенных пространствах (метки `client-tool-loading-only` снимаются, `Tools::client_loading`).
+
+**Тексты.** Новые блоки — `prompts/agent/*` (28), `prompts/shared/*` (24), `prompts/subagents/subagent/*` (9; `extra_delegation_bullet` не кладём — П17) — файлы `P/hatch-agent/prompts/blocks/…` и тексты ядра как есть; вшиты в ядро: `shared/tools_intro` (`0x7e962f`), `shared/subagents` (`0x7aa1ed`), `shared/memory_recall_doctrine` (`0x7e9e25`), `agent/history_inheritance_*`, `agent/subagent_identity_intro`, `agent/requester_description` (адреса — в таблице). Отличия П10: метки `personal-muse-only`/`group-muse-only` → `personal-only`/`group-only`, `Muse` → `Hamlet`, `~/docs/muse.md` → `~/docs/hamlet.md`, `/opt/muse/` → `/opt/hamlet/`; в `agent/who_you_are.md` «Meta maintains these docs» → «The Hamlet team maintains these docs» (как в `chat/how_you_work.md`). Блоки, которые упоминают части, которых у Hamlet пока нет (Secure Vault в `agent/safety_credentials`, медиа в `agent/safety_oversight`), — как у главного (`user_chat/security_secrets`, `chat/safety_oversight`): блок целиком о части — не уходит, упоминание внутри общего правила — остаётся.
+
+Своё:
+
+**Метка времени входа** (продолжение части 1). Форма ядра: `0xbc4b050` склеивает через пробел `[Day YYYY-MM-DD HH:MM:SS TZ]` (`0xf19a160` → `0xf19a3d0`: дни `Mon`…`Sun`, `{:04}-{:02}-{:02} {:02}:{:02}:{:02}` — `0xb38799`, `%Z`, скобки — `0x2dcb58`) и `[client_timezone=…]` (`0x409b29`); это пункт контекста входа (`0xbc4b3a0`, вызов `0xbc4c503`), ставится, когда у входа есть пояс. Сборку контекста входа зовут главный ход (`0xbd0ab08` в `0xbd0a0b0`) и подготовка хода работника (`hatch-db-context/src/worker_turns/staging.rs`, `0xc59e74e` в `0xc59c3e0`: пояс источника — `0x290(%rsp)`), так что у подагентов muse свои метки на каждое сообщение. У Hamlet: `daemon::time_tag` (было своё «Current date and time: …»); пояс — `[agent].timezone` в `agent.toml`: нет — меток нет ни у главного, ни у подагентов, как у muse; неразборчивый — ошибка загрузки `agent.toml`. У главного — заметкой перед строкой владельца, у подагента — перед заданием и каждым `subagent.send` (`Subagents::set_time_tag`, наследуется глубже). Работник расписаний и прочие роли — с их сборкой (части 2–3 П5-2).
+
+**Раздел `subagent_spawning.md`** убран из текста подагента и из `spawning_prefix`: `{subagent_spawning_section}` нет ни в одном блоке (ни в файлах `P`, ни в ядре; имя — только в таблице переменных сборщика, `0xa09cc3`), профиль его не рисует. Файл `prompts/subagent/subagent_spawning.md` удалён.
+
+**Шаги сохранённых работ** (`workflow`) пока получают `system.md` владельца; их профиль — в части 3 П5-2 вместе с `event_hook` и остальными.
+
+Тест — `agent/hamlet/tests/subagent_prompt.rs`: записи — в порядке блоков профиля 0 (раздел за разделом) без `ABSENT`, и текст каждой стоит в собранном тексте за предыдущей; разделы по набору инструментов; наследование по глубине; подстановки ядра (стек, учение, пустые переменные), ни одной незаполненной `{переменной}`, меток и «muse».

@@ -2,8 +2,11 @@
 # 0xa9b9dc0 (таблица переходов 0x786d40) для каждого номера: она зависит только
 # от номера. block — имя блока; text — где текст: "core 0x…" (вшит в ядро),
 # "file" (файл P/hatch-agent/prompts/<имя>), literal — запись без имени со вставкой.
-# via = "assembler" — диспетчер не отдаёт раздел (None), его раскладывает сборщик
-# агентских подсказок 0xcdbbdf0; via = "unresolved" — разбор не закончен.
+# via = "other_harness" — диспетчер не отдаёт раздел (None); такие разделы стоят
+# только в срезе 1 профилей — разделы другой обвязки (флаг
+# system_prompt_harness_overrides; срез отдают 0xcdb6520/0xcdb1920, отрисовщик
+# 0xcd56910 читает только срез 0), в системный текст стандартной обвязки не идут;
+# via = "unresolved" — разбор не закончен.
 
 [[section]]
 id = "0"
@@ -338,7 +341,7 @@ text = "core 0x7badc7"
 
 [[section]]
 id = "12"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "13"
@@ -496,11 +499,11 @@ text = "core 0x7d3b0b"
 
 [[section]]
 id = "23"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "24"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "25"
@@ -1401,7 +1404,7 @@ text = "file"
 
 [[section]]
 id = "82"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "83"
@@ -1753,59 +1756,59 @@ literal = "\n"
 
 [[section]]
 id = "b7"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "b8"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "b9"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "ba"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "bb"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "bc"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "bd"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "be"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "bf"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "c0"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "c1"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "c2"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "c3"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "c4"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "c5"
@@ -1816,19 +1819,19 @@ text = "file"
 
 [[section]]
 id = "c6"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "c7"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "c8"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "c9"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "ca"
@@ -2375,7 +2378,7 @@ text = "file"
 
 [[section]]
 id = "224"
-via = "assembler"
+via = "other_harness"
 
 [[section]]
 id = "225"

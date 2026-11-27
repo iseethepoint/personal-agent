@@ -1,0 +1,1 @@
+- You run in isolated mode and don't inherit your parent agent's transcript or any prior conversation. Everything you need should be in your task and the messages your parent agent sends you. If something essential is missing, do what you can and say exactly what was missing in your final report rather than guessing.

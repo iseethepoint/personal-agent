@@ -10,7 +10,7 @@
 //! `owner_subagent_depth2` нет (`prompts/roles/`); итог подагента глубины 2
 //! приходит его родителю, а не корню («Your sub-agents will announce their
 //! results back to you automatically (not to your parent agent)»,
-//! `subagent_spawning.md`). Наследуется вся видимая модели история родителя
+//! `session/subagent_spawning.md` muse). Наследуется вся видимая модели история родителя
 //! на момент вызова (у muse — от `root_prompt_floor_seq`, то есть после
 //! сжатия; `strings-all.txt:84153`): копия, история родителя не меняется.
 //! За ней — заметка muse «Above is the conversation history…»
@@ -66,9 +66,6 @@ pub const ISOLATED_MD: &str = include_str!("../../../prompts/subagent/subagent_h
 pub const DEPTH_ONE_COORDINATOR_MD: &str = include_str!("../../../prompts/subagent/subagent_context_depth_one_coordinator.md");
 pub const DEPTH_ONE_SPAWN_INHERITANCE_MD: &str =
     include_str!("../../../prompts/subagent/subagent_context_depth_one_spawn_inheritance.md");
-/// Раздел системного текста подагента, который может заводить своих
-/// (`subagent_spawning_section` при `can_spawn` в шаблоне ядра).
-pub const SPAWNING_MD: &str = include_str!("../../../prompts/subagent/subagent_spawning.md");
 
 /// Описания инструментов — строки ядра muse (0x2cdb1b3–0x2cdd367), полные
 /// варианты: первая строка и абзацы через пустую строку. Правка (П10): в
@@ -474,7 +471,16 @@ struct Inner<P> {
     deeper: std::sync::OnceLock<(Arc<Tools>, Prefix)>,
     /// Родитель — подагент (координатор); у корня нет.
     owner: Option<Owner>,
+    /// Метка времени входа (`TimeTag`); есть — каждое сообщение подагенту
+    /// (задание и `subagent.send`) идёт за заметкой `Role::Developer` с ней,
+    /// как у muse: подготовка хода работника (`worker_turns/staging.rs`,
+    /// `0xc59c3e0`) передаёт часовой пояс в сборку контекста входа
+    /// (`0xbc4b3a0`), метка — `0xbc4b050`.
+    time_tag: Arc<std::sync::OnceLock<TimeTag>>,
 }
+
+/// Метка времени входа: текст заметки перед сообщением.
+pub type TimeTag = Arc<dyn Fn() -> String + Send + Sync>;
 
 /// Подагенты одного родителя. Инструменты `subagent.*` — из `tools()`.
 pub struct Subagents<P> {
@@ -517,11 +523,14 @@ pub fn first_message(task: &str, depth: u32, can_spawn: bool) -> String {
         .replace("{{TASK_INPUT_START}}", task)
 }
 
-/// Начало подсказки подагента, который заводит своих: к системному тексту —
-/// раздел `subagent_spawning.md`, к описаниям — `subagent.*` и
-/// `hamlet.nothing_to_do` (молчать на заметку монитора о своём подагенте).
+/// Начало подсказки подагента, который заводит своих: к описаниям —
+/// `subagent.*` и `hamlet.nothing_to_do` (молчать на заметку монитора о своём
+/// подагенте). Системный текст не меняется: о своих подагентах в нём
+/// говорит раздел профиля (`agent-hamlet::subagent_prompt`, раздел `3c`);
+/// `session/subagent_spawning.md` ни один блок профиля не рисует
+/// (`{subagent_spawning_section}` нет ни в одном блоке, имя — только в
+/// таблице сборщика `0xa09cc3`).
 pub fn spawning_prefix(mut prefix: Prefix) -> Prefix {
-    prefix.system = format!("{}\n\n{}", prefix.system.trim_end(), personal(SPAWNING_MD).trim_end());
     prefix.tools.extend([Op::Spawn, Op::Send, Op::List, Op::Close, Op::Resume].into_iter().map(spec));
     prefix.tools.push(NothingToDo(Default::default()).spec());
     prefix
@@ -588,6 +597,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 depth: 1,
                 deeper: std::sync::OnceLock::new(),
                 owner: None,
+                time_tag: Arc::new(std::sync::OnceLock::new()),
             }),
         }
     }
@@ -600,6 +610,11 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
     pub fn set_monitor<M: Provider + Send + Sync + 'static>(&self, m: Arc<crate::monitor::Monitor<M>>) {
         let f: WatchFactory = Arc::new(move |snapshot, inbox, running| m.watch(snapshot, inbox, running));
         let _ = self.inner.monitor.set(f);
+    }
+
+    /// Метка времени на входы подагентов (и их подагентов).
+    pub fn set_time_tag(&self, tag: TimeTag) {
+        let _ = self.inner.time_tag.set(tag);
     }
 
     /// Подагенты этого родителя заводят своих — на глубину ниже, с набором
@@ -761,6 +776,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 depth: self.inner.depth + 1,
                 deeper: std::sync::OnceLock::new(),
                 owner: Some(Owner { id: id.to_string(), task: task.to_string(), status }),
+                time_tag: self.inner.time_tag.clone(),
             }),
         })
     }
@@ -842,6 +858,9 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 }
                 let (prefix, history) = state.as_mut().unwrap();
                 if let Input::Message(content) = input {
+                    if let Some(tag) = inner.time_tag.get() {
+                        history.push(Message { role: Role::Developer, content: vec![Part::Text { text: tag() }] });
+                    }
                     history.push(Message { role: Role::User, content });
                 }
                 Self::set(&inner, &agent_id, Status::Running, None);

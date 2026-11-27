@@ -25,6 +25,7 @@
 pub mod config;
 pub mod daemon;
 pub mod main_prompt;
+pub mod subagent_prompt;
 pub use agent_loop::roles;
 
 use std::path::{Path, PathBuf};
@@ -283,8 +284,12 @@ impl Hamlet {
         // своих (`owner_subagent_depth1` — да, `owner_subagent_depth2` — нет).
         let depth1 = roles::Role::get("owner_subagent_depth1");
         let sub_tools = Arc::new(depth1.apply(with_workflows(parts.base(None)?)));
-        let sub_prefix = Prefix::assemble(&system, &home_dir, &sub_tools);
         let spawns = depth1.allows("subagent.spawn");
+        // Системный текст подагента — профиль 0 ядра (`subagent_prompt`):
+        // глубина 1 наследует разговор родителя, глубина 2 изолирована и
+        // своих не заводит.
+        let sub_text = main_prompt::with_owner(subagent_prompt::assemble(&sub_tools, true, spawns), &system);
+        let sub_prefix = Prefix::with_system(sub_text, &home_dir, &sub_tools);
         let subagents = Subagents::new(
             main.clone(),
             sub_tools,
@@ -295,10 +300,17 @@ impl Hamlet {
         );
         if spawns {
             let deep_tools = Arc::new(roles::Role::get("owner_subagent_depth2").apply(with_workflows(parts.base(None)?)));
-            let deep_prefix = Prefix::assemble(&system, &home_dir, &deep_tools);
+            let deep_text = main_prompt::with_owner(subagent_prompt::assemble(&deep_tools, false, false), &system);
+            let deep_prefix = Prefix::with_system(deep_text, &home_dir, &deep_tools);
             subagents.set_deeper(deep_tools, deep_prefix);
         }
         subagents.set_monitor(Monitor::new(Arc::new(provider(&resolve(&reg, Purpose::SubagentMonitor, sel)?)?), &home_dir));
+        // Метка времени на входы подагентов — как у главного (`daemon::time_tag`);
+        // без пояса меток нет.
+        if let Some(tz) = t.agent.timezone.clone() {
+            let tag_clock = clock.clone();
+            subagents.set_time_tag(Arc::new(move || daemon::time_tag(tag_clock.now_ms(), Some(&tz)).unwrap_or_default()));
+        }
         // Подагенты в базе: после перезапуска — снова в списке, оборванные
         // ходы продолжаются (`restart_rehydration` muse).
         let sub_clock = clock.clone();

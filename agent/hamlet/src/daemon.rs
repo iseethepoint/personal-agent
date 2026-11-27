@@ -69,25 +69,22 @@ impl Services {
     }
 }
 
-fn rfc3339(ms: i64) -> String {
-    let secs = ms.div_euclid(1000);
-    let (d, s) = (secs.div_euclid(86_400), secs.rem_euclid(86_400));
-    let z = d + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z - era * 146_097;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + if month <= 2 { 1 } else { 0 };
-    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}Z", s / 3600, s % 3600 / 60, s % 60)
+/// Метка времени входа — форма ядра: `0xbc4b050` склеивает через пробел
+/// время `[Day YYYY-MM-DD HH:MM:SS TZ]` (`0xf19a160` → `0xf19a3d0`: дни
+/// `Mon`…`Sun`, `{:04}-{:02}-{:02} {:02}:{:02}:{:02}` `0xb38799`, `%Z`,
+/// скобки `0x2dcb58`) и `[client_timezone=…]` (`0x409b29`). Без пояса метки
+/// нет, как у muse (`0xbc4c4cd`); пояс проверен при загрузке `agent.toml`.
+pub fn time_tag(ms: i64, timezone: Option<&str>) -> Option<String> {
+    use chrono::TimeZone;
+    let tz: chrono_tz::Tz = timezone?.parse().ok()?;
+    let t = tz.timestamp_millis_opt(ms).single()?;
+    Some(format!("[{}] [client_timezone={}]", t.format("%a %Y-%m-%d %H:%M:%S %Z"), tz.name()))
 }
 
 impl Hamlet {
-    /// Заметка изменчивого: время и пояс владельца.
-    pub fn volatile(&self) -> String {
-        format!("Current date and time: {}\nUser timezone: {}", rfc3339(self.clock.now_ms()), self.timezone.as_deref().unwrap_or("not provided"))
+    /// Заметка изменчивого — метка времени входа (`time_tag`); без пояса — нет.
+    pub fn volatile(&self) -> Option<String> {
+        time_tag(self.clock.now_ms(), self.timezone.as_deref())
     }
 
     /// Перезапуск (`restart_rehydration` muse): вести, взятые ходом, которого
@@ -122,8 +119,9 @@ impl Hamlet {
             // Сброс перед сжатием покрыл всё, что было до него.
             self.history.set_flush_progress().await?;
         }
-        // Поданное в ящик до хода: строка владельца — с заметкой изменчивого
-        // за ней, весть службы — как есть; записывается историей и
+        // Поданное в ящик до хода: строка владельца — за заметкой изменчивого
+        // (метка времени перед сообщением, как у главного muse), весть
+        // службы — как есть; записывается историей и
         // отмечается за ходом.
         static TURNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
         let turn_id = resumed.unwrap_or_else(|| format!("{}:turn:{}:{}", crate::ROOT_AGENT, self.clock.now_ms(), TURNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
@@ -131,7 +129,10 @@ impl Hamlet {
         let (ids, taken) = self.inbox.take();
         for m in taken {
             if m.role == Role::User {
-                conv.push_user(m.content, &self.volatile());
+                match self.volatile() {
+                    Some(tag) => conv.push_user(m.content, &tag),
+                    None => conv.history.push(m),
+                }
             } else {
                 conv.history.push(m);
             }

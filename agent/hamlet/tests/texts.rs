@@ -154,7 +154,7 @@ const CHAT: [&str; 47] = [
     "security_sensitive_actions.md",
     "security_social_engineering.md",
     "system_prompt_copy_file.md",
-    "time_tag_after_input.md",
+    "time_tag_before_input.md",
     "timezones_save.md",
     "tool_rules_deep_research.md",
     "who_you_are.md",
@@ -165,17 +165,42 @@ const CHAT: [&str; 47] = [
     "writing_style_follow_ups.md",
 ];
 
-/// П5-1, часть 2: блоки ядра, которые нужны сборке главного текста.
-const SHARED: [&str; 10] = [
+/// П5-1, часть 2 и П5-2: блоки ядра, которые нужны сборке главного текста и
+/// текста подагента.
+const SHARED: [&str; 34] = [
+    "discretion.md",
+    "discretion_alignment_task.md",
+    "discretion_trust.md",
+    "discretion_user_choice.md",
     "environment/browser.md",
     "environment/computer.md",
     "environment/runtime.md",
     "environment/tracking.md",
     "environment/user_goals.md",
     "managing_context_body.md",
+    "memory_recall_doctrine.md",
+    "safety_core_conversational.md",
+    "safety_credentials_transient_limits.md",
+    "safety_delegated_authority_requester.md",
     "safety_hard_stops.md",
+    "safety_security_policy.md",
     "safety_self_modification.md",
     "safety_sensitive_attributes.md",
+    "scheduled_work_mechanics.md",
+    "security_authority.md",
+    "security_content_markers.md",
+    "security_file_uploads.md",
+    "security_gates_credential_handling.md",
+    "security_identifiers.md",
+    "security_precall_checklist_credential_handling.md",
+    "security_secrets.md",
+    "security_social_engineering.md",
+    "security_task_alignment.md",
+    "subagents.md",
+    "tool_rules_no_time_guesses.md",
+    "tool_rules_reporting_truth.md",
+    "tools_intro.md",
+    "tools_runtime_pointer.md",
     "who_built_you.md",
 ];
 
@@ -184,13 +209,54 @@ const SESSION: [&str; 2] = [
     "subagents_status.md",
 ];
 
-const SUBAGENTS: [&str; 6] = [
+const SUBAGENTS: [&str; 15] = [
     "chat/after_spawn_clause.md",
     "chat/overload_consequence.md",
     "chat/responsive_clause.md",
     "inherited_context/fanout_bullet.md",
     "inherited_context/task_content_bullet.md",
     "inherited_context/transcript_fact.md",
+    "subagent/after_spawn_clause.md",
+    "subagent/asker.md",
+    "subagent/failure_action.md",
+    "subagent/fanout_bullet.md",
+    "subagent/overload_consequence.md",
+    "subagent/responsive_clause.md",
+    "subagent/synthesis_sentence.md",
+    "subagent/task_content_bullet.md",
+    "subagent/transcript_fact.md",
+];
+
+/// П5-2: блоки ядра, которые нужны сборке системного текста подагента.
+const AGENT: [&str; 28] = [
+    "date_validation_opener.md",
+    "environment_artifacts_slot.md",
+    "environment_browser.md",
+    "history_inheritance_alone.md",
+    "history_inheritance_inherited.md",
+    "history_inheritance_isolated.md",
+    "identifier_validation.md",
+    "managing_context_opener.md",
+    "managing_context_retention.md",
+    "memory.md",
+    "memory_read_only.md",
+    "memory_recall_opening.md",
+    "person_records.md",
+    "reporting_back.md",
+    "requester_description.md",
+    "runtime_files_list.md",
+    "safety_credentials.md",
+    "safety_oversight.md",
+    "security_authority.md",
+    "security_sensitive_actions.md",
+    "security_standing_risk.md",
+    "subagent_identity_intro.md",
+    "timezones_trust.md",
+    "tool_rules.md",
+    "who_you_are.md",
+    "workspace_files.md",
+    "your_environment_intro.md",
+    "your_requester.md",
 ];
 
 #[test]
@@ -201,6 +267,7 @@ fn every_core_block_is_present() {
         ("prompts/shared", &SHARED[..]),
         ("prompts/session", &SESSION[..]),
         ("prompts/subagents", &SUBAGENTS[..]),
+        ("prompts/agent", &AGENT[..]),
     ] {
         for n in names {
             let p = root().join(dir).join(n);
