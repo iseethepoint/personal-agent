@@ -39,6 +39,9 @@ use agent_tools::{add_search, secret_envs, Blocklist, Catalog, ExecTools, FileTo
 
 pub use config::AgentDir;
 
+/// Агент главной сессии в `agent.agents`.
+pub const ROOT_AGENT: &str = "root";
+
 /// Собранный агент.
 pub struct Hamlet {
     pub dir: AgentDir,
@@ -61,6 +64,8 @@ pub struct Hamlet {
     pub todo: Todo,
     pub continuation: agent_tools::Continuation,
     pub compaction: (Arc<AnyProvider>, Arc<AnyProvider>, u64),
+    /// История главного агента в базе (`agent.context_items`).
+    pub history: Arc<agent_history::AgentHistory>,
     pub timezone: Option<String>,
     pub clock: Arc<dyn Clock>,
 }
@@ -147,7 +152,9 @@ impl Hamlet {
         let home = Home::new(&home_dir);
         let url = dir.database_url()?;
 
-        let main = Arc::new(provider(&resolve(&reg, Purpose::Main, sel)?)?);
+        let main_resolved = resolve(&reg, Purpose::Main, sel)?;
+        let main_model = main_resolved.option.id.clone();
+        let main = Arc::new(provider(&main_resolved)?);
         let memory = agent_memory::Store::connect(&url).await?;
         let embedder: Option<Arc<dyn Embedder>> = match reg.resolve(Purpose::Embeddings, sel).map_err(|e| e.to_string())? {
             Some(r) => Some(Arc::new(ProviderEmbedder { name: r.option.model.clone(), provider: OpenaiCompatProvider::from_resolved(&r).map_err(|e| e.to_string())? })),
@@ -309,6 +316,13 @@ impl Hamlet {
             })
         }));
 
+        // История главного агента: агент `root` (своё имя; у muse — id сессии).
+        let history_clock = clock.clone();
+        let history = Arc::new(
+            agent_history::AgentHistory::open(&agent_history::Store::connect(&url).await?, ROOT_AGENT, "root", &main_model, Arc::new(move || history_clock.now_ms()))
+                .await?,
+        );
+
         Ok(Hamlet {
             dir: dir.clone(),
             home: home_dir,
@@ -326,6 +340,7 @@ impl Hamlet {
             todo,
             continuation: agent_tools::Continuation::new(),
             compaction,
+            history,
             timezone: t.agent.timezone.clone(),
             clock,
         })
@@ -338,8 +353,14 @@ impl Hamlet {
         v
     }
 
-    pub fn conversation(&self) -> Conversation {
-        Conversation::new(self.prefix.clone())
+    /// Разговор главного агента: после перезапуска — из базы (закреплённое
+    /// начало и история байт в байт), впервые — новый, с закреплением начала.
+    pub async fn conversation(&self) -> Result<Conversation, String> {
+        if let Some(saved) = self.history.load().await? {
+            return Ok(Conversation::restore(saved.prefix, saved.history, saved.last_volatile));
+        }
+        self.history.pin_prefix(&self.prefix).await?;
+        Ok(Conversation::new(self.prefix.clone()))
     }
 
     pub fn compactor(&self) -> Compactor<'_, AnyProvider, AnyProvider> {

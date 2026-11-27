@@ -60,6 +60,7 @@ version = "0.1.0"
 dependencies = [
  "agent-cron",
  "agent-goals",
+ "agent-history",
  "agent-loop",
  "agent-memory",
  "agent-model",
@@ -95,6 +96,7 @@ dependencies = [
  "agent-cron",
  "agent-db",
  "agent-goals",
+ "agent-history",
  "agent-loop",
  "agent-memory",
  "agent-model",
@@ -107,6 +109,19 @@ dependencies = [
  "serde_json",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "agent-history"
+version = "0.1.0"
+dependencies = [
+ "agent-loop",
+ "agent-model",
+ "libc",
+ "serde",
+ "serde_json",
+ "sqlx",
+ "tokio",
 ]
 
 [[package]]

@@ -19,6 +19,7 @@ agent-browser = { path = "../browser" }
 agent-research = { path = "../research" }
 agent-workflows = { path = "../workflows" }
 agent-db = { path = "../db" }
+agent-history = { path = "../history" }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }

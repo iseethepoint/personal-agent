@@ -80,10 +80,13 @@ impl Hamlet {
     /// Один ход главной сессии. Перед ходом — сжатие, если разговор дорос
     /// до порога.
     pub async fn turn(&self, conv: &mut Conversation) -> Result<String, String> {
-        self.compactor().compact_if_needed(conv).await.map_err(|e| e.to_string())?;
+        if self.compactor().compact_if_needed(conv).await.map_err(|e| e.to_string())? {
+            self.history.replace(&conv.history, conv.last_volatile()).await?;
+        }
         let mut t = Turn::from_prefix(&*self.main, &self.tools, &conv.prefix, self.spill_dir.clone());
         t.inbox = Some(self.inbox.clone());
         t.transcript = Some(self.transcript.clone());
+        t.record = Some(self.history.clone());
         let resp = t.run(&mut conv.history, &mut |_| {}).await.map_err(|e| e.to_string())?;
         conv.record_usage(&resp.usage);
         Ok(resp.text())
@@ -92,8 +95,16 @@ impl Hamlet {
     /// Очередь ходов: строка владельца или весть в ящике — новый ход;
     /// ответ — в `out`. Кончается, когда вход закрыт.
     pub async fn run(self: &Arc<Self>, mut lines: mpsc::Receiver<String>, out: mpsc::UnboundedSender<String>) {
-        let mut conv = self.conversation();
-        let mut resume = false;
+        let mut conv = match self.conversation().await {
+            Ok(c) => c,
+            Err(e) => {
+                let _ = out.send(format!("[ошибка истории] {e}"));
+                return;
+            }
+        };
+        // После перезапуска: история кончается не ответом модели — ход
+        // продолжается сразу.
+        let mut resume = conv.history.last().is_some_and(|m| m.role != Role::Assistant);
         loop {
             if !resume {
                 let inbox = self.inbox.clone();
@@ -102,6 +113,9 @@ impl Hamlet {
                     line = lines.recv() => {
                         let Some(line) = line else { break };
                         conv.push_user(vec![Part::Text { text: line }], &self.volatile());
+                        if let Err(e) = self.history.sync(&conv.history, conv.last_volatile()).await {
+                            let _ = out.send(format!("[ошибка истории] {e}"));
+                        }
                     }
                     _ = inbox.wait() => {}
                 }
@@ -113,6 +127,9 @@ impl Hamlet {
                     // Продолжение по списку дел (`todo_continuation`).
                     if let Some(note) = self.todo_continuation() {
                         conv.history.push(Message { role: Role::Developer, content: vec![Part::Text { text: note }] });
+                        if let Err(e) = self.history.sync(&conv.history, conv.last_volatile()).await {
+                            let _ = out.send(format!("[ошибка истории] {e}"));
+                        }
                         resume = true;
                     }
                 }

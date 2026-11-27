@@ -2,6 +2,72 @@
 
 Tables readable by `hamlet.db`. Always use the schema-qualified name.
 
+## `agent.agents`
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `agent_id` | text | no |  |
+| `id` | text | yes |  |
+| `session_id` | text | yes |  |
+| `kind` | text | no | `'root'::text` |
+| `parent_id` | text | yes |  |
+| `parent_agent_id` | text | yes |  |
+| `root_session_id` | text | yes |  |
+| `model` | text | no | `''::text` |
+| `status` | text | no |  |
+| `depth` | integer | no | `0` |
+| `created_at` | bigint | no | `(EXTRACT(epoch FROM now()))::bigint` |
+| `updated_at` | bigint | no | `(EXTRACT(epoch FROM now()))::bigint` |
+| `last_assistant_message` | text | yes |  |
+| `seen_at_ms` | bigint | yes |  |
+| `prompt_floor_seq` | bigint | yes |  |
+| `ephemeral` | boolean | no | `false` |
+| `agent_type` | text | yes |  |
+| `spawn_metadata_json` | text | yes |  |
+
+- UNIQUE `id` (`agents_id_key`)
+- PRIMARY KEY `agent_id` (`agents_pkey`)
+
+## `agent.context_items`
+
+Rows holding model reasoning (thinking and redacted-thinking items) are withheld. Stored commentary can be queried through `hamlet.db` for diagnosis. Commentary is hidden from the user's chat. A commentary record does not establish that the user received its contents.
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `context_item_id` | bigint | no | `nextval('context_items_context_item_id_seq'::regclass)` |
+| `agent_id` | text | no |  |
+| `seq` | bigint | no |  |
+| `item_kind` | context_item_kind | no |  |
+| `message_id` | text | yes |  |
+| `role` | runtime.message_role | yes |  |
+| `call_id` | text | yes |  |
+| `tool_name` | text | yes |  |
+| `success` | boolean | yes |  |
+| `message_source` | text | yes |  |
+| `created_at` | timestamp with time zone | no | `now()` |
+| `text_content` | text | yes |  |
+| `item_json` | text | yes |  |
+
+- UNIQUE `agent_id` (`context_items_agent_id_seq_key`)
+- UNIQUE `seq` (`context_items_agent_id_seq_key`)
+- PRIMARY KEY `context_item_id` (`context_items_pkey`)
+
+## `agent.volatile_context_pins`
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `agent_id` | text | no |  |
+| `variant_hash` | text | no |  |
+| `variant_json` | text | no |  |
+| `prompt_floor_seq` | bigint | no |  |
+| `checkpoint_seq` | bigint | no |  |
+| `body` | text | yes |  |
+| `created_at` | timestamp with time zone | no | `now()` |
+| `body_hash` | bytea | yes |  |
+
+- PRIMARY KEY `agent_id` (`volatile_context_pins_pkey`)
+- PRIMARY KEY `variant_hash` (`volatile_context_pins_pkey`)
+
 ## `goals.briefings`
 
 | column | type | nullable | default |

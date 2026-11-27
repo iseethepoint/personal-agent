@@ -204,3 +204,30 @@
 ## Пробуждение службы расписаний (П4л-8)
 
 Текстов для модели нет. Основание в ядре: `notify-8.2.0` и `inotify-0.11.2` (`crates.txt`), `notify::inotify` (`strings-all.txt:344927`), «file watcher backend error» / «file watcher error» (`:17841`, `:21857`), сон до срока (`scheduler loop: … computing wake`). Своё (код `agent/cron/src/service.rs`, `agent/hamlet/src/lib.rs`): будят правки `cron.*` и `hooks.*`, конец прогона и наблюдатель файлов; наблюдатель смотрит файлы памяти дома (те же правила, что у сверки); уборщика корзины будит ближайший срок истечения; без сроков служба спит до события.
+
+## История главного агента в Postgres (П3е-1)
+
+Текстов для модели нет. Таблицы — `agent/history/migrations/0001_history.sql`:
+- `agent.agents`, `agent.context_items`, `agent.volatile_context_pins` по каталогу ядра (около `0x18a9a6a`);
+- перечисления `message_role`, `context_item_kind` — из списка типов ядра;
+- запись — форма `INSERT INTO context_items … ON CONFLICT (agent_id, seq) DO UPDATE` (около `0x6cb97b`);
+- граница подсказки — `agents.prompt_floor_seq` (запрос около `0x6e16f9`).
+
+Строка — одна часть сообщения, части связывает `message_id`. Виды частей — как у ядра:
+- `message`, `message_text`, `text_segments`, `tool_call`, `tool_output` (запрос `item_kind IN ('message', 'message_text', 'text_segments')` около `0x2ecebb`);
+- `parts` в `item_json` (около `0x16f8c7b`);
+- мышление — отдельные строки, их скрывает вид `inspection.context_items` (`redaction` каталога ядра у `context_items`).
+
+В каталог `hamlet.db` добавлены `agent.agents`, `agent.context_items`, `agent.volatile_context_pins`. Поле `redaction` каталога снова есть: запрос к таблице с ним переписывается на её вид. Текст пометки — ядра, «muse.db» → «hamlet.db».
+
+Своё — в заголовке `agent/history/src/lib.rs`:
+- вид части: текст — `message_text`, мышление и картинка — `message`; `item_json` — наша часть как есть;
+- `text_segments` не используется: порога в разборе нет;
+- `message_id` — `<agent_id>:<seq>`;
+- пометка заметки изменчивого;
+- закреплённое начало `prompt_prefix`;
+- агент главной сессии — `root`.
+
+Не в этом срезе:
+- ящик (П3е-2);
+- вызовы, оставшиеся без результата при остановке посреди исполнения инструментов (П3е-5, точки перезапуска muse).

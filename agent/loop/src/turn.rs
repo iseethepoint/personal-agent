@@ -56,6 +56,9 @@ pub enum TurnError {
     /// Ответ не в заданной форме.
     #[error("output contract: {0}")]
     OutputContract(String),
+    /// История хода не записалась.
+    #[error("history: {0}")]
+    Record(String),
 }
 
 /// Умеют ли веса принудительный вызов инструмента: у anthropic — флаг
@@ -93,6 +96,14 @@ pub struct Turn<'a, P> {
     /// Узнаёт о каждой исполненной пачке вызовов (монитор подагентов).
     /// Не блокирует: крючок отдаёт событие и ход сразу идёт дальше.
     pub on_step: Option<StepHook>,
+    /// Запись хода по мере хода (`history_persistence` muse): после каждой
+    /// правки истории ход отдаёт её целиком, записанное не повторяется.
+    pub record: Option<std::sync::Arc<dyn Record>>,
+}
+
+/// Куда ход пишет свою историю по мере хода.
+pub trait Record: Send + Sync {
+    fn record<'a>(&'a self, history: &'a [Message]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>>;
 }
 
 /// Исполненный вызов: имя, аргументы, ошибка ли, первая строка результата.
@@ -121,6 +132,7 @@ impl<'a, P: Provider> Turn<'a, P> {
             transcript: None,
             terminal: Vec::new(),
             on_step: None,
+            record: None,
         }
     }
 
@@ -202,6 +214,7 @@ impl<'a, P: Provider> Turn<'a, P> {
             if let Some(inbox) = &self.inbox {
                 history.extend(inbox.drain());
             }
+            self.save(history).await?;
             // Загруженные функции отложенных пространств — в конец списка
             // (`tool_search.rs`).
             let loaded = self.tools.loaded(history);
@@ -223,6 +236,7 @@ impl<'a, P: Provider> Turn<'a, P> {
                 if !kept.is_empty() {
                     history.push(Message { role: Role::Assistant, content: kept });
                 }
+                self.save(history).await?;
                 return Ok(resp);
             }
             if let Some(name) = contract {
@@ -247,6 +261,7 @@ impl<'a, P: Provider> Turn<'a, P> {
                 }
             }
             history.push(Message { role: Role::Assistant, content: resp.content.clone() });
+            self.save(history).await?;
             if calls.is_empty() {
                 return Ok(resp);
             }
@@ -283,9 +298,17 @@ impl<'a, P: Provider> Turn<'a, P> {
                 hook(step);
             }
             history.push(Message { role: Role::User, content: results });
+            self.save(history).await?;
             if ended {
                 return Ok(resp);
             }
+        }
+    }
+
+    async fn save(&self, history: &[Message]) -> Result<(), TurnError> {
+        match &self.record {
+            Some(r) => r.record(history).await.map_err(TurnError::Record),
+            None => Ok(()),
         }
     }
 

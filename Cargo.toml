@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["agent/model", "agent/loop", "agent/tools", "agent/memory", "agent/goals", "agent/cron", "agent/browser", "agent/hamlet", "agent/research", "agent/workflows", "agent/db"]
+members = ["agent/model", "agent/loop", "agent/tools", "agent/memory", "agent/goals", "agent/cron", "agent/browser", "agent/hamlet", "agent/research", "agent/workflows", "agent/db", "agent/history"]
 
 [workspace.package]
 edition = "2021"
