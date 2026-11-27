@@ -235,6 +235,14 @@ async fn conversation_writes_searches_schedules_and_wakes_on_handoff() {
         let last = reqs.last().unwrap().to_string();
         assert!(last.contains("[SCHEDULED TASK HANDOFF]") && last.contains("Time for coffee."), "{wire:?}: ход по вести");
         assert!(last.contains("Note to buy coffee beans"), "{wire:?}: тот же разговор");
+        // Работник расписания (П5-2 ч.2): исполнение — текст профиля 22, метка
+        // времени перед сообщением; итог — текст профиля 23 со строкой года.
+        let exec = reqs.iter().map(|r| r.to_string()).find(|r| r.contains("[SCHEDULED TASK CONTEXT]")).unwrap();
+        assert!(exec.contains("You are a scheduled worker acting for the user's personal assistant.") && exec.contains("You are Hamlet, a test agent."), "{wire:?}");
+        assert!(exec.find("[Fri 2027-01-15 08:06:00 UTC] [client_timezone=UTC]").unwrap() < exec.find("[SCHEDULED TASK CONTEXT]").unwrap(), "{wire:?}: {exec}");
+        let resolve = reqs.iter().map(|r| r.to_string()).find(|r| r.contains("notify_main_agent") && r.contains("Reminder: coffee time.")).unwrap();
+        assert!(resolve.contains("You are the resolution step of a scheduled worker run") && resolve.contains("The year is 2027, not 2026."), "{wire:?}");
+        assert!(!resolve.contains("You are a scheduled worker acting"), "{wire:?}");
 
         drop(tx);
         runner.await.unwrap();

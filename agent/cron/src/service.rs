@@ -242,8 +242,16 @@ pub struct Scheduler<P> {
     /// Модель фазы итога работника расписаний — назначение muse
     /// `CronResolve` (`strings-all.txt:56281`).
     resolver: Arc<P>,
-    /// Системный текст и инструменты работника.
+    /// Системный текст владельца (работник наблюдателя, проверка) и
+    /// инструменты работника.
     system: String,
+    /// Системные тексты работника расписаний: исполнение (готовый) и итог
+    /// (на момент прогона); без них — `system`.
+    cron_system: Option<String>,
+    resolve_system: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    /// Метка времени перед сообщением работнику (`worker_turns/staging.rs`
+    /// muse); без неё — сообщение одно.
+    time_tag: Option<agent_loop::TimeTag>,
     tools: Arc<Tools>,
     /// Набор работника наблюдателя; без него — набор работника расписаний.
     hook_tools: Option<Arc<Tools>>,
@@ -274,6 +282,9 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             resolver: provider.clone(),
             provider,
             system: system.into(),
+            cron_system: None,
+            resolve_system: None,
+            time_tag: None,
             tools,
             hook_tools: None,
             resolve_tools: Vec::new(),
@@ -298,6 +309,20 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
     /// восстановления (`agent.recovery_owners`).
     pub fn workers(&mut self, w: Arc<dyn agent_loop::WorkerStore>) -> &mut Self {
         self.workers = Some(w);
+        self
+    }
+
+    /// Системные тексты работника расписаний: `execute` — фаза исполнения,
+    /// `resolve` — фаза итога на момент прогона.
+    pub fn cron_texts(&mut self, execute: String, resolve: Arc<dyn Fn() -> String + Send + Sync>) -> &mut Self {
+        self.cron_system = Some(execute);
+        self.resolve_system = Some(resolve);
+        self
+    }
+
+    /// Метка времени перед сообщением работнику расписаний.
+    pub fn time_tag(&mut self, tag: agent_loop::TimeTag) -> &mut Self {
+        self.time_tag = Some(tag);
         self
     }
 
@@ -682,7 +707,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         };
         let d = &job.definition;
         let first = worker::worker_message(&d.id, &d.mode, d.title.as_deref(), &d.body, heartbeat.as_deref(), goal.as_deref());
-        let prefix = agent_loop::Prefix { system: self.system.clone(), tools: self.tools.upfront_specs() };
+        let prefix = agent_loop::Prefix { system: self.cron_system.clone().unwrap_or_else(|| self.system.clone()), tools: self.tools.upfront_specs() };
         let recording = match &self.workers {
             // Работник прогона. Своё: id — `cron-worker:<run_id>`.
             Some(w) => {
@@ -693,7 +718,14 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             }
             None => None,
         };
-        self.launch(run_id, job, attempt, timeout, Some(timeout), prefix, worker::Begin::Fresh(first), recording);
+        let begin = match &self.time_tag {
+            Some(tag) => worker::Begin::Messages(vec![
+                agent_model::Message { role: agent_model::Role::Developer, content: vec![agent_model::Part::Text { text: tag() }] },
+                agent_model::Message { role: agent_model::Role::User, content: vec![agent_model::Part::Text { text: first }] },
+            ]),
+            None => worker::Begin::Fresh(first),
+        };
+        self.launch(run_id, job, attempt, timeout, Some(timeout), prefix, begin, recording);
         Ok(())
     }
 
@@ -709,6 +741,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         let workers = self.workers.clone();
         let verification = self.verification.clone();
         let resolve = self.resolve_tools.clone();
+        let resolve_system = self.resolve_system.as_ref().map(|f| f());
         let id = run_id.clone();
         let handle = tokio::spawn(async move {
             let store = core.store.clone();
@@ -720,7 +753,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                     let _ = store.set_phase(&run, p, timed_out).await;
                 });
             };
-            let kind = worker::Kind::Cron { mode: job.definition.mode.clone(), resolve };
+            let kind = worker::Kind::Cron { mode: job.definition.mode.clone(), resolve, system: resolve_system };
             let out = worker::run(&*provider, &*resolver, &prefix, &tools, &spill, begin, left, kind, on_phase, recording).await;
             finish(&core, verification.as_deref(), &job, &id, attempt, timeout, out, workers.as_deref(), &spill).await;
         });

@@ -92,11 +92,12 @@ fn every_profile_and_section_is_mapped() {
 /// Порядок разделов ролей, которые у Hamlet есть, но чья сборка ещё не по
 /// профилю (части 2–3 П5-2), — массивы профилей ядра (адрес среза — в
 /// комментарии). Подагент — по собранному тексту (`tests/subagent_prompt.rs`),
+/// работник расписаний и итог — `tests/scheduler_prompt.rs`,
 /// глубокое исследование — `deep_research_blocks_follow_profile`.
 #[test]
 fn hamlet_roles_follow_core_order() {
     let (ps, _) = load();
-    let cases: [(&str, &[&str]); 7] = [
+    let cases: [(&str, &[&str]); 5] = [
         // 0x290bbf50: 0x9905ee
         ("deep_research", &["66", "67", "68", "12e", "69", "6a", "635", "6b", "6c", "13b"]),
         // 0x290bc030: 0x99065a, 0x4b0fa0, 0x9905ba
@@ -105,10 +106,6 @@ fn hamlet_roles_follow_core_order() {
         ("execute_resolve", &["126", "3d", "435", "33b", "426", "b7", "b8", "b9", "ba", "bb", "bc", "bd", "bf", "c1"]),
         // 0x290bc228: 0x49a180, 0x9906bc
         ("verification", &["326", "3d", "435", "33b", "426", "b8", "ba", "bc", "bd", "bf", "c1"]),
-        // 0x290bc2d0: 0x99083a, 0x4b0fa0, 0x9905ba
-        ("scheduler_worker", &["96", "95", "97", "12e", "41", "339", "3c", "40", "235", "133", "44", "2f", "43b", "cd", "ce", "cc", "b7", "c9", "ca", "b8", "b9", "ba", "bb", "bc", "bd", "bf", "c2", "c1", "92"]),
-        // 0x290bc308: 0x990854, 0x99059e, 0x9905ba
-        ("scheduler_resolution", &["9b", "99", "98", "9a", "835", "63b", "cc", "b7", "b8", "b9", "ba", "bb", "bc", "bd", "bf", "c2", "c1", "92", "8c", "91"]),
         // 0x290bc490: 0x49a850, 0x99059e, 0x9905ba
         ("memory_flush", &["9c", "3d", "735", "73b", "cc", "b7", "b8", "b9", "ba", "bb", "bc", "bd", "bf", "c2", "c1", "92", "8c", "91"]),
     ];

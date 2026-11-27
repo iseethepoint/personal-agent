@@ -290,8 +290,9 @@ pub fn resolution_specs() -> Vec<ToolSpec> {
 /// исходный черновик).
 pub enum Kind {
     /// `resolve` — инструменты исполнения, которые есть и в фазе итога
-    /// (роль `scheduler_cron_resolve`: `exec`).
-    Cron { mode: String, resolve: Vec<String> },
+    /// (роль `scheduler_cron_resolve`: `exec`); `system` — системный текст
+    /// фазы итога (профиль `scheduler_resolution`), без него — текст исполнения.
+    Cron { mode: String, resolve: Vec<String>, system: Option<String> },
     Hook { resolve: String },
     Verify { resolve: String, terminal: Vec<String>, stop: Arc<dyn Fn() -> bool + Send + Sync> },
 }
@@ -322,6 +323,9 @@ pub const CONTINUES_AFTER_RESTART: &str = include_str!("../../../prompts/restart
 pub enum Begin {
     /// Новый прогон с первым сообщением.
     Fresh(String),
+    /// Новый прогон с готовыми первыми сообщениями (метка времени и
+    /// сообщение работнику).
+    Messages(Vec<Message>),
     /// Продолжение после перезапуска: записанная история и фаза, в которой
     /// прогон оборвался; `timed_out` — срок исполнения уже вышел.
     Resume { history: Vec<Message>, resolve: bool, timed_out: bool },
@@ -385,6 +389,7 @@ pub async fn run<P: Provider>(
     let turn_name = |phase: &str| recording.as_ref().map(|r| format!("{}:{phase}", r.run_id));
     let (mut history, resolve_only, was_timed_out) = match begin {
         Begin::Fresh(first) => (vec![Message { role: Role::User, content: vec![Part::Text { text: first }] }], false, false),
+        Begin::Messages(m) => (m, false, false),
         Begin::Resume { history, resolve, timed_out } => (history, resolve, timed_out),
     };
     let mut timed_out = was_timed_out;
@@ -480,7 +485,11 @@ pub async fn run<P: Provider>(
     if let Some(r) = &recording {
         r.checkpoint(Some(r.classes.1), turn_name("resolve").as_deref()).await;
     }
-    let mut turn = Turn::new(resolver, &terminal, prefix.system.clone(), spill_dir);
+    let system = match &kind {
+        Kind::Cron { system: Some(s), .. } => s.clone(),
+        _ => prefix.system.clone(),
+    };
+    let mut turn = Turn::new(resolver, &terminal, system, spill_dir);
     turn.terminal = vec![quiet_name.into(), NOTIFY_MAIN_AGENT.into()];
     turn.record = record;
     let error = turn.run(&mut history, &mut quiet).await.err().map(|e| e.to_string());

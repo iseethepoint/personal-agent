@@ -349,7 +349,7 @@ number = 22
 at = "0x290bc2d0"
 role = "scheduler_worker"
 what = "работник расписаний"
-hamlet = "agent/cron/src/worker.rs — П5-2 ч.2"
+hamlet = "agent/hamlet/src/scheduler_prompt.rs (П5-2 ч.2)"
 [[profile.slice]]
 at = "0x99083a"
 sections = ["96", "95", "97", "12e", "41", "339", "3c", "40", "235", "133", "44", "2f", "43b"]
@@ -365,7 +365,7 @@ number = 23
 at = "0x290bc308"
 role = "scheduler_resolution"
 what = "итог расписания"
-hamlet = "agent/cron/src/worker.rs — П5-2 ч.2"
+hamlet = "agent/hamlet/src/scheduler_prompt.rs (П5-2 ч.2)"
 [[profile.slice]]
 at = "0x990854"
 sections = ["9b", "99", "98", "9a", "835", "63b"]
