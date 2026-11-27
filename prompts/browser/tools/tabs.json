@@ -1,0 +1,37 @@
+{
+  "type": "object",
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "list",
+        "open",
+        "select",
+        "close"
+      ]
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "format": "uri",
+      "pattern": "^https?://",
+      "description": "With open: the page to load in the new tab."
+    },
+    "tab": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z][A-Za-z0-9:_-]*$",
+      "description": "With select and close: the tab. With open and ref: the tab whose latest view shows the link."
+    },
+    "ref": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z][A-Za-z0-9:_-]*$",
+      "description": "With open, in place of url: a link's element reference from the tab's latest view. The page the link leads to opens in the new tab."
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "additionalProperties": false
+}

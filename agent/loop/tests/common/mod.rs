@@ -274,7 +274,7 @@ pub fn model(wire: Wire, steps: Vec<Step>, forced: bool) -> (Server, AnyProvider
             )
         }
         Wire::OpenaiCompat => AnyProvider::OpenaiCompat(
-            OpenaiCompatProvider::new("qwen3:8b", OpenaiCompatFacts { reasoning: true, ..Default::default() }, format!("{}/v1", server.base_url), None)
+            OpenaiCompatProvider::new("qwen3:8b", OpenaiCompatFacts { reasoning: true, vision: true, ..Default::default() }, format!("{}/v1", server.base_url), None)
                 .unwrap(),
         ),
     };

@@ -251,6 +251,27 @@ fn tool_results_images_developer() {
     let b = request_body("m", &req, &facts).unwrap();
     assert_eq!(b["messages"][4], json!({"role": "user", "content": "<system-reminder>\n[время 10:00]\n</system-reminder>"}));
 
+    // Картинка в результате инструмента — следом сообщением user, после
+    // всех результатов шага.
+    let jpg = Image { media_type: "image/jpeg".into(), data_base64: "/9j/".into() };
+    let mut with_shot = req.clone();
+    with_shot.messages[2] = Message {
+        role: Role::User,
+        content: vec![
+            Part::ToolResult { call_id: "c1".into(), content: vec![ToolResultPart::Text { text: "вид".into() }, ToolResultPart::Image(jpg)], is_error: false },
+            Part::Text { text: "дальше".into() },
+        ],
+    };
+    let b = request_body("m", &with_shot, &full_facts()).unwrap();
+    let m = &b["messages"];
+    assert_eq!(m[3], json!({"role": "tool", "tool_call_id": "c1", "content": "вид"}));
+    assert_eq!(m[4]["role"], "user");
+    assert_eq!(m[4]["content"][0], json!({"type": "text", "text": "[картинки результата инструмента c1]"}));
+    assert_eq!(m[4]["content"][1], json!({"type": "image_url", "image_url": {"url": "data:image/jpeg;base64,/9j/"}}));
+    assert_eq!(m[4]["content"][2], json!({"type": "text", "text": "дальше"}));
+    let facts = OpenaiCompatFacts { vision: false, ..full_facts() };
+    assert_eq!(request_body("m", &with_shot, &facts).unwrap_err().kind, ProviderErrorKind::Config, "без зрения — ошибка");
+
     // Без зрения картинка — ошибка, а не тихий пропуск.
     let facts = OpenaiCompatFacts { vision: false, ..full_facts() };
     assert_eq!(request_body("m", &req, &facts).unwrap_err().kind, ProviderErrorKind::Config);

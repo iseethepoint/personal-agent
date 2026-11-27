@@ -60,20 +60,30 @@ fn content(parts: Vec<Value>) -> Value {
     }
 }
 
-fn tool_result_text(content: &[ToolResultPart], is_error: bool) -> Result<String, ProviderError> {
+/// Текст результата для роли `tool` и картинки результата. Роль `tool` в
+/// Chat Completions принимает только текст, поэтому картинки уходят
+/// следом сообщением `user` после всех результатов шага (у muse для Chat
+/// Completions есть свой модуль медиа — `kimi_chat_completions/prompt/media.rs`,
+/// `source-files.txt:5303`; вид пометки — своё). Без `vision` картинка —
+/// ошибка, как и в сообщении пользователя.
+fn tool_result(call_id: &str, content: &[ToolResultPart], is_error: bool, facts: &OpenaiCompatFacts) -> Result<(String, Vec<Value>), ProviderError> {
     let mut text = String::new();
+    let mut images = Vec::new();
     if is_error {
         text.push_str(TOOL_ERROR_PREFIX);
     }
     for c in content {
         match c {
             ToolResultPart::Text { text: t } => text.push_str(t),
-            ToolResultPart::Image(_) => {
-                return Err(config("картинка в результате инструмента: роль tool в Chat Completions принимает только текст"))
+            ToolResultPart::Image(i) => {
+                if images.is_empty() {
+                    images.push(json!({"type": "text", "text": format!("[картинки результата инструмента {call_id}]")}));
+                }
+                images.push(image_part(i, facts)?);
             }
         }
     }
-    Ok(text)
+    Ok((text, images))
 }
 
 /// Подряд идущие сообщения user склеиваются (заметка движка без
@@ -103,6 +113,7 @@ fn messages(req: &Request, facts: &OpenaiCompatFacts) -> Result<Vec<Value>, Prov
         match m.role {
             Role::User => {
                 let mut parts = Vec::new();
+                let mut result_images = Vec::new();
                 for p in &m.content {
                     match p {
                         Part::Text { text } => parts.push(json!({"type": "text", "text": text})),
@@ -115,18 +126,21 @@ fn messages(req: &Request, facts: &OpenaiCompatFacts) -> Result<Vec<Value>, Prov
                             if !parts.is_empty() {
                                 push_user(&mut out, std::mem::take(&mut parts));
                             }
+                            let (text, images) = tool_result(call_id, content, *is_error, facts)?;
                             out.push(json!({
                                 "role": "tool",
                                 "tool_call_id": call_id,
-                                "content": tool_result_text(content, *is_error)?,
+                                "content": text,
                             }));
+                            result_images.extend(images);
                         }
                         // Мышление и вызовы в сообщении пользователя не бывают.
                         _ => {}
                     }
                 }
-                if !parts.is_empty() {
-                    push_user(&mut out, parts);
+                result_images.extend(parts);
+                if !result_images.is_empty() {
+                    push_user(&mut out, result_images);
                 }
             }
             Role::Assistant => {
