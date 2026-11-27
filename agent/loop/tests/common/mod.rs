@@ -8,7 +8,11 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+
+/// Общий номер запроса по всем серверам теста — порядок между серверами.
+static SEQ: AtomicUsize = AtomicUsize::new(0);
 use std::time::Duration;
 
 use agent_loop::{Tool, ToolError, ToolFuture};
@@ -181,7 +185,7 @@ fn openai_body(step: &Step) -> (u16, &'static str, String) {
 /// Сервер с чередой ответов. Запросы, которые он получил, — в `requests()`.
 pub struct Server {
     pub base_url: String,
-    requests: Arc<Mutex<Vec<Value>>>,
+    requests: Arc<Mutex<Vec<(usize, Value)>>>,
 }
 
 impl Server {
@@ -212,7 +216,7 @@ impl Server {
                 }
                 let mut raw = vec![0u8; len];
                 reader.read_exact(&mut raw).unwrap();
-                seen.lock().unwrap().push(serde_json::from_slice(&raw).unwrap_or(Value::Null));
+                seen.lock().unwrap().push((SEQ.fetch_add(1, Ordering::SeqCst), serde_json::from_slice(&raw).unwrap_or(Value::Null)));
                 let (status, ctype, body) = match wire {
                     Wire::Anthropic => anthropic_body(&step),
                     Wire::OpenaiCompat => openai_body(&step),
@@ -234,7 +238,12 @@ impl Server {
     }
 
     pub fn requests(&self) -> Vec<Value> {
-        self.requests.lock().unwrap().clone()
+        self.requests.lock().unwrap().iter().map(|(_, v)| v.clone()).collect()
+    }
+
+    /// Общие номера полученных запросов.
+    pub fn order(&self) -> Vec<usize> {
+        self.requests.lock().unwrap().iter().map(|(n, _)| *n).collect()
     }
 }
 
