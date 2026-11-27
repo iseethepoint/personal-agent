@@ -29,7 +29,9 @@ use crate::paths::Home;
 
 // Описания — строки ядра muse, полные варианты, личный вариант:
 // `muse.skill_search` — 0x86c75d–0x86cb92, `muse.connector_search` — 0xa3b2b6–0xa3b64a.
-const SKILL_DESCRIPTION: &str = "Search the full skill catalog, including bundled/preinstalled product skills in `/opt/muse/skills` and custom skills in `~/workspace/custom-skills`, for a task or capability when the skills in context don't clearly fit, before concluding it's unavailable; find products and services with muse.connector_search. `bm25` (default) ranks by keyword; `regex` matches a case-insensitive pattern over skill names and descriptors. Use multiple queries for different angles or options. Returns names, paths, and full skill descriptions (not full SKILL.md bodies). This is high-recall, so hits are candidates: read a matching `SKILL.md` to decide if it is relevant and should be used. If none fit, consider alternative directions: use the `custom_connector_setup` skill's template to build a skill for a reusable workflow.";
+// Правки (П10): `muse.*` → `hamlet.*`; из описания поиска навыков убран путь
+// « in `/opt/muse/skills`» — системная папка навыков у нас задаётся при запуске.
+const SKILL_DESCRIPTION: &str = "Search the full skill catalog, including bundled/preinstalled product skills and custom skills in `~/workspace/custom-skills`, for a task or capability when the skills in context don't clearly fit, before concluding it's unavailable; find products and services with hamlet.connector_search. `bm25` (default) ranks by keyword; `regex` matches a case-insensitive pattern over skill names and descriptors. Use multiple queries for different angles or options. Returns names, paths, and full skill descriptions (not full SKILL.md bodies). This is high-recall, so hits are candidates: read a matching `SKILL.md` to decide if it is relevant and should be used. If none fit, consider alternative directions: use the `custom_connector_setup` skill's template to build a skill for a reusable workflow.";
 const SKILL_QUERIES: &str = "Up to 5 independent searches. Each returns its own ranked list; results are never blended across queries. In bm25 mode, keywords or a short phrase describing the task or capability; in regex mode, a regular expression matched against each skill's name, descriptor and instructions. Batch the tasks or capabilities you're checking instead of guessing one term.";
 const SKILL_MODE: &str = "How to interpret every query: \"bm25\" (default) for keyword ranking, or \"regex\" for a case-insensitive regular-expression match.";
 const SKILL_MAX: &str = "Maximum number of skill hits per query. Defaults to 8, capped at 25.";
@@ -38,9 +40,9 @@ const CONNECTOR_QUERIES: &str = "Up to 5 searches by connector name, alias or th
 const CONNECTOR_MAX: &str = "Connectors to return per query. Defaults to 8.";
 
 // Заметки к результату — строки ядра 0x6d3837, 0x6d3896, 0x6d60c4.
-const SKILL_HITS_NOTE: &str = "Read useful skills and their listed local amendments. Combine or adapt them to the task. Use muse.connector_search for docs about connecting and using apps or services.";
+const SKILL_HITS_NOTE: &str = "Read useful skills and their listed local amendments. Combine or adapt them to the task. Use hamlet.connector_search for docs about connecting and using apps or services.";
 const SKILL_MISS_NOTE: &str = "No matching skill was found. Adapt related skills and use connector docs, available tools or research to complete the task. Save a useful method as a custom skill. A search miss does not establish that a capability is unavailable.";
-const CONNECTOR_NOTE: &str = "Read the matching connector docs for setup and usage, then check the connection when the task needs it. Use the app's own operations to find <!-- personal-muse-only:start -->user<!-- personal-muse-only:end --><!-- group-muse-only:start -->the group's<!-- group-muse-only:end --> content. Use muse.skill_search to find skills.";
+const CONNECTOR_NOTE: &str = "Read the matching connector docs for setup and usage, then check the connection when the task needs it. Use the app's own operations to find <!-- personal-muse-only:start -->user<!-- personal-muse-only:end --><!-- group-muse-only:start -->the group's<!-- group-muse-only:end --> content. Use hamlet.skill_search to find skills.";
 
 const MAX_QUERIES: usize = 5;
 const DEFAULT_HITS: usize = 8;
@@ -293,7 +295,7 @@ impl Tool for Search {
     fn spec(&self) -> ToolSpec {
         match self.catalog.kind {
             Kind::Skill => ToolSpec {
-                name: "muse.skill_search".into(),
+                name: "hamlet.skill_search".into(),
                 description: personal(SKILL_DESCRIPTION),
                 input_schema: json!({
                     "type": "object",
@@ -306,7 +308,7 @@ impl Tool for Search {
                 }),
             },
             Kind::Connector => ToolSpec {
-                name: "muse.connector_search".into(),
+                name: "hamlet.connector_search".into(),
                 description: personal(CONNECTOR_DESCRIPTION),
                 input_schema: json!({
                     "type": "object",

@@ -201,7 +201,7 @@ fn response_helpers_keep_order() {
             Part::Text { text: "а".into() },
             Part::ToolCall {
                 id: "c1".into(),
-                name: "muse.read".into(),
+                name: "hamlet.read".into(),
                 arguments: serde_json::json!({"path": "~/x"}),
             },
             Part::Text { text: "б".into() },

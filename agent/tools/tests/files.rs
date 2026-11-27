@@ -54,7 +54,7 @@ async fn read_offset_continues_spill_file() {
     let mut got = vec![head.to_string()];
     let mut next = Some(offset);
     while let Some(off) = next {
-        let page = call(&tools, "muse.read", json!({"path": path, "offset": off})).await.unwrap();
+        let page = call(&tools, "hamlet.read", json!({"path": path, "offset": off})).await.unwrap();
         match page.rsplit_once("\n\n[") {
             Some((body, note)) if note.contains("Use offset=") => {
                 got.push(body.to_string());
@@ -77,31 +77,31 @@ async fn read_offset_continues_spill_file() {
 async fn read_limit_and_notes() {
     let (home, _tmp, tools) = setup("limit");
     std::fs::write(home.join("a.txt"), "1\n2\n3\n4\n5\n").unwrap();
-    let r = call(&tools, "muse.read", json!({"path": "a.txt", "offset": 2, "limit": 2})).await.unwrap();
+    let r = call(&tools, "hamlet.read", json!({"path": "a.txt", "offset": 2, "limit": 2})).await.unwrap();
     assert_eq!(r, "2\n3\n\n[2 more lines in file. Use offset=4 to continue.]");
-    assert_eq!(call(&tools, "muse.read", json!({"path": "~/a.txt", "offset": 4})).await.unwrap(), "4\n5");
+    assert_eq!(call(&tools, "hamlet.read", json!({"path": "~/a.txt", "offset": 4})).await.unwrap(), "4\n5");
     // Папка — список на два уровня, без скрытых.
     std::fs::create_dir_all(home.join("workspace/sub")).unwrap();
     std::fs::write(home.join(".hidden"), "").unwrap();
-    assert_eq!(call(&tools, "muse.read", json!({"path": "~"})).await.unwrap(), "a.txt\nworkspace/\n  sub/");
+    assert_eq!(call(&tools, "hamlet.read", json!({"path": "~"})).await.unwrap(), "a.txt\nworkspace/\n  sub/");
 }
 
 #[tokio::test]
 async fn write_and_edit() {
     let (home, _tmp, tools) = setup("write");
-    call(&tools, "muse.write", json!({"path": "workspace/r.md", "content": "один\n"})).await.unwrap();
-    call(&tools, "muse.write", json!({"path": "workspace/r.md", "content": "два\n", "mode": "append"})).await.unwrap();
+    call(&tools, "hamlet.write", json!({"path": "workspace/r.md", "content": "один\n"})).await.unwrap();
+    call(&tools, "hamlet.write", json!({"path": "workspace/r.md", "content": "два\n", "mode": "append"})).await.unwrap();
     assert_eq!(std::fs::read_to_string(home.join("workspace/r.md")).unwrap(), "один\nдва\n");
 
-    call(&tools, "muse.edit", json!({"path": "workspace/r.md", "old_text": "два", "new_text": "три"})).await.unwrap();
+    call(&tools, "hamlet.edit", json!({"path": "workspace/r.md", "old_text": "два", "new_text": "три"})).await.unwrap();
     assert_eq!(std::fs::read_to_string(home.join("workspace/r.md")).unwrap(), "один\nтри\n");
 
     // Перезапись чужого непрочитанного файла — отказ; после чтения — можно.
     std::fs::write(home.join("old.txt"), "старое").unwrap();
-    let err = call(&tools, "muse.write", json!({"path": "old.txt", "content": "новое"})).await.unwrap_err();
+    let err = call(&tools, "hamlet.write", json!({"path": "old.txt", "content": "новое"})).await.unwrap_err();
     assert!(err.contains("was not read in this conversation"), "{err}");
-    call(&tools, "muse.read", json!({"path": "old.txt"})).await.unwrap();
-    call(&tools, "muse.write", json!({"path": "old.txt", "content": "новое"})).await.unwrap();
+    call(&tools, "hamlet.read", json!({"path": "old.txt"})).await.unwrap();
+    call(&tools, "hamlet.write", json!({"path": "old.txt", "content": "новое"})).await.unwrap();
     assert_eq!(std::fs::read_to_string(home.join("old.txt")).unwrap(), "новое");
 }
 
@@ -109,16 +109,16 @@ async fn write_and_edit() {
 async fn edit_without_match_and_with_two() {
     let (home, _tmp, tools) = setup("edit");
     std::fs::write(home.join("e.txt"), "a = 1\nb = 2\na = 1\n").unwrap();
-    let err = call(&tools, "muse.edit", json!({"path": "e.txt", "old_text": "c = 3", "new_text": "x"})).await.unwrap_err();
+    let err = call(&tools, "hamlet.edit", json!({"path": "e.txt", "old_text": "c = 3", "new_text": "x"})).await.unwrap_err();
     assert!(err.ends_with("e.txt': old_text was not present") && err.starts_with("text not found in '"), "{err}");
     assert_eq!(std::fs::read_to_string(home.join("e.txt")).unwrap(), "a = 1\nb = 2\na = 1\n");
 
     // Два совпадения: как у muse — заменено первое, остальные названы.
-    let out = call(&tools, "muse.edit", json!({"path": "e.txt", "old_text": "a = 1", "new_text": "a = 9"})).await.unwrap();
+    let out = call(&tools, "hamlet.edit", json!({"path": "e.txt", "old_text": "a = 1", "new_text": "a = 9"})).await.unwrap();
     assert!(out.contains("note: old_text matched 2 locations (lines 1, 3); the first was replaced."), "{out}");
     assert_eq!(std::fs::read_to_string(home.join("e.txt")).unwrap(), "a = 9\nb = 2\na = 1\n");
 
-    let err = call(&tools, "muse.edit", json!({"path": "e.txt", "old_text": "", "new_text": "x"})).await.unwrap_err();
+    let err = call(&tools, "hamlet.edit", json!({"path": "e.txt", "old_text": "", "new_text": "x"})).await.unwrap_err();
     assert!(err.contains("must not be empty"));
 }
 
@@ -127,20 +127,20 @@ async fn absolute_and_parent_paths() {
     // Как у muse: абсолютный путь — любой, `..` считается от `~`.
     let (home, tmp, tools) = setup("abs");
     let outside = tmp.join("outside.txt");
-    call(&tools, "muse.write", json!({"path": outside.to_str().unwrap(), "content": "снаружи"})).await.unwrap();
-    assert_eq!(call(&tools, "muse.read", json!({"path": outside.to_str().unwrap()})).await.unwrap(), "снаружи");
-    call(&tools, "muse.edit", json!({"path": outside.to_str().unwrap(), "old_text": "снаружи", "new_text": "правка"}))
+    call(&tools, "hamlet.write", json!({"path": outside.to_str().unwrap(), "content": "снаружи"})).await.unwrap();
+    assert_eq!(call(&tools, "hamlet.read", json!({"path": outside.to_str().unwrap()})).await.unwrap(), "снаружи");
+    call(&tools, "hamlet.edit", json!({"path": outside.to_str().unwrap(), "old_text": "снаружи", "new_text": "правка"}))
         .await
         .unwrap();
     assert_eq!(std::fs::read_to_string(&outside).unwrap(), "правка");
 
     let sibling = home.parent().unwrap().join(format!("{}-sibling.txt", home.file_name().unwrap().to_str().unwrap()));
     let rel = format!("../{}", sibling.file_name().unwrap().to_str().unwrap());
-    call(&tools, "muse.write", json!({"path": rel, "content": "рядом"})).await.unwrap();
+    call(&tools, "hamlet.write", json!({"path": rel, "content": "рядом"})).await.unwrap();
     assert_eq!(std::fs::read_to_string(&sibling).unwrap(), "рядом");
-    assert_eq!(call(&tools, "muse.read", json!({"path": format!("~/{rel}")})).await.unwrap(), "рядом");
+    assert_eq!(call(&tools, "hamlet.read", json!({"path": format!("~/{rel}")})).await.unwrap(), "рядом");
     // Сторож перезаписи узнаёт файл при любом написании пути.
-    call(&tools, "muse.write", json!({"path": sibling.to_str().unwrap(), "content": "снова"})).await.unwrap();
+    call(&tools, "hamlet.write", json!({"path": sibling.to_str().unwrap(), "content": "снова"})).await.unwrap();
     std::fs::remove_file(&sibling).unwrap();
 }
 
@@ -149,10 +149,10 @@ async fn read_output_capped() {
     let (home, _tmp, tools) = setup("capped");
     let body: String = (0..3000).map(|i| format!("{i:05} {}\n", "y".repeat(60))).collect();
     std::fs::write(home.join("big.txt"), &body).unwrap();
-    let r = call(&tools, "muse.read", json!({"path": "big.txt"})).await.unwrap();
+    let r = call(&tools, "hamlet.read", json!({"path": "big.txt"})).await.unwrap();
     let (_, note) = r.rsplit_once("\n\n").unwrap();
     assert!(note.starts_with("[Read output capped at 100KB for this call. Use offset="), "{note}");
-    let r = call(&tools, "muse.read", json!({"path": "big.txt", "limit": 2900})).await.unwrap();
+    let r = call(&tools, "hamlet.read", json!({"path": "big.txt", "limit": 2900})).await.unwrap();
     let (_, note) = r.rsplit_once("\n\n").unwrap();
     assert!(note.starts_with("[Showing lines 1-") && note.contains("of 3000 (100KB limit). Use offset="), "{note}");
 }
@@ -163,7 +163,7 @@ async fn edit_reports_closest_match() {
     std::fs::write(home.join("c.rs"), "fn main() {\n    let total = 10;\n    println!(\"{total}\");\n}\n").unwrap();
     let err = call(
         &tools,
-        "muse.edit",
+        "hamlet.edit",
         json!({"path": "c.rs", "old_text": "    let totl = 10;\n    println!(\"{total}\");", "new_text": "x"}),
     )
     .await
@@ -172,16 +172,16 @@ async fn edit_reports_closest_match() {
     assert!(err.contains("\nsnippet:\n    let total = 10;\n    println!(\"{total}\");\nold_text vs closest match:\n--- old_text\n+++ closest match\n@@\n"), "{err}");
     assert!(err.contains("-    let totl = 10;\n+    let total = 10;\n     println!"), "{err}");
     // Совсем непохожее — без ближайшего.
-    let err = call(&tools, "muse.edit", json!({"path": "c.rs", "old_text": "struct Foo;", "new_text": "x"})).await.unwrap_err();
+    let err = call(&tools, "hamlet.edit", json!({"path": "c.rs", "old_text": "struct Foo;", "new_text": "x"})).await.unwrap_err();
     assert!(!err.contains("closest match"), "{err}");
 }
 
 #[tokio::test]
-async fn descriptions_are_muse_texts() {
+async fn descriptions_are_source_texts() {
     let (_h, _t, tools) = setup("specs");
     let specs = tools.specs();
     let names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(names, ["muse.read", "muse.write", "muse.edit"]);
+    assert_eq!(names, ["hamlet.read", "hamlet.write", "hamlet.edit"]);
     assert!(specs[0].description.starts_with("Read file contents or list directory contents."));
     assert!(specs[1].description.ends_with("fails unless the file was successfully read earlier in the conversation."));
     assert!(specs[2].description.starts_with("Edit a file by replacing exact text. `old_text` must match exactly"));
@@ -194,8 +194,8 @@ async fn descriptions_are_muse_texts() {
 async fn one_turn(wire: Wire) {
     let (home, _tmp, tools) = setup("turn");
     let steps = vec![
-        Step::Calls(vec![("c1", "muse.write", json!({"path": "~/workspace/note.md", "content": "заметка\n"}))]),
-        Step::Calls(vec![("c2", "muse.read", json!({"path": "~/workspace/note.md"}))]),
+        Step::Calls(vec![("c1", "hamlet.write", json!({"path": "~/workspace/note.md", "content": "заметка\n"}))]),
+        Step::Calls(vec![("c2", "hamlet.read", json!({"path": "~/workspace/note.md"}))]),
         Step::Text("Записал и прочитал."),
     ];
     let (_server, p) = model(wire, steps, false);

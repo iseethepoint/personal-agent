@@ -23,6 +23,7 @@ use crate::paths::Home;
 
 // Описания — строки ядра muse, полные варианты, личный вариант:
 // `muse.exec` — 0x904b8e–0x905244, `process.*` — 0x2cd0164–0x2cd1b55.
+// Правки (П10): имя `muse.exec` → `hamlet.exec`.
 const EXEC_DESCRIPTION: &str = "Execute a shell command. If the command is still running after `yield_ms`, it backgrounds and the runtime delivers the terminal result back into your context automatically. Use exec only for operations that have no purpose-built tool.\nNever use exec to imitate, bypass, or probe a tool that is unavailable or has rejected a call.";
 const EXEC_COMMAND: &str = "Shell command to execute.\n\nFor a command that reads literal text or code from stdin, put that input in\nthe separate `stdin` field instead of interpolating it through a heredoc,\nshell variable, or `echo`/`printf` pipeline. Normal shell pipelines and\nredirections still work. Follow each CLI's documented input interface; this\nfield does not replace required command-line arguments.";
 const EXEC_STDIN: &str = "Optional complete literal UTF-8 input. The runtime writes this text\nunchanged to the command's stdin, then closes the input stream. No shell\nexpansion or extra newline is applied. An empty string sends immediate EOF;\nomit this field to send input incrementally through process.write, setting\neof=true on the final write. The input shares the normal request-size limits\nwith the other tool arguments.\n\nFor a pipeline, this supplies the first command's input; subsequent commands\nread the preceding command's output. Explicit input redirections override\nthe supplied stream normally. Put the actual input here, not a shell variable\nor placeholder. Do not use process.write to append to supplied stdin.";
@@ -496,7 +497,7 @@ impl Tool for ExecTool {
     fn spec(&self) -> ToolSpec {
         let (name, d, props, req) = match self.op {
             Op::Exec => (
-                "muse.exec",
+                "hamlet.exec",
                 EXEC_DESCRIPTION,
                 json!({
                     "command": p("string", EXEC_COMMAND),

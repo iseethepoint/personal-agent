@@ -195,7 +195,7 @@ async fn resume_interrupted(wire: Wire) {
 both!(resume_interrupted);
 
 #[test]
-fn first_message_is_muse_text() {
+fn first_message_is_source_text() {
     let m = first_message("задача");
     assert!(m.starts_with("[Subagent Context] You are running as a subagent (depth 1/1);"));
     assert!(m.ends_with("[Subagent Task]: задача\n"));
