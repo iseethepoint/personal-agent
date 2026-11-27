@@ -427,7 +427,7 @@ impl<P: Provider + Send + Sync + 'static> Workflows<P> {
                 let prefix = Prefix::assemble(&self.system, &self.home, &tools);
                 // Подагент шага в базе. Своё: id — `workflow-call:<call_id>`.
                 let record = match self.workers.get() {
-                    Some(w) => Some(w.begin(CHILD_CLASS, &call.call_id, &format!("workflow-call:{}", call.call_id), &prefix).await?),
+                    Some(w) => Some(w.begin(CHILD_CLASS, &call.call_id, &format!("workflow-call:{}", call.call_id), &prefix, None).await?),
                     None => None,
                 };
                 (prefix, None, record)

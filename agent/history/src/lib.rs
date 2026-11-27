@@ -807,7 +807,8 @@ impl SubagentStore for AgentSubagents {
 /// and terminal_at is null`.
 ///
 /// Своё (в разборе не видно): строка работника в `agent.agents` — `kind =
-/// 'subagent'`, `agent_type` — класс владельца, без родителя;
+/// 'subagent'`, `agent_type` — класс владельца, без родителя, сведения
+/// службы — `spawn_metadata_json`;
 /// `message_id` владельца — id работника.
 pub struct AgentWorkers {
     store: Store,
@@ -822,17 +823,18 @@ impl AgentWorkers {
 }
 
 impl WorkerStore for AgentWorkers {
-    fn begin<'a>(&'a self, class: &'a str, owner_id: &'a str, agent_id: &'a str, prefix: &'a Prefix) -> Fut<'a, Arc<dyn ChildRecord>> {
+    fn begin<'a>(&'a self, class: &'a str, owner_id: &'a str, agent_id: &'a str, prefix: &'a Prefix, metadata: Option<&'a str>) -> Fut<'a, Arc<dyn ChildRecord>> {
         Box::pin(async move {
             let now = (self.now)() / 1000;
             sqlx::query(
-                "insert into agent.agents (agent_id, id, session_id, kind, parent_id, parent_agent_id, root_session_id, depth, created_at, updated_at, model, status, last_assistant_message, agent_type) \
-                 values ($1, $1, null, 'subagent', null, null, null, 0, $2, $2, $3, 'running', null, $4) on conflict (agent_id) do nothing",
+                "insert into agent.agents (agent_id, id, session_id, kind, parent_id, parent_agent_id, root_session_id, depth, created_at, updated_at, model, status, last_assistant_message, agent_type, spawn_metadata_json) \
+                 values ($1, $1, null, 'subagent', null, null, null, 0, $2, $2, $3, 'running', null, $4, $5) on conflict (agent_id) do nothing",
             )
             .bind(agent_id)
             .bind(now)
             .bind(&self.model)
             .bind(class)
+            .bind(metadata)
             .execute(&self.store.pool)
             .await
             .map_err(db)?;
@@ -863,6 +865,25 @@ impl WorkerStore for AgentWorkers {
             let Some(agent) = agent else { return Ok(None) };
             let h = AgentHistory::open(&self.store, &agent, "subagent", &self.model, self.now.clone()).await?;
             Ok(Some(Arc::new(h) as Arc<dyn ChildRecord>))
+        })
+    }
+
+    fn list_active<'a>(&'a self, class: &'a str) -> Fut<'a, Vec<agent_loop::ActiveOwner>> {
+        Box::pin(async move {
+            let rows: Vec<(String, String, Option<String>)> = sqlx::query_as(
+                "select o.owner_id, o.agent_id, a.spawn_metadata_json from agent.recovery_owners o join agent.agents a on a.agent_id = o.agent_id \
+                 where o.recovery_class = $1 and o.terminal_at is null order by o.active_at, o.owner_id",
+            )
+            .bind(class)
+            .fetch_all(&self.store.pool)
+            .await
+            .map_err(db)?;
+            let mut out = vec![];
+            for (owner, agent, meta) in rows {
+                let h = AgentHistory::open(&self.store, &agent, "subagent", &self.model, self.now.clone()).await?;
+                out.push((owner, Arc::new(h) as Arc<dyn ChildRecord>, meta));
+            }
+            Ok(out)
         })
     }
 

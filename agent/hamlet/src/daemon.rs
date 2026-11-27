@@ -42,9 +42,17 @@ impl Services {
                 eprintln!("workflow recovery: {e}");
             }
         });
+        // Окна, открытые до перезапуска, — снова открыты, оборванная работа
+        // продолжается.
+        let browsers = h.browsers.clone();
+        let windows = tokio::spawn(async move {
+            if let Err(e) = browsers.recover().await {
+                eprintln!("browser recovery: {e}");
+            }
+        });
         let s = h.scheduler.clone();
         let handle = tokio::spawn(async move { s.run_forever().await });
-        Services { handles: vec![handle, reattach, recover] }
+        Services { handles: vec![handle, reattach, recover, windows] }
     }
 
     pub async fn stop(self, h: &Hamlet) {

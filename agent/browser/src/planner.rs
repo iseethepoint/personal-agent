@@ -272,12 +272,15 @@ pub struct Planner<P> {
     /// Обновления главного агента, пришедшие во время работы: ход забирает
     /// их между шагами.
     pub updates: Option<Inbox>,
+    /// Запись истории окна и точек перезапуска (владелец `browser_task`).
+    pub record: Option<agent_loop::KindRecord>,
 }
 
 impl<P: Provider + Send + Sync + 'static> Planner<P> {
     /// Довести работу до принятого `browser.report`. `history` — история
-    /// окна; `message` — задание или продолжение.
-    pub async fn run(&self, history: &mut Vec<Message>, message: String) -> Result<Report, String> {
+    /// окна; `message` — задание или продолжение; `None` — продолжение
+    /// записанной работы после перезапуска.
+    pub async fn run(&self, history: &mut Vec<Message>, message: Option<String>) -> Result<Report, String> {
         let slot = Arc::new(Mutex::new(None));
         let mut tools = Tools::new();
         tools.add(Observe(WindowRef::Ready(self.window.clone())));
@@ -288,8 +291,17 @@ impl<P: Provider + Send + Sync + 'static> Planner<P> {
         let mut turn = Turn::new(&*self.provider, &tools, system(&self.locale), self.spill_dir.clone());
         turn.terminal = vec![REPORT.into()];
         turn.inbox = self.updates.clone();
-        history.push(Message { role: Role::User, content: vec![Part::Text { text: message }] });
+        turn.record = self.record.as_ref().map(|r| r.record.clone() as Arc<dyn agent_loop::Record>);
+        if let Some(text) = message {
+            history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
+        }
         loop {
+            if let Some(r) = &self.record {
+                // Имя хода. Своё: `<task_id>:turn:<длина истории>`.
+                if let Err(e) = r.record.checkpoint(Some(r.class), Some(&r.owner), Some(&format!("{}:turn:{}", r.owner, history.len()))).await {
+                    eprintln!("browser checkpoint: {e}");
+                }
+            }
             turn.run(history, &mut |_| {}).await.map_err(|e| e.to_string())?;
             if let Some(r) = slot.lock().unwrap().take() {
                 return Ok(r);

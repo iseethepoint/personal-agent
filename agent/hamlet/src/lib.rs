@@ -251,6 +251,10 @@ impl Hamlet {
             spill_dir.clone(),
             inbox.clone(),
         );
+        // Окна — в базе: работа окна, оборванная перезапуском, продолжается
+        // (`recovery_owners` muse).
+        let br_clock = clock.clone();
+        browsers.set_workers(Arc::new(agent_history::AgentWorkers::new(&history_store, &main_model, Arc::new(move || br_clock.now_ms()))));
 
         // Главный агент: общий набор + подагенты, забывание, окна браузера.
         let mut tools = with_workflows(parts.base(None)?);

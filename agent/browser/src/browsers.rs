@@ -30,7 +30,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
-use agent_loop::{personal, Inbox, Tool, ToolError, ToolFuture};
+use agent_loop::{personal, ChildRecord, Inbox, KindRecord, Tool, ToolError, ToolFuture, WorkerStore, WORK_NOT_RESUMABLE};
 use agent_model::{Message, Part, Provider, Role, ToolResultPart, ToolSpec};
 use rand::Rng;
 use serde_json::{json, Value};
@@ -54,6 +54,10 @@ pub const BROWSE: &str = "browser.browse";
 pub const WINDOWS: &str = "browser.windows";
 pub const DEFAULT_PROFILE: &str = "default";
 
+/// Класс владельца восстановления окна — значение ядра (`browser_task`);
+/// владелец — окно (`task_id`).
+pub const TASK_CLASS: &str = "browser_task";
+
 /// «An idle window closes after about two hours.»
 pub const IDLE_CLOSE: Duration = Duration::from_secs(2 * 60 * 60);
 
@@ -76,6 +80,8 @@ struct Task {
     handle: Mutex<Option<tokio::task::JoinHandle<()>>>,
     questions: Mutex<Vec<Waiting>>,
     last_active: Mutex<Instant>,
+    /// История исполнителя и точки перезапуска в базе.
+    record: Option<Arc<dyn ChildRecord>>,
 }
 
 /// Окна главного агента.
@@ -92,6 +98,8 @@ pub struct Browsers<P> {
     pub inbox: Inbox,
     profiles: tokio::sync::Mutex<HashMap<String, Arc<Browser>>>,
     tasks: Mutex<Vec<Arc<Task>>>,
+    /// Владельцы восстановления окон.
+    workers: std::sync::OnceLock<Arc<dyn WorkerStore>>,
 }
 
 fn new_task_id() -> String {
@@ -181,7 +189,67 @@ fn str_arg<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
 
 impl<P: Provider + Send + Sync + 'static> Browsers<P> {
     pub fn new(bin: PathBuf, root: PathBuf, headless: bool, provider: Arc<P>, locale: String, spill_dir: PathBuf, inbox: Inbox) -> Arc<Self> {
-        Arc::new(Browsers { bin, root, headless, provider, locale, spill_dir, inbox, profiles: Default::default(), tasks: Default::default() })
+        Arc::new(Browsers { bin, root, headless, provider, locale, spill_dir, inbox, profiles: Default::default(), tasks: Default::default(), workers: Default::default() })
+    }
+
+    /// Окна пишут историю исполнителя и точки перезапуска, окно — владелец
+    /// восстановления (`agent.recovery_owners`).
+    pub fn set_workers(&self, w: Arc<dyn WorkerStore>) {
+        let _ = self.workers.set(w);
+    }
+
+    /// Окна, открытые до перезапуска (незакрытые владельцы `browser_task`):
+    /// окно открывается заново в своём профиле (вкладки — заново, страницы
+    /// исполнитель находит сам), работа с точкой `before_inference`
+    /// продолжается с записанного («browser-task-restart-recovery» ядра);
+    /// окно, которое не открылось, закрывается итогом `blocked` с текстом
+    /// ядра `restart_after_output_unrecoverable`. Возвращает id окон.
+    pub async fn recover(self: &Arc<Self>) -> Result<Vec<String>, String> {
+        let Some(w) = self.workers.get().cloned() else { return Ok(vec![]) };
+        let mut ids = vec![];
+        for (task_id, record, meta) in w.list_active(TASK_CLASS).await? {
+            let meta: Value = meta.and_then(|m| serde_json::from_str(&m).ok()).unwrap_or(Value::Null);
+            let profile = meta["profile"].as_str().unwrap_or(DEFAULT_PROFILE).to_string();
+            let window = match self.browser(&profile).await {
+                Ok(b) => Window::new_in(b).await,
+                Err(e) => Err(e),
+            };
+            let window = match window {
+                Ok(win) => win,
+                Err(e) => {
+                    eprintln!("browser window {task_id}: {e}");
+                    w.terminal(TASK_CLASS, &task_id, "failed").await?;
+                    let r = Report { status: "blocked".into(), summary: WORK_NOT_RESUMABLE.into(), reason: Some("browser_failure".into()), products: vec![] };
+                    self.inbox.push(handoff(&task_id, &r, Duration::ZERO)).await;
+                    continue;
+                }
+            };
+            let (_, mut history) = record.load().await?;
+            let interrupted = record.interrupted().await?.is_some();
+            if interrupted {
+                agent_loop::close_interrupted(&mut history);
+                record.record(&history).await?;
+            }
+            let t = Arc::new(Task {
+                id: task_id.clone(),
+                profile,
+                assignment: meta["assignment"].as_str().unwrap_or_default().to_string(),
+                window,
+                updates: Inbox::new(),
+                history: tokio::sync::Mutex::new(history),
+                running: Mutex::new(interrupted),
+                handle: Mutex::new(None),
+                questions: Mutex::new(vec![]),
+                last_active: Mutex::new(Instant::now()),
+                record: Some(record),
+            });
+            self.tasks.lock().unwrap().push(t.clone());
+            if interrupted {
+                self.start(t, None);
+            }
+            ids.push(task_id);
+        }
+        Ok(ids)
     }
 
     /// Инструменты главного агента.
@@ -224,13 +292,21 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
     async fn close_idle(&self) {
         let idle: Vec<Arc<Task>> = self.tasks.lock().unwrap().iter().filter(|t| !*t.running.lock().unwrap() && t.last_active.lock().unwrap().elapsed() > IDLE_CLOSE).cloned().collect();
         for t in idle {
-            self.close_task(&t).await;
+            self.close_task(&t, true).await;
         }
     }
 
-    async fn close_task(&self, t: &Arc<Task>) {
+    /// Закрыть окно; `terminal` — окно закрыто насовсем (закрытие
+    /// главным агентом, простой), а не остановкой программы: тогда владелец
+    /// восстановления закрывается.
+    async fn close_task(&self, t: &Arc<Task>, terminal: bool) {
         if let Some(h) = t.handle.lock().unwrap().take() {
             h.abort();
+        }
+        if let (true, Some(w)) = (terminal, self.workers.get()) {
+            if let Err(e) = w.terminal(TASK_CLASS, &t.id, "closed").await {
+                eprintln!("browser window {}: {e}", t.id);
+            }
         }
         t.questions.lock().unwrap().clear();
         t.window.close().await;
@@ -243,8 +319,21 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
         if let Some(u) = url {
             window.act("t1", &[json!({"kind": "navigate", "url": u})]).await?;
         }
+        let id = new_task_id();
+        // Окно в базе. Своё: id исполнителя — `browser-window:<task_id>`,
+        // закреплённое начало — системный текст исполнителя (инструменты он
+        // собирает сам), сведения — профиль и задание.
+        let record = match self.workers.get() {
+            Some(w) => {
+                let prefix = agent_loop::Prefix { system: crate::planner::system(&self.locale), tools: vec![] };
+                let meta = json!({"profile": profile, "assignment": assignment}).to_string();
+                Some(w.begin(TASK_CLASS, &id, &format!("browser-window:{id}"), &prefix, Some(&meta)).await?)
+            }
+            None => None,
+        };
         let t = Arc::new(Task {
-            id: new_task_id(),
+            id,
+            record,
             profile: profile.into(),
             assignment: assignment.into(),
             window,
@@ -259,12 +348,14 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
         Ok(t)
     }
 
-    /// Запустить работу исполнителя; `running` уже стоит.
-    fn start(self: &Arc<Self>, t: Arc<Task>, first: String) {
+    /// Запустить работу исполнителя; `running` уже стоит. `first` —
+    /// задание или продолжение; `None` — продолжение записанной работы.
+    fn start(self: &Arc<Self>, t: Arc<Task>, first: Option<String>) {
         let me = self.clone();
         let task = t.clone();
         let h = tokio::spawn(async move {
             let mut message = first;
+            let record = task.record.clone().map(|record| KindRecord { record, class: TASK_CLASS, owner: task.id.clone() });
             loop {
                 let planner = Planner {
                     provider: me.provider.clone(),
@@ -273,12 +364,18 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
                     locale: me.locale.clone(),
                     spill_dir: me.spill_dir.clone(),
                     updates: Some(task.updates.clone()),
+                    record: record.clone(),
                 };
                 let started = Instant::now();
                 let result = {
                     let mut history = task.history.lock().await;
                     planner.run(&mut history, message).await
                 };
+                if let Some(r) = &record {
+                    if let Err(e) = r.record.checkpoint(Some(r.class), Some(&r.owner), None).await {
+                        eprintln!("browser checkpoint: {e}");
+                    }
+                }
                 let report = result.unwrap_or_else(|e| Report { status: "blocked".into(), summary: format!("The browser failed: {e}"), reason: Some("browser_failure".into()), products: vec![] });
                 me.inbox.push(handoff(&task.id, &report, started.elapsed())).await;
                 *task.last_active.lock().unwrap() = Instant::now();
@@ -289,7 +386,7 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
                     *running = false;
                     break;
                 }
-                message = rest.iter().map(Message::text).collect::<Vec<_>>().join("\n\n");
+                message = Some(rest.iter().map(Message::text).collect::<Vec<_>>().join("\n\n"));
             }
         });
         *t.handle.lock().unwrap() = Some(h);
@@ -307,7 +404,7 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
             let profile = str_arg(args, "profile").unwrap_or(DEFAULT_PROFILE);
             let t = self.open_window(profile, str_arg(args, "url"), text).await?;
             *t.running.lock().unwrap() = true;
-            self.start(t.clone(), assignment_message(text));
+            self.start(t.clone(), Some(assignment_message(text)));
             return Ok(format!("A new window (task_id {}) accepted the request.\n\n{accepted}", t.id));
         }
         let t = self.find(task_id)?;
@@ -342,7 +439,7 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
             }
             return Ok(format!("{out}\n\n{accepted}"));
         }
-        self.start(t.clone(), update_message(&body));
+        self.start(t.clone(), Some(update_message(&body)));
         Ok(format!("The window (task_id {task_id}) accepted the request as new work.\n\n{accepted}"))
     }
 
@@ -389,7 +486,7 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
                 match str_arg(args, "tab") {
                     Some(tab) => t.window.tabs("close", None, Some(tab), None).await,
                     None => {
-                        self.close_task(&t).await;
+                        self.close_task(&t, true).await;
                         Ok(text(format!("Closed the window (task_id {id}) and stopped its browser task.")))
                     }
                 }
@@ -398,11 +495,12 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
         }
     }
 
-    /// Закрыть все окна и браузеры (остановка агента, тесты).
+    /// Закрыть все окна и браузеры (остановка агента, тесты). Владельцы
+    /// восстановления остаются: после старта окна открываются снова.
     pub async fn shutdown(&self) {
         let tasks: Vec<Arc<Task>> = self.tasks.lock().unwrap().clone();
         for t in tasks {
-            self.close_task(&t).await;
+            self.close_task(&t, false).await;
         }
         for (_, b) in self.profiles.lock().await.drain() {
             b.close().await;
