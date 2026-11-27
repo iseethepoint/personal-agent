@@ -268,3 +268,26 @@
 - `first_kept_seq` — `seq` первого оставленного сообщения старой истории;
 - `checkpoint_seq` — новая граница подсказки;
 - `input_tokens` — вход вместе с чтением и записью кэша.
+
+## Точка перезапуска и оборванные вызовы (П3е-5, часть 1 — главный агент)
+
+`prompts/restart/interrupted_tool_call.md` — текст ядра как есть (около `0x8ada56`, рядом с разбором точки перезапуска при старте): результат вызова, который был отдан инструменту, но не кончился из-за перезапуска.
+
+Таблица `agent.runtime_restart_checkpoints` — `agent/history/migrations/0005_restart.sql` по каталогу ядра. Запросы — форма ядра:
+- запись — `INSERT … SELECT … WHERE EXISTS (… status NOT IN ('shutdown', 'not_found')) ON CONFLICT (agent_id) DO UPDATE` (около `0x1711918`);
+- чтение — `SELECT payload_json … WHERE agent_id = $1 AND mode = $2` (около `0x1710f52`).
+
+Режимы — значения ядра: ход пишет `before_inference` с `payload_json`, между ходами — `idle` без `payload_json`. У главного агента `recovery_class = 'foreground_root'`, `recovery_owner_id` — его id, `execution_config_json` не пуст (запрос ядра около `0x1729b52`). Таблица добавлена в каталог `hamlet.db` (27 таблиц).
+
+При старте (`restart_rehydration` ядра):
+- вести, взятые ходом, которого нет в точке, — `aborted`;
+- вызовы последнего ответа без результата получают текст выше;
+- ход из точки `before_inference` продолжается под тем же именем, если история кончается не ответом модели; его вести закрываются по итогу;
+- если ход успел ответить, его вести — `completed`, точка — `idle`.
+
+Своё (`agent/history/src/lib.rs`, `agent/loop/src/prompt.rs`, `agent/hamlet/src/daemon.rs`):
+- `payload_json` — `{"message_id": <имя хода>}`; вести связаны с ходом через `stream_owner_message_id` (у ядра payload — состояние хода с незаконченными вызовами, его вида в разборе нет);
+- `execution_config_json` — `{"model": …}`;
+- точка пишется один раз в начале хода, а не перед каждым обращением к модели: наш payload за ход не меняется;
+- отбор осиротевших вестей — `stream_owner_message_id` не равен ходу из точки;
+- результат оборванного вызова — с `is_error = true` (признака в разборе не видно).

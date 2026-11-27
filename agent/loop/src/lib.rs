@@ -11,7 +11,7 @@ pub mod tool_search;
 pub mod turn;
 
 pub use compaction::{personal, summarization_prompt, Compacted, Compactor, Plan, SUMMARY_HEADER};
-pub use prompt::{o200k_count, Conversation, Prefix, HOME_FILES};
+pub use prompt::{o200k_count, Conversation, Prefix, HOME_FILES, INTERRUPTED_TOOL_CALL};
 pub use spill::SPILL_THRESHOLD_BYTES;
 pub use subagents::{first_message, inherited_history, AfterDone, Finish, Inbox, Kind, Mailbox, Status, SubagentTool, Subagents, Transcript, CONTROL_TIMEOUT};
 pub use tool::{Tool, ToolError, ToolFuture, Tools};

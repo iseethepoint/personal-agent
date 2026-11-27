@@ -464,6 +464,77 @@ async fn conversation_survives_restart() {
     }
 }
 
+/// Адрес базы агента из его `agent.toml`.
+fn db_url(dir: &Path) -> String {
+    let toml = std::fs::read_to_string(dir.join("agent.toml")).unwrap();
+    let var = toml.split("url_env = \"").nth(1).unwrap().split('"').next().unwrap();
+    std::env::var(var).unwrap()
+}
+
+/// П3е-5: перезапуск посреди исполнения инструмента. Ход оставил точку
+/// `before_inference` и взятую весть; после перезапуска вызов без результата
+/// получает текст ядра «service restarted», ход продолжается под тем же
+/// именем и закрывает свою весть, точка — `idle`. Весть, взятая ходом,
+/// которого нет в точке, — `aborted`.
+#[tokio::test]
+async fn interrupted_tool_call_resumes_after_restart() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s1, _p) = model(wire, vec![Step::Calls(vec![("e1", "hamlet.exec", json!({"command": "sleep 30"}))])], true);
+        let dir = agent_dir("interrupted", wire, &s1);
+        let h1 = build(&dir, FakeClock::at(t0())).await;
+        let (tx, rx) = mpsc::channel(4);
+        let (otx, _orx) = mpsc::unbounded_channel();
+        let runner = {
+            let h = h1.clone();
+            tokio::spawn(async move { h.run(rx, otx).await })
+        };
+        tx.send("start the work".into()).await.unwrap();
+        // Модель ответила вызовом, команда идёт — программа обрывается.
+        while s1.requests().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        runner.abort();
+        let _ = runner.await;
+        h1.browsers.shutdown().await;
+        drop(h1);
+
+        let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
+        let (mode, payload, class, owner): (String, Option<String>, Option<String>, Option<String>) =
+            sqlx::query_as("select mode, payload_json, recovery_class, recovery_owner_id from agent.runtime_restart_checkpoints where agent_id = 'root'").fetch_one(&pool).await.unwrap();
+        assert_eq!((mode.as_str(), class.as_deref(), owner.as_deref()), ("before_inference", Some("foreground_root"), Some("root")), "{wire:?}");
+        let turn_id = serde_json::from_str::<serde_json::Value>(&payload.unwrap()).unwrap()["message_id"].as_str().unwrap().to_string();
+        let attached: Vec<(String, String)> = sqlx::query_as("select submission_id, stream_owner_message_id from agent.message_mailbox where agent_id = 'root' and state = 'attached'").fetch_all(&pool).await.unwrap();
+        assert_eq!(attached.len(), 1, "{wire:?}");
+        assert_eq!(attached[0].1, turn_id, "{wire:?}");
+        // Весть, взятая ходом, которого нет в точке.
+        sqlx::query("insert into agent.message_mailbox (submission_id, accepted_ordinal, agent_id, conversation_epoch, submission_kind, routing_scope, state, stream_owner_message_id, submission_json) values ('root:mailbox:orphan', 1000, 'root', 0, 'notice', 'root', 'attached', 'root:turn:gone', '{}')")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (s2, _p) = model(wire, vec![Step::Text("Checked.")], true);
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(one_run(&h2, None).await, "Checked.", "{wire:?}");
+        let body = s2.requests()[0].to_string();
+        assert!(body.contains("start the work"), "{wire:?}");
+        assert!(body.contains(&serde_json::to_string(agent_loop::INTERRUPTED_TOOL_CALL).unwrap()[1..60]), "{wire:?}: результат оборванного вызова: {body}");
+        let state = |id: String| {
+            let pool = pool.clone();
+            async move { sqlx::query_scalar::<_, String>("select state from agent.message_mailbox where submission_id = $1").bind(id).fetch_one(&pool).await.unwrap() }
+        };
+        assert_eq!(state(attached[0].0.clone()).await, "completed", "{wire:?}: весть хода закрыта им после перезапуска");
+        assert_eq!(state("root:mailbox:orphan".into()).await, "aborted", "{wire:?}");
+        let (mode, payload): (String, Option<String>) = sqlx::query_as("select mode, payload_json from agent.runtime_restart_checkpoints where agent_id = 'root'").fetch_one(&pool).await.unwrap();
+        assert_eq!((mode.as_str(), payload), ("idle", None), "{wire:?}");
+        // В истории: строка, заметка, вызов, результат перезапуска, ответ.
+        let saved = h2.history.load().await.unwrap().unwrap();
+        assert_eq!(saved.history.len(), 5, "{wire:?}: {:?}", saved.history);
+        h2.browsers.shutdown().await;
+    }
+}
+
 /// П3е-2: ящик в базе — весть, пришедшая, когда хода нет, и не взятая до
 /// остановки, после перезапуска доходит новым ходом и закрывается.
 #[tokio::test]

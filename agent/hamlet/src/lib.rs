@@ -41,6 +41,8 @@ pub use config::AgentDir;
 
 /// Агент главной сессии в `agent.agents`.
 pub const ROOT_AGENT: &str = "root";
+/// `recovery_class` точки перезапуска главного агента (значение ядра).
+pub const ROOT_RECOVERY_CLASS: &str = "foreground_root";
 
 /// Собранный агент.
 pub struct Hamlet {

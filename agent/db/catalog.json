@@ -786,6 +786,86 @@
         {
           "comment": null,
           "default": null,
+          "name": "mode",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "payload_json",
+          "nullable": true,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "created_at",
+          "nullable": false,
+          "position": 4,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "updated_at",
+          "nullable": false,
+          "position": 5,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "recovery_class",
+          "nullable": true,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "recovery_owner_id",
+          "nullable": true,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "execution_config_json",
+          "nullable": true,
+          "position": 8,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "agent_id",
+          "name": "runtime_restart_checkpoints_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "runtime_restart_checkpoints",
+      "schema": "agent"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
+          "name": "agent_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
           "name": "variant_hash",
           "nullable": false,
           "position": 2,
