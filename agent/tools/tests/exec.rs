@@ -223,3 +223,65 @@ async fn one_turn_anthropic() {
 async fn one_turn_openai_compat() {
     one_turn(Wire::OpenaiCompat).await
 }
+
+#[tokio::test]
+async fn pty_gives_a_terminal() {
+    let (_home, tools, _inbox) = setup("pty", vec![]);
+    // Без pty терминала нет.
+    let r = call(&tools, "muse.exec", json!({"command": "tty"})).await.unwrap();
+    assert_eq!(r["exit_code"], 1, "{r}");
+    assert_eq!(r["pty"], false);
+    assert!(r["output"].as_str().unwrap().contains("not a tty"), "{r}");
+    // Под pty — есть.
+    let r = call(&tools, "muse.exec", json!({"command": "tty", "pty": true})).await.unwrap();
+    assert_eq!((r["exit_code"].as_i64(), r["pty"].as_bool()), (Some(0), Some(true)), "{r}");
+    assert!(r["output"].as_str().unwrap().trim().starts_with("/dev/"), "{r}");
+}
+
+#[tokio::test]
+async fn send_keys_reach_pty() {
+    let (_home, tools, _inbox) = setup("pty-keys", vec![]);
+    // read ждёт строку с терминала; Ctrl-C прерывает его, как в терминале.
+    let r = call(&tools, "muse.exec", json!({"command": "read line; echo \"got:$line\"", "pty": true, "background": true}))
+        .await
+        .unwrap();
+    let id = r["id"].as_str().unwrap().to_string();
+    call(&tools, "process.write", json!({"session_id": id, "data": "привет"})).await.unwrap();
+    call(&tools, "process.send_keys", json!({"session_id": id, "keys": ["enter"]})).await.unwrap();
+    let mut out = String::new();
+    for _ in 0..30 {
+        let p = call(&tools, "process.poll", json!({"session_id": id, "timeout": 200})).await.unwrap();
+        out.push_str(p["stdout"].as_str().unwrap());
+        if p["status"] != "running" {
+            break;
+        }
+    }
+    assert!(out.contains("got:привет"), "{out:?}");
+
+    let r = call(&tools, "muse.exec", json!({"command": "sleep 30", "pty": true, "background": true})).await.unwrap();
+    let id = r["id"].as_str().unwrap().to_string();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    call(&tools, "process.send_keys", json!({"session_id": id, "keys": ["c-c"]})).await.unwrap();
+    let p = call(&tools, "process.poll", json!({"session_id": id, "timeout": 3000})).await.unwrap();
+    let p = if p["status"] == "running" { call(&tools, "process.poll", json!({"session_id": id, "timeout": 3000})).await.unwrap() } else { p };
+    assert_ne!(p["status"], "running", "Ctrl-C через pty должен остановить sleep: {p}");
+}
+
+#[tokio::test]
+async fn output_buffer_keeps_tail() {
+    let cap = agent_tools::exec::OUTPUT_CAP_BYTES;
+    assert_eq!(cap, 100 * 1024);
+    let (_home, tools, _inbox) = setup("cap", vec![]);
+    // 3000 строк по 100 байт = 300 000 байт > предела.
+    let r = call(&tools, "muse.exec", json!({"command": "for i in $(seq 1 3000); do printf '%05d %093d\\n' $i 0; done"}))
+        .await
+        .unwrap();
+    assert_eq!(r["truncated"], true);
+    let out = r["output"].as_str().unwrap();
+    assert!(out.len() <= cap);
+    assert!(out.ends_with(&format!("{:05} {:093}\n", 3000, 0)), "хвост на месте");
+    assert!(!out.contains(&format!("{:05} {:093}\n", 1, 0)), "начало отброшено");
+
+    let r = call(&tools, "muse.exec", json!({"command": "echo коротко"})).await.unwrap();
+    assert_eq!(r["truncated"], false);
+}

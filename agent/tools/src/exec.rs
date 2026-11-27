@@ -16,7 +16,7 @@ use agent_loop::{personal, Inbox, Tool, ToolError, ToolFuture, Tools};
 use agent_model::{Message, Part, Role, ToolResultPart, ToolSpec};
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::process::{ChildStdin, Command};
+use tokio::process::Command;
 use tokio::sync::Notify;
 
 use crate::paths::Home;
@@ -57,6 +57,28 @@ pub const REDACTED: &str = "<redacted>";
 /// within two seconds» (строка ядра около 0x9049a0).
 const OUTPUT_CLOSE_WAIT: Duration = Duration::from_secs(2);
 const TAIL_CHARS: usize = 2000;
+/// Предел накопленного вывода сессии. Поле `truncated` в описаниях muse
+/// говорит, что предел есть, но числа в ядре не найдено — взят порог spill
+/// из П3а, 100 КБ. Держится хвост; начало отбрасывается.
+pub const OUTPUT_CAP_BYTES: usize = agent_loop::SPILL_THRESHOLD_BYTES;
+
+type Writer = Box<dyn tokio::io::AsyncWrite + Send + Unpin>;
+/// Поток вывода и признак stderr.
+type Output = (Box<dyn tokio::io::AsyncRead + Send + Unpin>, bool);
+
+/// Дописать кусок и удержать хвост в пределе. `true` — начало отброшено.
+fn push_capped(buf: &mut String, piece: &str) -> bool {
+    buf.push_str(piece);
+    if buf.len() <= OUTPUT_CAP_BYTES {
+        return false;
+    }
+    let mut cut = buf.len() - OUTPUT_CAP_BYTES;
+    while !buf.is_char_boundary(cut) {
+        cut += 1;
+    }
+    buf.drain(..cut);
+    true
+}
 
 #[derive(Default)]
 struct State {
@@ -68,6 +90,7 @@ struct State {
     done: bool,
     backgrounded: bool,
     finished: Option<Instant>,
+    truncated: bool,
 }
 
 struct Session {
@@ -77,7 +100,8 @@ struct Session {
     cwd: String,
     started: Instant,
     state: Mutex<State>,
-    stdin: tokio::sync::Mutex<Option<ChildStdin>>,
+    stdin: tokio::sync::Mutex<Option<Writer>>,
+    pty: bool,
     changed: Notify,
 }
 
@@ -156,8 +180,8 @@ impl ExecTools {
             "backgrounded": st.backgrounded,
             "elapsed_ms": st.finished.unwrap_or_else(Instant::now).duration_since(s.started).as_millis() as u64,
             "output_chars": st.log.chars().count(),
-            "truncated": false,
-            "pty": false,
+            "truncated": st.truncated,
+            "pty": s.pty,
         })
     }
 
@@ -172,28 +196,62 @@ impl ExecTools {
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::InvalidArguments("`command` (string) is required".into()))?
             .to_string();
-        if args.get("pty").and_then(Value::as_bool).unwrap_or(false) {
-            return Err(ToolError::Failed("pty sessions are not available yet; run without pty".into()));
-        }
+        let pty = args.get("pty").and_then(Value::as_bool).unwrap_or(false);
         let cwd = match args.get("workdir").and_then(Value::as_str) {
             Some(w) => self.inner.home.resolve(w).map_err(ToolError::InvalidArguments)?,
             None => self.inner.home.dir.clone(),
         };
         let mut cmd = Command::new("bash");
         cmd.arg("-c").arg(&command).current_dir(&cwd);
-        cmd.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
         if let Some(env) = args.get("env").and_then(Value::as_object) {
             for (k, v) in env {
                 cmd.env(k, v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string()));
             }
         }
-        #[cfg(unix)]
-        cmd.process_group(0);
-        let mut child = cmd.spawn().map_err(|e| ToolError::Failed(format!("failed to start command: {e}")))?;
-        let mut stdin = child.stdin.take();
+        let start = |e: std::io::Error| ToolError::Failed(format!("failed to start command: {e}"));
+        let (mut child, mut stdin, outputs): (_, Option<Writer>, Vec<Output>) = if pty {
+            let (master, slave) = open_pty().map_err(start)?;
+            cmd.stdin(slave.try_clone().map_err(start)?)
+                .stdout(slave.try_clone().map_err(start)?)
+                .stderr(slave);
+            // Свой сеанс с управляющим терминалом — как у программы в терминале.
+            unsafe {
+                cmd.pre_exec(|| {
+                    if libc::setsid() < 0 || libc::ioctl(0, libc::TIOCSCTTY as _, 0) < 0 {
+                        return Err(std::io::Error::last_os_error());
+                    }
+                    Ok(())
+                });
+            }
+            let child = cmd.spawn().map_err(start)?;
+            drop(cmd); // родитель не держит сторону подчинённого терминала
+            let reader = tokio::fs::File::from_std(std::fs::File::from(master.try_clone().map_err(start)?));
+            let writer = tokio::fs::File::from_std(std::fs::File::from(master));
+            (child, Some(Box::new(writer) as Writer), vec![(Box::new(reader) as _, false)])
+        } else {
+            cmd.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+            #[cfg(unix)]
+            cmd.process_group(0);
+            let mut child = cmd.spawn().map_err(start)?;
+            let stdin = child.stdin.take().map(|w| Box::new(w) as Writer);
+            let mut outs: Vec<Output> = Vec::new();
+            if let Some(r) = child.stdout.take() {
+                outs.push((Box::new(r), false));
+            }
+            if let Some(r) = child.stderr.take() {
+                outs.push((Box::new(r), true));
+            }
+            (child, stdin, outs)
+        };
         if let Some(input) = args.get("stdin").and_then(Value::as_str) {
             if let Some(mut w) = stdin.take() {
                 let _ = w.write_all(input.as_bytes()).await;
+                if pty {
+                    // У терминала конец ввода — знак EOT (Ctrl-D), а не закрытие.
+                    let _ = w.write_all(&[0x04]).await;
+                    let _ = w.flush().await;
+                    stdin = Some(w);
+                }
             }
         }
         let id = {
@@ -209,20 +267,18 @@ impl ExecTools {
             started: Instant::now(),
             state: Mutex::new(State::default()),
             stdin: tokio::sync::Mutex::new(stdin),
+            pty,
             changed: Notify::new(),
         });
         self.inner.sessions.lock().unwrap().push(session.clone());
 
-        let readers = [
-            child.stdout.take().map(|r| self.reader(session.clone(), r, false)),
-            child.stderr.take().map(|r| self.reader(session.clone(), r, true)),
-        ];
+        let readers: Vec<_> = outputs.into_iter().map(|(r, err)| self.reader(session.clone(), r, err)).collect();
         let me = self.clone();
         let s = session.clone();
         tokio::spawn(async move {
             let status = child.wait().await;
             let _ = tokio::time::timeout(OUTPUT_CLOSE_WAIT, async {
-                for r in readers.into_iter().flatten() {
+                for r in readers {
                     let _ = r.await;
                 }
             })
@@ -310,16 +366,18 @@ impl ExecTools {
                 pending.drain(..valid);
                 {
                     let mut st = s.state.lock().unwrap();
-                    st.log.push_str(&piece);
-                    if stderr { st.stderr_delta.push_str(&piece) } else { st.stdout_delta.push_str(&piece) }
+                    let cut = push_capped(&mut st.log, &piece);
+                    st.truncated |= cut;
+                    if stderr { push_capped(&mut st.stderr_delta, &piece); } else { push_capped(&mut st.stdout_delta, &piece); }
                 }
                 s.changed.notify_waiters();
             }
             if !pending.is_empty() {
                 let piece = String::from_utf8_lossy(&pending).to_string();
                 let mut st = s.state.lock().unwrap();
-                st.log.push_str(&piece);
-                if stderr { st.stderr_delta.push_str(&piece) } else { st.stdout_delta.push_str(&piece) }
+                let cut = push_capped(&mut st.log, &piece);
+                st.truncated |= cut;
+                if stderr { push_capped(&mut st.stderr_delta, &piece); } else { push_capped(&mut st.stdout_delta, &piece); }
             }
         })
     }
@@ -535,8 +593,12 @@ impl Tool for ExecTool {
                     let mut stdin = s.stdin.lock().await;
                     let w = stdin.as_mut().ok_or_else(|| ToolError::Failed(format!("stdin of `{}` is no longer writable", s.id)))?;
                     w.write_all(&bytes).await.map_err(|e| ToolError::Failed(format!("write to `{}` failed: {e}", s.id)))?;
+                    if eof && s.pty {
+                        // У терминала конец ввода — знак EOT (Ctrl-D).
+                        w.write_all(&[0x04]).await.map_err(|e| ToolError::Failed(format!("write to `{}` failed: {e}", s.id)))?;
+                    }
                     let _ = w.flush().await;
-                    if eof {
+                    if eof && !s.pty {
                         *stdin = None;
                     }
                     json!({"session_id": s.id, "bytes_written": bytes.len(), "stdin_closed": eof})
@@ -554,4 +616,15 @@ impl Tool for ExecTool {
             Ok(vec![ToolResultPart::Text { text: out.to_string() }])
         })
     }
+}
+
+/// Пара псевдотерминала: (ведущая сторона, подчинённая).
+fn open_pty() -> std::io::Result<(std::os::fd::OwnedFd, std::os::fd::OwnedFd)> {
+    use std::os::fd::FromRawFd;
+    let (mut master, mut slave) = (0, 0);
+    let rc = unsafe { libc::openpty(&mut master, &mut slave, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::null_mut()) };
+    if rc != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    unsafe { Ok((std::os::fd::OwnedFd::from_raw_fd(master), std::os::fd::OwnedFd::from_raw_fd(slave))) }
 }
