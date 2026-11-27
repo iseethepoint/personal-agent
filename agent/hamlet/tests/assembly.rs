@@ -1080,3 +1080,38 @@ async fn owner_lines_go_through_the_mailbox_in_order() {
         h2.browsers.shutdown().await;
     }
 }
+
+/// П3ж-4: периодический сброс памяти — после хода, когда со времени
+/// прошлого сброса набралось 50 000 токенов, идёт ход сброса (с сегодняшним
+/// журналом); граница сохраняется в `periodic_memory_flush_progress`, и
+/// следующий короткий ход сброса не вызывает. Без вызова
+/// `periodic_flush` после хода — красный.
+#[tokio::test]
+async fn periodic_memory_flush_runs_past_threshold() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s, _p) = model(wire, vec![Step::Text("Noted."), Step::Text("Nothing new to record."), Step::Text("Yes.")], true);
+        let dir = agent_dir("periodic-flush", wire, &s);
+        std::fs::create_dir_all(dir.join("home/memory")).unwrap();
+        std::fs::write(dir.join("home/memory/2027-01-15.md"), "- Owner drinks tea.\n").unwrap();
+        let h = build(&dir, FakeClock::at(t0())).await;
+        let mut conv = h.conversation().await.unwrap();
+        let long = "note ".repeat(60_000);
+        assert!(conv.tokens_from(0) < agent_loop::compaction::PERIODIC_THRESHOLD_TOKENS);
+        let line = |text: &str| agent_model::Message { role: agent_model::Role::User, content: vec![agent_model::Part::Text { text: text.to_string() }] };
+        h.inbox.push_user(line(&long)).await;
+        assert_eq!(h.turn(&mut conv, None).await.unwrap(), "Noted.", "{wire:?}");
+        h.periodic_flush(&conv).await;
+        let reqs = s.requests();
+        assert_eq!(reqs.len(), 2, "{wire:?}: ход и сброс");
+        let flush = reqs[1].to_string();
+        assert!(flush.contains("Today's memory log at ~/memory/2027-01-15.md already ends with the entries below.") && flush.contains("- Owner drinks tea."), "{wire:?}");
+        assert!(flush.contains("Pre-compaction memory flush."), "{wire:?}");
+        assert_eq!(h.history.flush_progress().await.unwrap(), conv.history.len(), "{wire:?}: всё сброшено");
+
+        h.inbox.push_user(line("ok?")).await;
+        assert_eq!(h.turn(&mut conv, None).await.unwrap(), "Yes.", "{wire:?}");
+        h.periodic_flush(&conv).await;
+        assert_eq!(s.requests().len(), 3, "{wire:?}: короткий ход — без сброса");
+        h.browsers.shutdown().await;
+    }
+}

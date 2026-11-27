@@ -426,7 +426,29 @@ impl Hamlet {
         Ok(Conversation::new(self.prefix.clone()))
     }
 
-    pub fn compactor(&self) -> Compactor<'_, AnyProvider, AnyProvider> {
-        Compactor { flush: &self.compaction.0, compaction: &self.compaction.1, tools: &self.tools, trigger: self.compaction.2, spill_dir: self.spill_dir.clone() }
+    /// Сжатие и сброс памяти; `flush_covered` — всё уже сброшено.
+    pub fn compactor(&self, flush_covered: bool) -> Compactor<'_, AnyProvider, AnyProvider> {
+        Compactor {
+            flush: &self.compaction.0,
+            compaction: &self.compaction.1,
+            tools: &self.tools,
+            trigger: self.compaction.2,
+            spill_dir: self.spill_dir.clone(),
+            today: self.today_log(),
+            flush_covered,
+        }
+    }
+
+    /// Сегодняшний журнал памяти `memory/YYYY-MM-DD.md` (дата — в поясе
+    /// владельца, без пояса — UTC), если файл есть и не пуст.
+    pub fn today_log(&self) -> Option<(String, String)> {
+        let now = chrono::DateTime::from_timestamp_millis(self.clock.now_ms())?;
+        let date = match self.timezone.as_deref().and_then(|t| t.parse::<chrono_tz::Tz>().ok()) {
+            Some(tz) => now.with_timezone(&tz).format("%Y-%m-%d").to_string(),
+            None => now.format("%Y-%m-%d").to_string(),
+        };
+        let rel = format!("memory/{date}.md");
+        let content = std::fs::read_to_string(self.home.join(&rel)).ok()?;
+        (!content.trim().is_empty()).then_some((rel, content))
     }
 }

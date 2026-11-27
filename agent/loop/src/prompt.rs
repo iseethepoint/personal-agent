@@ -157,6 +157,11 @@ impl Conversation {
         self.anchor = None;
     }
 
+    /// Токенов в истории с сообщения `from` (o200k).
+    pub fn tokens_from(&self, from: usize) -> u64 {
+        self.history.get(from..).unwrap_or_default().iter().map(message_tokens).sum()
+    }
+
     /// Оценка длины разговора в токенах: счёт поставщика на последнем
     /// ответе плюс o200k того, что легло после; без счёта — o200k всего
     /// (начало, описания инструментов, история).

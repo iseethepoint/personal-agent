@@ -496,3 +496,24 @@
 - текущий шаг — сообщения после последнего ответа модели;
 - в скобках ошибки — текст ошибки поставщика;
 - правило одно для обоих поставщиков (у muse разбор — в `anthropic_prompt_poison.rs`, а признаки лежат рядом с кодом других поставщиков).
+
+## Периодический сброс памяти (П3ж-4)
+
+Новых файлов текстов нет. Строка ядра «Today's memory log at ~/{path} already ends with the entries below. Do not re-append anything already recorded there; append only new entries and corrections.\n\n{entries}» (около `0x6bf7fc`) — в `agent_loop::compaction::today_log_note`.
+
+Устройство — как у muse (`memory_flush/periodic_coverage.rs`, `maintenance/handlers/periodic_memory_flush.rs`):
+- порог `JARVIS_MEMORY_FLUSH_PERIODIC_THRESHOLD_TOKENS` — по умолчанию 50 000 (`mov $0xc350` после чтения ручки, ядро около `0xac1408c`);
+- набралось столько токенов со времени прошлого сброса — тот же ход сброса (`memory_flush_prompt.md`) идёт без хода владельца, после ответа; журнал — «periodic memory flush started / completed / failed», «failed to persist periodic memory flush progress», «failed to read pending periodic memory flush»;
+- граница — `periodic_memory_flush_progress` (до какого `seq` сброшено);
+- сброс перед сжатием пропускается, если всё уже сброшено (`periodic_flush_covered`);
+- перед просьбой о сбросе — сегодняшний журнал памяти, если файл есть (у обоих сбросов); дата — в поясе владельца («failed to read home timezone for memory flush»).
+
+Своё:
+- граница — столбец `agent.agents.periodic_memory_flush_progress` (у muse — поле заголовка сессии, заголовка у нас нет); после сжатия граница ставится на конец (сброс перед сжатием покрыл всё);
+- токены набранного — o200k сообщений после границы;
+- журнал показывается целиком; без пояса — дата UTC;
+- в той же структуре настроек ядра рядом с порогом лежат ещё 4000 и 20 000 (`0xfa0`, `0x4e20`) — что это, в разборе не видно; не взяты.
+
+Не взято (нет у Hamlet того, к чему это относится):
+- `session_memory_capture` / `agent.session_memory_capture_deadlines` — сбор памяти побочных чатов при простое и архивации (`side_chat_idle`, `side_chat_archive`); побочных чатов нет;
+- `idle_internalization` — «idle-session internalization after {N}s quiet window» запускает самоулучшение (`JARVIS_SELF_IMPROVEMENT_IDLE_*`), а не сброс памяти; придёт со срезом самоулучшения.

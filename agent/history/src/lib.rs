@@ -40,7 +40,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-const MIGRATIONS: [&str; 8] = [
+const MIGRATIONS: [&str; 9] = [
     include_str!("../migrations/0001_history.sql"),
     include_str!("../migrations/0002_mailbox.sql"),
     include_str!("../migrations/0003_todo.sql"),
@@ -49,6 +49,7 @@ const MIGRATIONS: [&str; 8] = [
     include_str!("../migrations/0006_subagents.sql"),
     include_str!("../migrations/0007_recovery_owners.sql"),
     include_str!("../migrations/0008_conversation_search.sql"),
+    include_str!("../migrations/0009_periodic_memory_flush.sql"),
 ];
 /// `owner_table` реплик разговора в `runtime.search_documents`.
 pub const CONVERSATION_DOCUMENTS: &str = "agent.context_items";
@@ -235,6 +236,26 @@ impl AgentHistory {
             st.starts.push(start);
             st.written += 1;
         }
+        Ok(())
+    }
+
+    /// Номер первого сообщения текущей подсказки, ещё не сброшенного в
+    /// память периодическим сбросом (`periodic_memory_flush_progress`).
+    /// Граница ниже подсказки (после сжатия) — начало подсказки.
+    pub async fn flush_progress(&self) -> Result<usize, String> {
+        let progress: Option<i64> = sqlx::query_scalar("select periodic_memory_flush_progress from agent.agents where agent_id = $1")
+            .bind(&self.agent_id)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(db)?;
+        let st = self.state.lock().await;
+        Ok(progress.map_or(0, |p| st.starts.iter().take_while(|&&s| s < p).count()))
+    }
+
+    /// Всё записанное сброшено в память.
+    pub async fn set_flush_progress(&self) -> Result<(), String> {
+        let next = self.state.lock().await.next;
+        sqlx::query("update agent.agents set periodic_memory_flush_progress = $2 where agent_id = $1").bind(&self.agent_id).bind(next).execute(&self.pool).await.map_err(db)?;
         Ok(())
     }
 

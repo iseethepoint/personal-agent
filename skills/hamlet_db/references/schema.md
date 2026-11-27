@@ -58,6 +58,7 @@ The compaction detail payload is withheld because it carries the model reasoning
 | `ephemeral` | boolean | no | `false` |
 | `agent_type` | text | yes |  |
 | `spawn_metadata_json` | text | yes |  |
+| `periodic_memory_flush_progress` | bigint | yes |  |
 
 - UNIQUE `id` (`agents_id_key`)
 - PRIMARY KEY `agent_id` (`agents_pkey`)

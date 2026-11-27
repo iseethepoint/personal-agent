@@ -107,7 +107,7 @@ async fn below_trigger(wire: Wire) {
     let (small, ps) = model(wire, vec![], false);
     let mut conv = conversation(&t);
     let before = conv.history.clone();
-    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1_000_000, spill_dir: temp_dir("spill") };
+    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1_000_000, spill_dir: temp_dir("spill"), today: None, flush_covered: false };
     assert!(c.compact_if_needed(&mut conv).await.unwrap().is_none());
     assert_eq!(conv.history, before);
 
@@ -134,7 +134,7 @@ async fn flush_then_summary(wire: Wire) {
     let mut conv = conversation(&t);
     let before = conv.history.clone();
     let prefix = conv.prefix.clone();
-    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill") };
+    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: None, flush_covered: false };
     let done = c.compact_if_needed(&mut conv).await.unwrap().unwrap();
     assert!(done.first_kept > 0 && done.tokens_after < done.tokens_before, "{done:?}");
 
@@ -252,3 +252,25 @@ fn plan_from_registry() {
     assert_eq!(p.trigger, 24576);
     assert_eq!((p.flush.option.id.as_str(), p.compaction.option.id.as_str()), ("local/chat", "local/chat"));
 }
+
+/// П3ж-4: сброс уже покрыт периодическим (`periodic_flush_covered`) —
+/// сжатие идёт без хода сброса; сегодняшний журнал — заметкой перед
+/// просьбой о сбросе.
+async fn covered_flush_is_skipped(wire: Wire) {
+    let t = tools();
+    let (main, pm) = model(wire, vec![], false);
+    let (small, ps) = model(wire, vec![Step::Text("СВОДКА")], false);
+    let mut conv = conversation(&t);
+    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: None, flush_covered: true };
+    assert!(c.compact_if_needed(&mut conv).await.unwrap().is_some());
+    assert!(main.requests().is_empty(), "{wire:?}: сброса нет");
+    assert_eq!(small.requests().len(), 1);
+
+    let (main, pm) = model(wire, vec![Step::Text("записал")], false);
+    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: Some(("memory/2027-01-15.md".into(), "- Пьёт чай.\n".into())), flush_covered: false };
+    c.flush(&conv).await.unwrap();
+    let body = main.requests()[0]["messages"].to_string();
+    let note = body.find("Today's memory log at ~/memory/2027-01-15.md already ends with the entries below.").expect("заметка о журнале");
+    assert!(body.contains("- Пьёт чай.") && body.find("Pre-compaction memory flush.").unwrap() > note, "{body}");
+}
+both!(covered_flush_is_skipped);
