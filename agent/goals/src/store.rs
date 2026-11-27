@@ -13,10 +13,11 @@ use std::sync::Arc;
 
 use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use serde::Serialize;
+use serde_json::Value;
 use sqlx::postgres::{PgPool, PgPoolOptions, PgRow};
 use sqlx::Row;
 
-const MIGRATION: &str = include_str!("../migrations/0001_goals.sql");
+const MIGRATIONS: [&str; 2] = [include_str!("../migrations/0001_goals.sql"), include_str!("../migrations/0002_escalation.sql")];
 
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -35,6 +36,38 @@ pub const CATEGORIES: [&str; 7] = ["health", "relationships", "money", "career",
 pub const GOAL_KINDS: [&str; 8] = ["outcome", "behavior", "learning", "habit", "maintenance", "recovery", "identity", "exploratory"];
 pub const ATTENTION: [&str; 3] = ["user_action_required", "new_information", "does_not_need_attention"];
 
+/// Действия эскалации — `notify` (сказать владельцу) и `ask` (владельцу
+/// решать), описание поля `escalation` (`strings-all.txt:58204`).
+pub const ESCALATION_ACTIONS: [&str; 2] = ["notify", "ask"];
+
+/// Проверенная эскалация.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Escalation {
+    pub condition: String,
+    pub due_at: String,
+    pub due_ms: i64,
+    pub action: String,
+}
+
+impl Escalation {
+    /// Разбор `{condition, due_at, action}`; тексты ошибок — ядро
+    /// («invalid stored goal escalation: condition and due_at must be
+    /// non-empty», «goal escalation due_at is not a valid RFC 3339
+    /// timestamp»).
+    pub fn parse(v: &Value, empty: &str, bad_due: &str) -> Result<Self> {
+        let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::trim).unwrap_or_default().to_string();
+        let (condition, due_at, action) = (s("condition"), s("due_at"), s("action"));
+        if condition.is_empty() || due_at.is_empty() {
+            return Err(empty.into());
+        }
+        let due_ms = DateTime::parse_from_rfc3339(&due_at).map_err(|_| bad_due.to_string())?.timestamp_millis();
+        if !ESCALATION_ACTIONS.contains(&action.as_str()) {
+            return Err(format!("escalation action must be one of {}", ESCALATION_ACTIONS.join("|")));
+        }
+        Ok(Escalation { condition, due_at, due_ms, action })
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Goal {
     pub goal_id: String,
@@ -52,6 +85,9 @@ pub struct Goal {
     pub pushable: bool,
     pub attention_kind: String,
     pub next_due_at: Option<String>,
+    /// `{condition, due_at, action}` — что сделать, если условие не
+    /// выполнено к сроку.
+    pub escalation: Option<Value>,
     pub created_at: String,
     pub updated_at: String,
     pub completed_at: Option<String>,
@@ -143,7 +179,7 @@ pub fn slugify(title: &str) -> String {
     }
 }
 
-const GOAL_COLUMNS: &str = "goal_id, slug, title, summary, description, emoji, status, source, parent_goal_id, category, goal_kind, value_alignment, pushable, attention_kind, next_due_at, created_at, updated_at, completed_at, last_activity_at";
+const GOAL_COLUMNS: &str = "goal_id, slug, title, summary, description, emoji, status, source, parent_goal_id, category, goal_kind, value_alignment, pushable, attention_kind, next_due_at, escalation, created_at, updated_at, completed_at, last_activity_at";
 
 fn goal(r: &PgRow) -> Goal {
     Goal {
@@ -164,6 +200,7 @@ fn goal(r: &PgRow) -> Goal {
         next_due_at: r
             .get::<Option<DateTime<Utc>>, _>("next_due_at")
             .map(|t| t.to_rfc3339_opts(SecondsFormat::Millis, true)),
+        escalation: r.get("escalation"),
         created_at: r.get("created_at"),
         updated_at: r.get("updated_at"),
         completed_at: r.get("completed_at"),
@@ -195,7 +232,9 @@ pub struct Store {
 impl Store {
     pub async fn connect(url: &str, now: Now) -> Result<Self> {
         let pool = PgPoolOptions::new().max_connections(4).connect(url).await.map_err(db)?;
-        sqlx::raw_sql(MIGRATION).execute(&pool).await.map_err(db)?;
+        for m in MIGRATIONS {
+            sqlx::raw_sql(m).execute(&pool).await.map_err(db)?;
+        }
         Ok(Store { pool, now })
     }
 
@@ -355,6 +394,8 @@ impl Store {
             "update goals.goals set status = $2,
                  completed_at = case when $2 = 'completed' then $3 else null end,
                  completed_at_ts = case when $2 = 'completed' then $4 else null end,
+                 escalation = case when $2 = 'completed' then null else escalation end,
+                 escalation_due_at = case when $2 = 'completed' then null else escalation_due_at end,
                  updated_at = $3, updated_at_ts = $4
              where goal_id = $1 and status <> $2",
         )
@@ -367,6 +408,38 @@ impl Store {
         .map_err(db)?
         .rows_affected();
         Ok(n == 1)
+    }
+
+    /// Записать эскалацию (`None` — снять); срок — в `escalation_due_at`.
+    pub async fn set_escalation(&self, id: &str, esc: Option<&Escalation>) -> Result<Goal> {
+        let now = self.now_ms();
+        let due = esc.map(|e| e.due_ms).map(ts);
+        let payload = esc.map(|e| serde_json::json!({"condition": e.condition, "due_at": e.due_at, "action": e.action}));
+        sqlx::query("update goals.goals set escalation = $2, escalation_due_at = $3, updated_at = $4, updated_at_ts = $5 where goal_id = $1")
+            .bind(id)
+            .bind(payload)
+            .bind(due)
+            .bind(rfc3339(now))
+            .bind(ts(now))
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        self.goal(id).await?.ok_or_else(|| format!("goal not found: {id}"))
+    }
+
+    /// Эскалации активных целей со сроком в `(after, until]`, по сроку —
+    /// выборка `goals.upcoming_escalations` muse (sql.txt:4314) с верхней
+    /// границей такта.
+    pub async fn due_escalations(&self, after_ms: i64, until_ms: i64) -> Result<Vec<Goal>> {
+        let rows = sqlx::query(&format!(
+            "select {GOAL_COLUMNS} from goals.goals where escalation_due_at is not null and escalation_due_at > $1 and escalation_due_at <= $2 and status = 'active' order by escalation_due_at asc"
+        ))
+        .bind(ts(after_ms))
+        .bind(ts(until_ms))
+        .fetch_all(&self.pool)
+        .await
+        .map_err(db)?;
+        Ok(rows.iter().map(goal).collect())
     }
 
     /// Удалить цель с подцелями, записями и брифингами. Возвращает

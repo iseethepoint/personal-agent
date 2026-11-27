@@ -87,6 +87,9 @@ fn resolve_by_purpose() {
     // П4ж-2: итог расписаний и монитор подагентов — свои назначения.
     assert_eq!(id(Purpose::CronResolve, Some("local/chat")), "local/chat");
     assert_eq!(id(Purpose::SubagentMonitor, None), "anthropic/main");
+    // П4ж-2б: текст смены статуса дела и внимание дела.
+    assert_eq!(id(Purpose::TrackingGoalLifecycle, Some("local/chat")), "local/chat");
+    assert_eq!(id(Purpose::GoalAttention, None), "anthropic/main");
 }
 
 #[test]

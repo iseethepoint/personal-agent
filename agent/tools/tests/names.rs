@@ -92,7 +92,7 @@ async fn all_tools() -> Tools {
         tools.add(t);
     }
     let goals_store = agent_goals::Store::connect(&pg::database(), Arc::new(|| 0)).await.unwrap();
-    let goals: Arc<agent_goals::Goals<common::AnyProvider>> = Arc::new(agent_goals::Goals { store: goals_store, home: home_dir.clone(), models: None, cleanup: None });
+    let goals: Arc<agent_goals::Goals<common::AnyProvider>> = agent_goals::Goals::new(goals_store, home_dir.clone(), None, None);
     for t in agent_goals::tools(&goals) {
         tools.add(t);
     }

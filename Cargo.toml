@@ -5,3 +5,11 @@ members = ["agent/model", "agent/loop", "agent/tools", "agent/memory", "agent/go
 [workspace.package]
 edition = "2021"
 publish = false
+
+# Без отладочных символов: они — большая часть веса target на общем Mac
+# (слово ревизора 27.11).
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0
