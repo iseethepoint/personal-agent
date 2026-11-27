@@ -11,7 +11,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 pub use store::{Entry, Goal, NewGoal, Store, TRACKING, USER_GOAL};
-pub use tools::{tools, GoalTool, Goals, Ns};
+pub use tools::{tools, GoalTool, Goals, Models, Ns, Plan};
 
 /// Удаление расписаний, принадлежащих цели (`cron_cleanup.rs` muse:
 /// «Deleting removes its subgoals, history, briefings, and the scheduled

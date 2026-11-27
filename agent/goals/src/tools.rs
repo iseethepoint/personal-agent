@@ -17,7 +17,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, LazyLock};
 
 use agent_loop::{personal, Tool, ToolError, ToolFuture};
-use agent_model::{Provider, ToolResultPart, ToolSpec};
+use agent_model::{Provider, Purpose, Registry, RegistryError, Resolved, ToolResultPart, ToolSpec};
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use serde_json::{json, Map, Value};
 
@@ -104,13 +104,43 @@ impl Op {
     }
 }
 
+/// Модели решений по целям — назначения реестра muse `GoalActivityState`
+/// и `GoalSubgoalRollup` (`strings-all.txt:56281`).
+pub struct Models<P> {
+    pub activity_state: Arc<P>,
+    pub subgoal_rollup: Arc<P>,
+}
+
+/// Выбор моделей решений через `Registry::resolve`.
+pub struct Plan<'r> {
+    pub activity_state: Resolved<'r>,
+    pub subgoal_rollup: Resolved<'r>,
+}
+
+impl<'r> Plan<'r> {
+    pub fn from_registry(reg: &'r Registry, selection: Option<&str>) -> Result<Self, RegistryError> {
+        let get = |p: Purpose| -> Result<Resolved<'r>, RegistryError> {
+            Ok(reg.resolve(p, selection)?.expect("resolve отдаёт None только для Embeddings"))
+        };
+        Ok(Plan { activity_state: get(Purpose::GoalActivityState)?, subgoal_rollup: get(Purpose::GoalSubgoalRollup)? })
+    }
+}
+
+impl<P> Models<P> {
+    /// Поставщики по выбору `plan`; `build` — `from_resolved` нужного вида.
+    pub fn from_plan<E>(plan: &Plan<'_>, build: impl Fn(&Resolved<'_>) -> Result<P, E>) -> Result<Self, E> {
+        Ok(Models { activity_state: Arc::new(build(&plan.activity_state)?), subgoal_rollup: Arc::new(build(&plan.subgoal_rollup)?) })
+    }
+}
+
 /// Общее для всех инструментов целей.
 pub struct Goals<P> {
     pub store: Store,
     pub home: PathBuf,
-    /// Модель для решений после записи; без неё — поведение muse при сбое
-    /// вывода (состояние не меняется, запись подцели копируется как есть).
-    pub provider: Option<Arc<P>>,
+    /// Модели решений после записи (`Models::from_plan`); без них —
+    /// поведение muse при сбое вывода (состояние не меняется, запись
+    /// подцели копируется как есть).
+    pub models: Option<Models<P>>,
     /// Расписания, принадлежащие цели, — удаляются вместе с ней.
     pub cleanup: Option<Arc<dyn OwnedCleanup>>,
 }
@@ -504,12 +534,12 @@ impl<P: Provider + Send + Sync + 'static> GoalTool<P> {
         let author = if self.ns == Ns::Tracking { "assistant" } else { "user" };
         let e = self.store().add_entry(&g.goal_id, title.as_deref(), state.as_deref(), desc.as_deref(), eff, author).await?;
         let mut out = json!({"goal_id": g.goal_id, "entry": e});
-        let provider = self.goals.provider.as_deref();
+        let models = self.goals.models.as_ref();
         let recent = self.store().entries(&g.goal_id).await?;
         let observed = rfc3339(self.store().now_ms());
         let mut updated = g.clone();
-        let decided = match provider {
-            Some(p) => activity::pulse(p, &g, &e, &recent[1.min(recent.len())..], &observed).await,
+        let decided = match models {
+            Some(m) => activity::pulse(&*m.activity_state, &g, &e, &recent[1.min(recent.len())..], &observed).await,
             None => None,
         };
         if let Some(p) = decided {
@@ -526,8 +556,8 @@ impl<P: Provider + Send + Sync + 'static> GoalTool<P> {
         if let Some(pid) = &g.parent_goal_id {
             if let Some(parent) = self.store().goal(pid).await? {
                 let parent_recent = self.store().entries(pid).await?;
-                let r = match provider {
-                    Some(p) => activity::rollup(p, &parent, &updated, &e, &parent_recent).await,
+                let r = match models {
+                    Some(m) => activity::rollup(&*m.subgoal_rollup, &parent, &updated, &e, &parent_recent).await,
                     None => activity::copy(&e),
                 };
                 let pe = self.store().add_entry(pid, Some(&r.title), Some(&r.current_state), Some(&r.description), eff, "subgoal_rollup").await?;

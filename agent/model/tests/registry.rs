@@ -80,6 +80,23 @@ fn resolve_by_purpose() {
     assert_eq!(id(Purpose::CronWorker, Some("local/chat")), "anthropic/main");
     // setup.compaction_memory_flush_use_main: сжатие — на выбранной.
     assert_eq!(id(Purpose::Compaction, Some("local/chat")), "local/chat");
+    // Решения по целям (П4ж) — назначения muse; без переопределения — на
+    // выбранной модели.
+    assert_eq!(id(Purpose::GoalActivityState, None), "anthropic/main");
+    assert_eq!(id(Purpose::GoalSubgoalRollup, Some("local/chat")), "local/chat");
+}
+
+#[test]
+fn goal_purposes_follow_overrides() {
+    let reg = broken(
+        "  { purpose = \"BrowserAgent\", model = \"anthropic/main\" },",
+        "  { purpose = \"BrowserAgent\", model = \"anthropic/main\" },\n  { purpose = \"GoalActivityState\", model = \"anthropic/small\" },\n  { purpose = \"GoalSubgoalRollup\", model = \"anthropic/main\" },",
+    )
+    .unwrap();
+    let id = |p| reg.resolve(p, Some("local/chat")).unwrap().unwrap().option.id.clone();
+    assert_eq!(id(Purpose::GoalActivityState), "anthropic/small");
+    assert_eq!(id(Purpose::GoalSubgoalRollup), "anthropic/main");
+    assert_eq!(id(Purpose::Main), "local/chat");
 }
 
 #[test]

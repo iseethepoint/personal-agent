@@ -9,7 +9,7 @@ mod pg;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use agent_goals::{tools, Goals, Store};
+use agent_goals::{tools, Goals, Models, Plan, Store};
 use agent_loop::{Tool, Tools, Turn};
 use agent_model::{Message, Part, Role, ToolResultPart};
 use common::{model, temp_dir, AnyProvider, Server, Step, Wire};
@@ -20,7 +20,11 @@ const WIRES: [Wire; 2] = [Wire::Anthropic, Wire::OpenaiCompat];
 async fn goals(name: &str, provider: Option<AnyProvider>) -> (Arc<Goals<AnyProvider>>, PathBuf) {
     let home = temp_dir(&format!("goals-{name}"));
     let store = Store::connect(&pg::database(), Arc::new(|| 1_800_000_000_000)).await.unwrap();
-    (Arc::new(Goals { store, home: home.clone(), provider: provider.map(Arc::new), cleanup: None }), home)
+    let models = provider.map(|p| {
+        let p = Arc::new(p);
+        Models { activity_state: p.clone(), subgoal_rollup: p }
+    });
+    (Arc::new(Goals { store, home: home.clone(), models, cleanup: None }), home)
 }
 
 async fn call(g: &Arc<Goals<AnyProvider>>, name: &str, args: Value) -> Result<Value, String> {
@@ -197,4 +201,22 @@ async fn delete_removes_subgoals_and_keeps_requested_documents() {
     assert!(!home.join("workspace/goals/tomatoes").exists());
     assert!(g.store.goal(sub["goal_id"].as_str().unwrap()).await.unwrap().is_none());
     assert!(g.store.briefings(&b.goal_id).await.unwrap().is_empty());
+}
+
+/// Модели решений — через `Registry::resolve` по назначениям
+/// `GoalActivityState` и `GoalSubgoalRollup`, с переопределением выбранной модели.
+#[test]
+fn decision_models_come_from_registry_purposes() {
+    let base = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../model/tests/fixtures/registry_base.toml")).unwrap();
+    let from = "  { purpose = \"BrowserAgent\", model = \"anthropic/main\" },";
+    assert!(base.contains(from));
+    let text = base.replacen(from, &format!("{from}\n  {{ purpose = \"GoalActivityState\", model = \"anthropic/small\" }},"), 1);
+    let reg = agent_model::Registry::parse(&text).unwrap();
+    let ids = |sel| {
+        let plan = Plan::from_registry(&reg, sel).unwrap();
+        let m = Models::from_plan(&plan, |r| Ok::<_, ()>(r.option.id.clone())).unwrap();
+        ((*m.activity_state).clone(), (*m.subgoal_rollup).clone())
+    };
+    assert_eq!(ids(None), ("anthropic/main".to_string(), "anthropic/main".to_string()));
+    assert_eq!(ids(Some("local/chat")), ("anthropic/small".to_string(), "local/chat".to_string()));
 }

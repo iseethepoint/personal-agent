@@ -37,7 +37,7 @@ async fn goal_owned_schedule_gets_goal_context_and_dies_with_the_goal() {
         let c2 = clock.clone();
         let gstore = agent_goals::Store::connect(&pg::database(), Arc::new(move || agent_cron::Clock::now_ms(&c2))).await.unwrap();
         let core = Core::build(Store::connect(&pg::database()).await.unwrap(), Arc::new(clock.clone()), &home, None, vec![], Some(gstore.clone()));
-        let goals: Arc<Goals<AnyProvider>> = Arc::new(Goals { store: gstore, home: home.clone(), provider: None, cleanup: Some(core.clone() as Arc<dyn OwnedCleanup>) });
+        let goals: Arc<Goals<AnyProvider>> = Arc::new(Goals { store: gstore, home: home.clone(), models: None, cleanup: Some(core.clone() as Arc<dyn OwnedCleanup>) });
         let gt = || agent_goals::tools(&goals).into_iter().map(|t| Box::new(t) as Box<dyn Tool>).collect::<Vec<_>>();
         let ct = || tools(&core).into_iter().map(|t| Box::new(t) as Box<dyn Tool>).collect::<Vec<_>>();
 
