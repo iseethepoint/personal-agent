@@ -38,7 +38,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use agent_loop::{personal, Finish, Inbox, Kind, Prefix, Status, Subagents, Tools, Transcript};
+use agent_loop::{personal, ChildRecord, Finish, Inbox, Kind, KindRecord, Prefix, Status, Subagents, Tools, Transcript, WorkerStore, WORK_NOT_RESUMABLE};
 use agent_model::{Message, Part, Provider, Role};
 use rand::Rng;
 use serde_json::{json, Value};
@@ -55,6 +55,14 @@ const EXECUTION_FILES: &str = include_str!("../../../prompts/workflows/execution
 pub type ChildTools = Arc<dyn Fn(&Path) -> Tools + Send + Sync>;
 
 type Kids = Arc<Mutex<HashMap<String, String>>>;
+
+/// Класс владельца восстановления вызова шага — значение ядра
+/// (`workflow_subagent`); владелец — вызов (`call_id`).
+pub const CHILD_CLASS: &str = "workflow_subagent";
+
+/// Вызов, который после перезапуска продолжается: запись, начало
+/// подсказки и история подагента шага.
+type Resumable = (Arc<dyn ChildRecord>, Prefix, Vec<Message>);
 
 struct Active {
     cancel: Arc<Notify>,
@@ -75,6 +83,10 @@ pub struct Workflows<P> {
     /// Подагенты шагов идущих запусков: call_id → id подагента.
     kids: Kids,
     changed: Notify,
+    /// Владельцы восстановления и история подагентов шагов.
+    workers: std::sync::OnceLock<Arc<dyn WorkerStore>>,
+    /// Вызовы, которые продолжатся при повторе сценария: call_id → запись.
+    resumable: Mutex<HashMap<String, Resumable>>,
 }
 
 fn new_run_id() -> String {
@@ -220,7 +232,13 @@ impl<P: Provider + Send + Sync + 'static> Workflows<P> {
         let prefix = Prefix::assemble(&system, &home, &tools);
         // Итоги шагов служба забирает сама — у подагентов шагов свой ящик.
         let children = Subagents::new(provider, tools, prefix, spill_dir, Inbox::new(), Transcript::new());
-        Arc::new(Workflows { store, children, child_tools, system, home, workspace, inbox, active: Mutex::new(HashMap::new()), kids: Arc::new(Mutex::new(HashMap::new())), changed: Notify::new() })
+        Arc::new(Workflows { store, children, child_tools, system, home, workspace, inbox, active: Mutex::new(HashMap::new()), kids: Arc::new(Mutex::new(HashMap::new())), changed: Notify::new(), workers: std::sync::OnceLock::new(), resumable: Mutex::new(HashMap::new()) })
+    }
+
+    /// Вызовы шагов пишут историю подагента и точки перезапуска, вызов —
+    /// владелец восстановления (`agent.recovery_owners`).
+    pub fn set_workers(&self, w: Arc<dyn WorkerStore>) {
+        let _ = self.workers.set(w);
     }
 
     /// Сколько запусков сейчас исполняется.
@@ -369,8 +387,16 @@ impl<P: Provider + Send + Sync + 'static> Workflows<P> {
             stored_opts["label"] = l.clone().into();
         }
         let phase_run_id = phase.as_ref().and_then(|p| ctx.phases.get(p)).map(String::as_str);
+        let mut resumed: Option<Resumable> = None;
         let call = match self.store.call(run_id, &replay_key).await? {
             Some(c) if c.status == "completed" || c.status == "cached" => return Self::stored(&c),
+            // Вызов, который перезапуск оборвал без возможности продолжить:
+            // повтор сценария получает ту же ошибку.
+            Some(c) if c.status == "failed" && c.error.as_deref() == Some(WORK_NOT_RESUMABLE) => return Err(WORK_NOT_RESUMABLE.to_string()),
+            Some(c) if c.status == "running" && self.resumable.lock().unwrap().contains_key(&c.call_id) => {
+                resumed = self.resumable.lock().unwrap().remove(&c.call_id);
+                c
+            }
             Some(c) => {
                 self.store.requeue_call(&c.call_id).await?;
                 c
@@ -395,7 +421,19 @@ impl<P: Provider + Send + Sync + 'static> Workflows<P> {
             Box::pin(async move { Message { role: Role::Developer, content: vec![Part::Text { text }] } })
         });
         let tools = Arc::new((self.child_tools)(&ctx.workdir));
-        let prefix = Prefix::assemble(&self.system, &self.home, &tools);
+        let (prefix, resume, record) = match resumed {
+            Some((record, prefix, history)) => (prefix, Some(history), Some(record)),
+            None => {
+                let prefix = Prefix::assemble(&self.system, &self.home, &tools);
+                // Подагент шага в базе. Своё: id — `workflow-call:<call_id>`.
+                let record = match self.workers.get() {
+                    Some(w) => Some(w.begin(CHILD_CLASS, &call.call_id, &format!("workflow-call:{}", call.call_id), &prefix).await?),
+                    None => None,
+                };
+                (prefix, None, record)
+            }
+        };
+        let record = record.map(|record| KindRecord { record, class: CHILD_CLASS, owner: call.call_id.clone() });
         let child = self.children.spawn_kind(Kind {
             task: label.clone().unwrap_or_else(|| prompt.clone()),
             first: self.child_prompt(&prompt, schema.as_ref(), &ctx.workdir),
@@ -406,6 +444,8 @@ impl<P: Provider + Send + Sync + 'static> Workflows<P> {
             nudge: None,
             deadline: timeout_ms.map(Duration::from_millis),
             finish,
+            resume,
+            record,
         });
         self.kids.lock().unwrap().insert(call.call_id.clone(), child.clone());
         started.lock().unwrap().push(call.call_id.clone());
@@ -417,6 +457,9 @@ impl<P: Provider + Send + Sync + 'static> Workflows<P> {
             let _ = self.children.close(&child).await;
         }
         self.children.inbox().drain();
+        if let Some(w) = self.workers.get() {
+            w.terminal(CHILD_CLASS, &call.call_id, st.as_str()).await?;
+        }
         let call = &call;
         let fail = |e: String| async move {
             self.store.finish_call(call, "failed", None, ms, Some(&e)).await?;
@@ -677,7 +720,36 @@ impl<P: Provider + Send + Sync + 'static> Workflows<P> {
                 continue;
             }
             self.store.requeue(&run.run_id, "daemon_restarted_while_workflow_running").await?;
-            self.store.settle_open_calls(&run.run_id, "pending", None).await?;
+            // Идущие вызовы: с незакрытым владельцем и точкой
+            // `before_inference` подагента шага — продолжатся при повторе
+            // сценария («load workflow recovery owner»), прочие — `failed`
+            // текстом ядра («fail workflow recovery owner»,
+            // `restart_after_output_unrecoverable`).
+            for c in self.store.running_calls(&run.run_id).await? {
+                let resumable = match self.workers.get() {
+                    Some(w) => match w.active(CHILD_CLASS, &c.call_id).await? {
+                        Some(rec) if rec.interrupted().await?.is_some() => {
+                            let (prefix, mut history) = rec.load().await?;
+                            agent_loop::close_interrupted(&mut history);
+                            rec.record(&history).await?;
+                            Some((rec, prefix, history))
+                        }
+                        _ => None,
+                    },
+                    None => None,
+                };
+                match resumable {
+                    Some(r) => {
+                        self.resumable.lock().unwrap().insert(c.call_id.clone(), r);
+                    }
+                    None => {
+                        self.store.finish_call(&c, "failed", None, c.duration_ms.unwrap_or(0), Some(WORK_NOT_RESUMABLE)).await?;
+                        if let Some(w) = self.workers.get() {
+                            w.terminal(CHILD_CLASS, &c.call_id, "failed").await?;
+                        }
+                    }
+                }
+            }
             self.start_executor(&run.run_id);
             ids.push(run.run_id);
         }

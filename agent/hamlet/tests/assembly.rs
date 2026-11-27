@@ -761,6 +761,83 @@ async fn hook_run_continues_after_restart() {
     }
 }
 
+/// Сценарий из одного шага.
+const ONE_STEP: &str = r#"export const meta = { name: "count", description: "One step", phases: ["work"] };
+await phase("work");
+return await agent("Count the files.", { key: "one" });
+"#;
+
+/// Запустить workflow в отдельном рантайме и погасить его, пока шаг
+/// исполняет команду; вернуть id запуска.
+fn workflow_until_killed(dir: &Path, server: Arc<Server>) -> String {
+    let d = dir.to_path_buf();
+    std::thread::spawn(move || {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let run_id = rt.block_on(async {
+            let h1 = build(&d, FakeClock::at(t0())).await;
+            let out = h1.tools.get("workflow.launch_async").unwrap().call(json!({"script": ONE_STEP})).await.unwrap();
+            let text = match &out[0] {
+                agent_model::ToolResultPart::Text { text } => text.clone(),
+                p => panic!("{p:?}"),
+            };
+            while server.requests().is_empty() {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            let at = text.find("workflow-run-").unwrap_or_else(|| panic!("{text}"));
+            text[at..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-').collect::<String>()
+        });
+        drop(rt);
+        run_id
+    })
+    .join()
+    .unwrap()
+}
+
+/// П3е-5: вызов шага workflow, оборванный перезапуском посреди команды,
+/// продолжается при повторе сценария (владелец `workflow_subagent`, точка
+/// подагента шага): вызов без результата закрыт текстом ядра, запуск
+/// кончается ответом шага. Без владельца — вызов `failed` текстом ядра
+/// `restart_after_output_unrecoverable`, и запуск получает эту ошибку.
+#[tokio::test]
+async fn workflow_call_continues_after_restart() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        for keep_owner in [true, false] {
+            let (s1, _p) = model(wire, vec![Step::Calls(vec![("x1", "hamlet.exec", json!({"command": "sleep 30"}))])], true);
+            let s1 = Arc::new(s1);
+            let dir = agent_dir("workflow-restart", wire, &s1);
+            let run_id = workflow_until_killed(&dir, s1.clone());
+            let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
+            let (call_id, status): (String, String) = sqlx::query_as("select call_id, status from runtime.workflow_agent_calls where run_id = $1").bind(&run_id).fetch_one(&pool).await.unwrap();
+            assert_eq!(status, "running", "{wire:?}");
+            if !keep_owner {
+                sqlx::query("delete from agent.recovery_owners where owner_id = $1").bind(&call_id).execute(&pool).await.unwrap();
+            }
+
+            let (s2, _p) = model(wire, vec![Step::Text(r#"{"status":"ok","result":"3 files"}"#)], true);
+            repoint(&dir, &s1, &s2);
+            let h2 = build(&dir, FakeClock::at(t0())).await;
+            let services = Services::start(&h2);
+            let run = tokio::time::timeout(Duration::from_secs(30), h2.workflows.wait(&run_id)).await.unwrap().unwrap();
+            let (call_status, error): (String, Option<String>) = sqlx::query_as("select status, error from runtime.workflow_agent_calls where call_id = $1").bind(&call_id).fetch_one(&pool).await.unwrap();
+            if keep_owner {
+                assert_eq!(run.status, "completed", "{wire:?}: {run:?}");
+                assert_eq!(call_status, "completed", "{wire:?}");
+                let body = s2.requests()[0].to_string();
+                assert!(body.contains("Count the files."), "{wire:?}: история шага из базы");
+                assert!(body.contains(&serde_json::to_string(agent_loop::INTERRUPTED_TOOL_CALL).unwrap()[1..60]), "{wire:?}: {body}");
+                let terminal: Option<String> = sqlx::query_scalar("select terminal_status from agent.recovery_owners where recovery_class = 'workflow_subagent' and owner_id = $1").bind(&call_id).fetch_one(&pool).await.unwrap();
+                assert_eq!(terminal.as_deref(), Some("done"), "{wire:?}");
+            } else {
+                assert_eq!(run.status, "failed", "{wire:?}: {run:?}");
+                assert_eq!((call_status.as_str(), error.as_deref()), ("failed", Some(agent_loop::WORK_NOT_RESUMABLE)), "{wire:?}");
+                assert!(s2.requests().is_empty(), "{wire:?}: шаг не повторялся");
+            }
+            services.stop(&h2).await;
+        }
+    }
+}
+
 /// П3е-2: ящик в базе — весть, пришедшая, когда хода нет, и не взятая до
 /// остановки, после перезапуска доходит новым ходом и закрывается.
 #[tokio::test]
