@@ -299,66 +299,126 @@ pub struct Outcome {
     pub error: Option<String>,
 }
 
+/// Классы владельцев восстановления фаз работника расписаний — значения
+/// ядра (`scheduler_cron_execute`, `scheduler_cron_resolve`).
+pub const EXECUTE_CLASS: &str = "scheduler_cron_execute";
+pub const RESOLVE_CLASS: &str = "scheduler_cron_resolve";
+
+/// Прогон после перезапуска продолжается с записанного — текст ядра
+/// («continue scheduler recovery owner», около `0x2a4cf45`).
+pub const CONTINUES_AFTER_RESTART: &str = include_str!("../../../prompts/restart/run_continues.md");
+
+/// С чего начать прогон.
+pub enum Begin {
+    /// Новый прогон с первым сообщением.
+    Fresh(String),
+    /// Продолжение после перезапуска: записанная история и фаза, в которой
+    /// прогон оборвался; `timed_out` — срок исполнения уже вышел.
+    Resume { history: Vec<Message>, resolve: bool, timed_out: bool },
+}
+
+/// Запись работника: история, точки перезапуска фаз (`recovery_class` —
+/// класс фазы, `recovery_owner_id` — прогон).
+#[derive(Clone)]
+pub struct Recording {
+    pub record: Arc<dyn agent_loop::ChildRecord>,
+    pub run_id: String,
+}
+
+impl Recording {
+    async fn checkpoint(&self, class: Option<&str>, turn: Option<&str>) {
+        if let Err(e) = self.record.checkpoint(class, Some(&self.run_id), turn).await {
+            eprintln!("worker checkpoint {}: {e}", self.run_id);
+        }
+    }
+}
+
 /// Прогнать задание: фаза исполнения — на `provider`, фаза итога — на
-/// `resolver` (у расписаний — модель `CronResolve`); `system` и `tools` —
-/// работника; `timeout_secs` —
-/// срок фазы исполнения (у наблюдателя срока нет); `on_phase` узнаёт о
-/// переходе к итогу и о том, был ли срок.
+/// `resolver` (у расписаний — модель `CronResolve`); `prefix` — начало
+/// подсказки работника (системный текст и инструменты исполнения);
+/// `timeout_secs` — срок фазы исполнения (у наблюдателя срока нет);
+/// `on_phase` узнаёт о переходе к итогу и о том, был ли срок.
 #[allow(clippy::too_many_arguments)]
 pub async fn run<P: Provider>(
     provider: &P,
     resolver: &P,
-    system: &str,
+    prefix: &agent_loop::Prefix,
     tools: &Tools,
     spill_dir: &std::path::Path,
-    first: String,
+    begin: Begin,
     timeout_secs: Option<i64>,
     kind: Kind,
     on_phase: impl Fn(&'static str, bool),
+    recording: Option<Recording>,
 ) -> Outcome {
-    let mut history = vec![Message { role: Role::User, content: vec![Part::Text { text: first }] }];
     let mut quiet = |_: &str| {};
-    let turn = Turn::new(provider, tools, system, spill_dir);
-    let executed = match timeout_secs {
-        Some(t) => tokio::time::timeout(Duration::from_secs(t.max(1) as u64), turn.run(&mut history, &mut quiet)).await,
-        None => Ok(turn.run(&mut history, &mut quiet).await),
+    let record = recording.as_ref().map(|r| r.record.clone() as Arc<dyn agent_loop::Record>);
+    let turn_name = |phase: &str| recording.as_ref().map(|r| format!("{}:{phase}", r.run_id));
+    let (mut history, resolve_only, was_timed_out) = match begin {
+        Begin::Fresh(first) => (vec![Message { role: Role::User, content: vec![Part::Text { text: first }] }], false, false),
+        Begin::Resume { history, resolve, timed_out } => (history, resolve, timed_out),
     };
-    let timeout_secs = timeout_secs.unwrap_or_default();
-    let mut timed_out = false;
+    let mut timed_out = was_timed_out;
     let mut evidence = Evidence::default();
-    let mut notice = None;
-    match executed {
-        Ok(Ok(_)) => {
-            evidence.complete = true;
-            evidence.ending = "completed".into();
+    if !resolve_only {
+        if let Some(r) = &recording {
+            r.checkpoint(Some(EXECUTE_CLASS), turn_name("execute").as_deref()).await;
         }
-        Ok(Err(e)) => {
-            evidence.ending = format!("ended with error: {e}");
-            notice = Some(stream_error_notice(&e.to_string()));
+        let mut turn = Turn::from_prefix(provider, tools, prefix, spill_dir);
+        turn.record = record.clone();
+        let executed = match timeout_secs {
+            Some(t) => tokio::time::timeout(Duration::from_secs(t.max(1) as u64), turn.run(&mut history, &mut quiet)).await,
+            None => Ok(turn.run(&mut history, &mut quiet).await),
+        };
+        let timeout_secs = timeout_secs.unwrap_or_default();
+        let mut notice = None;
+        match executed {
+            Ok(Ok(_)) => {
+                evidence.complete = true;
+                evidence.ending = "completed".into();
+            }
+            Ok(Err(e)) => {
+                evidence.ending = format!("ended with error: {e}");
+                notice = Some(stream_error_notice(&e.to_string()));
+            }
+            Err(_) => {
+                timed_out = true;
+                evidence.ending = format!("timed out after {timeout_secs}s");
+                notice = Some(timeout_notice(timeout_secs));
+            }
         }
-        Err(_) => {
-            timed_out = true;
-            evidence.ending = format!("timed out after {timeout_secs}s");
-            notice = Some(timeout_notice(timeout_secs));
-        }
-    }
-    close_dangling(&mut history);
-    let (failed, unanswered) = collect(&history);
-    evidence.failed_calls = failed;
-    evidence.unanswered_calls = unanswered;
+        close_dangling(&mut history);
+        let (failed, unanswered) = collect(&history);
+        evidence.failed_calls = failed;
+        evidence.unanswered_calls = unanswered;
 
-    on_phase("resolve", timed_out);
-    let mut text = String::new();
-    if let Some(n) = notice {
-        text.push_str(&n);
-        text.push_str("\n\n");
+        on_phase("resolve", timed_out);
+        let mut text = String::new();
+        if let Some(n) = notice {
+            text.push_str(&n);
+            text.push_str("\n\n");
+        }
+        match &kind {
+            Kind::Cron { mode } => text.push_str(personal(RESOLUTION_CONTRACT).replace("{mode}", mode).trim_end()),
+            Kind::Hook { resolve } => text.push_str(resolve.trim_end()),
+        }
+        history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
+        // Договор итога записан до точки фазы итога: продолжение итога после
+        // перезапуска всегда видит его в истории.
+        if let Some(r) = &recording {
+            if let Err(e) = r.record.record(&history).await {
+                eprintln!("worker history {}: {e}", r.run_id);
+            }
+        }
+    } else {
+        // Итог после перезапуска: свидетельства — по записанной истории.
+        let (failed, unanswered) = collect(&history);
+        evidence.failed_calls = failed;
+        evidence.unanswered_calls = unanswered;
+        evidence.complete = !timed_out;
+        evidence.ending = if timed_out { "timed out".into() } else { "completed".into() };
     }
     let hook = matches!(kind, Kind::Hook { .. });
-    match &kind {
-        Kind::Cron { mode } => text.push_str(personal(RESOLUTION_CONTRACT).replace("{mode}", mode).trim_end()),
-        Kind::Hook { resolve } => text.push_str(resolve.trim_end()),
-    }
-    history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
 
     let resolution = Resolution { evidence: Arc::new(evidence), signal: Arc::new(Mutex::new(None)), hook };
     let mut terminal = Tools::new();
@@ -370,9 +430,16 @@ pub async fn run<P: Provider>(
         NOTHING_TO_REPORT
     };
     terminal.add(NotifyMainAgent(resolution.clone()));
-    let mut turn = Turn::new(resolver, &terminal, system, spill_dir);
+    if let Some(r) = &recording {
+        r.checkpoint(Some(RESOLVE_CLASS), turn_name("resolve").as_deref()).await;
+    }
+    let mut turn = Turn::new(resolver, &terminal, prefix.system.clone(), spill_dir);
     turn.terminal = vec![quiet_name.into(), NOTIFY_MAIN_AGENT.into()];
+    turn.record = record;
     let error = turn.run(&mut history, &mut quiet).await.err().map(|e| e.to_string());
+    if let Some(r) = &recording {
+        r.checkpoint(None, None).await;
+    }
     let signal = resolution.signal.lock().unwrap().clone();
     Outcome { signal, timed_out, error }
 }

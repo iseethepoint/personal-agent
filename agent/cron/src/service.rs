@@ -252,6 +252,9 @@ pub struct Scheduler<P> {
     background_due: Mutex<Vec<i64>>,
     /// Живые наблюдатели файлов.
     watchers: Vec<notify::RecommendedWatcher>,
+    /// Владельцы восстановления и история работников; без них прогон,
+    /// оборванный перезапуском, закрывается как неудачный.
+    workers: Option<Arc<dyn agent_loop::WorkerStore>>,
 }
 
 fn new_run_id(job_id: &str, scheduled_for: i64, attempt: i32) -> String {
@@ -271,6 +274,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             background: Vec::new(),
             background_due: Mutex::new(Vec::new()),
             watchers: Vec::new(),
+            workers: None,
         }
     }
 
@@ -278,6 +282,13 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
     /// исполнения.
     pub fn resolver(&mut self, p: Arc<P>) -> &mut Self {
         self.resolver = p;
+        self
+    }
+
+    /// Работники пишут историю и точки перезапуска, прогон — владелец
+    /// восстановления (`agent.recovery_owners`).
+    pub fn workers(&mut self, w: Arc<dyn agent_loop::WorkerStore>) -> &mut Self {
+        self.workers = Some(w);
         self
     }
 
@@ -373,16 +384,43 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         self.deliver().await
     }
 
-    /// Прогоны, оставшиеся «идущими» после остановки службы, закрываются
-    /// как неудачные — `recover_orphaned_running_runs` muse; текст для
+    /// Прогоны, оставшиеся «идущими» после остановки службы: у прогона с
+    /// незакрытым владельцем восстановления и точкой `before_inference`
+    /// работника прогон продолжается с записанного («continue scheduler
+    /// recovery owner» muse) — фаза исполнения с заметкой ядра и остатком
+    /// срока, фаза итога — заново по записанной истории; прочие закрываются
+    /// как неудачные — `recover_orphaned_running_runs` muse, текст для
     /// главного агента — ядро («Stopped because the agent restarted mid-run…»).
     pub async fn recover(&self) -> Result<(), String> {
         let now = self.core.now();
         for r in self.core.store.running().await? {
+            if let Some(w) = &self.workers {
+                if let Some(rec) = w.active(worker::EXECUTE_CLASS, &r.run_id).await? {
+                    if let (Some(cp), Some(job)) = (rec.interrupted().await?, self.core.store.job(&r.job_id).await?) {
+                        let (prefix, mut history) = rec.load().await?;
+                        let resolve = cp.class.as_deref() == Some(worker::RESOLVE_CLASS);
+                        agent_loop::close_interrupted(&mut history);
+                        if !resolve {
+                            history.push(Message { role: Role::Developer, content: vec![Part::Text { text: worker::CONTINUES_AFTER_RESTART.to_string() }] });
+                        }
+                        rec.record(&history).await?;
+                        let (timeout, _) = self.core.effective_timeout(&job.definition, now);
+                        // Своё: остаток срока исполнения — от начала прогона, не меньше секунды.
+                        let spent = (now - r.started_at_utc.unwrap_or(now)) / 1000;
+                        let left = (timeout - spent).max(1);
+                        let recording = worker::Recording { record: rec, run_id: r.run_id.clone() };
+                        self.launch(r.run_id.clone(), job, r.attempt, timeout, Some(left), prefix, worker::Begin::Resume { history, resolve, timed_out: r.timed_out }, Some(recording));
+                        continue;
+                    }
+                }
+            }
             let text = "Stopped because the agent restarted mid-run and this run could not be resumed safely. Steps it finished stand; check their effects before running it again.";
             if self.core.store.finish_run(&r.run_id, "failed", None, Some(text), now).await? {
                 let payload = json!({"job_id": r.job_id, "run_id": r.run_id, "status": "failed", "message": text});
                 self.core.store.outbox_put(&r.job_id, &r.run_id, &payload.to_string(), now).await?;
+            }
+            if let Some(w) = &self.workers {
+                w.terminal(worker::EXECUTE_CLASS, &r.run_id, "failed").await?;
             }
         }
         Ok(())
@@ -445,7 +483,8 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         let handle = tokio::spawn(async move {
             let first = crate::hooks::execute_message(&w, &id);
             let kind = worker::Kind::Hook { resolve: crate::hooks::resolve_message(&w, &id) };
-            let out = worker::run(&*provider, &*provider, &system, &tools, &spill, first, None, kind, |_, _| {}).await;
+            let prefix = agent_loop::Prefix { system: system.clone(), tools: tools.upfront_specs() };
+            let out = worker::run(&*provider, &*provider, &prefix, &tools, &spill, worker::Begin::Fresh(first), None, kind, |_, _| {}, None).await;
             match out.signal {
                 Some(Signal::Notify { message, .. }) => inbox.push(Message {
                     role: Role::Developer,
@@ -547,16 +586,35 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         } else {
             None
         };
+        let d = &job.definition;
+        let first = worker::worker_message(&d.id, &d.mode, d.title.as_deref(), &d.body, heartbeat.as_deref(), goal.as_deref());
+        let prefix = agent_loop::Prefix { system: self.system.clone(), tools: self.tools.upfront_specs() };
+        let recording = match &self.workers {
+            // Работник прогона. Своё: id — `cron-worker:<run_id>`.
+            Some(w) => {
+                let agent_id = format!("cron-worker:{run_id}");
+                let record = w.begin(worker::EXECUTE_CLASS, &run_id, &agent_id, &prefix).await?;
+                self.core.store.set_worker(&run_id, &agent_id).await?;
+                Some(worker::Recording { record, run_id: run_id.clone() })
+            }
+            None => None,
+        };
+        self.launch(run_id, job, attempt, timeout, Some(timeout), prefix, worker::Begin::Fresh(first), recording);
+        Ok(())
+    }
+
+    /// Работник прогона в фоне; итог — `settle_run`. `left` — срок фазы
+    /// исполнения, `timeout` — полный срок (для текста итога).
+    #[allow(clippy::too_many_arguments)]
+    fn launch(&self, run_id: String, job: Job, attempt: i32, timeout: i64, left: Option<i64>, prefix: agent_loop::Prefix, begin: worker::Begin, recording: Option<worker::Recording>) {
         let core = self.core.clone();
         let provider = self.provider.clone();
         let resolver = self.resolver.clone();
         let tools = self.tools.clone();
-        let system = self.system.clone();
         let spill = self.spill_dir.clone();
+        let workers = self.workers.clone();
         let id = run_id.clone();
         let handle = tokio::spawn(async move {
-            let d = &job.definition;
-            let first = worker::worker_message(&d.id, &d.mode, d.title.as_deref(), &d.body, heartbeat.as_deref(), goal.as_deref());
             let store = core.store.clone();
             let phase_run = id.clone();
             let on_phase = move |p: &'static str, timed_out: bool| {
@@ -566,16 +624,15 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                     let _ = store.set_phase(&run, p, timed_out).await;
                 });
             };
-            let kind = worker::Kind::Cron { mode: d.mode.clone() };
-            let out = worker::run(&*provider, &*resolver, &system, &tools, &spill, first, Some(timeout), kind, on_phase).await;
-            if let Err(e) = settle_run(&core, &job, &id, attempt, timeout, out).await {
+            let kind = worker::Kind::Cron { mode: job.definition.mode.clone() };
+            let out = worker::run(&*provider, &*resolver, &prefix, &tools, &spill, begin, left, kind, on_phase, recording).await;
+            if let Err(e) = settle_run(&core, &job, &id, attempt, timeout, out, workers.as_deref()).await {
                 eprintln!("scheduler run {id}: {e}");
             }
             // Итог в ящик и повтор — на следующем такте.
             core.wake();
         });
         self.core.running.lock().unwrap().insert(run_id, handle);
-        Ok(())
     }
 
     /// Итоги из `delivery_outbox` — в ящик главного агента.
@@ -592,7 +649,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
 
 /// Записать итог прогона: сигнал, статус, итог для главного агента,
 /// повтор по `retry`.
-async fn settle_run(core: &Core, job: &Job, run_id: &str, attempt: i32, timeout: i64, out: worker::Outcome) -> Result<(), String> {
+async fn settle_run(core: &Core, job: &Job, run_id: &str, attempt: i32, timeout: i64, out: worker::Outcome, workers: Option<&dyn agent_loop::WorkerStore>) -> Result<(), String> {
     let now = core.now();
     let store = &core.store;
     let d = &job.definition;
@@ -623,6 +680,10 @@ async fn settle_run(core: &Core, job: &Job, run_id: &str, attempt: i32, timeout:
             ("failed", None, Some(text.clone()), Some(text))
         }
     };
+    // Владелец восстановления закрыт итогом прогона.
+    if let Some(w) = workers {
+        w.terminal(worker::EXECUTE_CLASS, run_id, status).await?;
+    }
     if !store.finish_run(run_id, status, summary.as_deref(), error.as_deref(), now).await? {
         // Прогон уже закрыт (`cron.stop`).
         return Ok(());

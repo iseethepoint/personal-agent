@@ -111,6 +111,23 @@ Rows holding model reasoning (thinking and redacted-thinking items) are withheld
 - FOREIGN KEY `agent_id` → `agent.agents.agent_id`
 - PRIMARY KEY `submission_id` (`message_mailbox_pkey`)
 
+## `agent.recovery_owners`
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `recovery_class` | text | no |  |
+| `owner_id` | text | no |  |
+| `generation` | bigint | no | `1` |
+| `agent_id` | text | no |  |
+| `message_id` | text | no |  |
+| `active_at` | timestamp with time zone | no | `now()` |
+| `terminal_at` | timestamp with time zone | yes |  |
+| `terminal_status` | text | yes |  |
+
+- UNIQUE `agent_id` (`recovery_owners_agent_id_key`)
+- PRIMARY KEY `recovery_class` (`recovery_owners_pkey`)
+- PRIMARY KEY `owner_id` (`recovery_owners_pkey`)
+
 ## `agent.runtime_restart_checkpoints`
 
 | column | type | nullable | default |

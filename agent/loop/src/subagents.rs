@@ -145,14 +145,37 @@ pub struct SavedSubagent {
     pub finish_hook: bool,
 }
 
-/// История и точка перезапуска одного подагента.
+/// Точка `before_inference`, оставленная оборванным ходом.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Checkpoint {
+    /// `recovery_class` точки (у подагента пуст).
+    pub class: Option<String>,
+    /// Имя хода.
+    pub message_id: String,
+}
+
+/// История и точка перезапуска одного агента (подагента или работника).
 pub trait ChildRecord: crate::turn::Record {
-    /// `Some(ход)` — ход идёт (`before_inference`), `None` — между ходами.
-    fn checkpoint<'a>(&'a self, turn: Option<&'a str>) -> MailboxFuture<'a, ()>;
-    /// Ход оборван перезапуском (точка `before_inference`).
-    fn interrupted<'a>(&'a self) -> MailboxFuture<'a, bool>;
+    /// `Some(ход)` — ход идёт (`before_inference`), `None` — между ходами;
+    /// `class` и `owner` — `recovery_class` и `recovery_owner_id` точки
+    /// (`owner` пуст — id самого агента).
+    fn checkpoint<'a>(&'a self, class: Option<&'a str>, owner: Option<&'a str>, turn: Option<&'a str>) -> MailboxFuture<'a, ()>;
+    /// Точка хода, оборванного перезапуском.
+    fn interrupted<'a>(&'a self) -> MailboxFuture<'a, Option<Checkpoint>>;
     /// Закреплённое начало и история из базы.
     fn load<'a>(&'a self) -> MailboxFuture<'a, (Prefix, Vec<Message>)>;
+}
+
+/// Владельцы восстановления (`agent.recovery_owners` muse): работа службы
+/// (`class`, `owner_id` — например прогон расписания) и агент, который её
+/// исполняет.
+pub trait WorkerStore: Send + Sync {
+    /// Новый работник: строка агента, закреплённое начало, владелец.
+    fn begin<'a>(&'a self, class: &'a str, owner_id: &'a str, agent_id: &'a str, prefix: &'a Prefix) -> MailboxFuture<'a, Arc<dyn ChildRecord>>;
+    /// Работник незакрытого владельца.
+    fn active<'a>(&'a self, class: &'a str, owner_id: &'a str) -> MailboxFuture<'a, Option<Arc<dyn ChildRecord>>>;
+    /// Владелец закрыт с итогом `status`.
+    fn terminal<'a>(&'a self, class: &'a str, owner_id: &'a str, status: &'a str) -> MailboxFuture<'a, ()>;
 }
 
 /// Хранилище подагентов одного родителя.
@@ -587,7 +610,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 // Имя хода. Своё: `<id>:turn:<n>`.
                 let turn_id = format!("{agent_id}:turn:{turns}");
                 if let Some(r) = &record {
-                    if let Err(e) = r.checkpoint(Some(&turn_id)).await {
+                    if let Err(e) = r.checkpoint(None, None, Some(&turn_id)).await {
                         eprintln!("subagent checkpoint: {e}");
                     }
                 }
@@ -618,7 +641,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                     None => text,
                 };
                 if let Some(r) = &record {
-                    if let Err(e) = r.checkpoint(None).await {
+                    if let Err(e) = r.checkpoint(None, None, None).await {
                         eprintln!("subagent checkpoint: {e}");
                     }
                 }
@@ -659,7 +682,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 result: sv.result.clone(),
             };
             if !sv.completed {
-                if !sv.finish_hook && record.interrupted().await? {
+                if !sv.finish_hook && record.interrupted().await?.is_some() {
                     let (prefix, mut history) = record.load().await?;
                     close_interrupted(&mut history);
                     record.record(&history).await?;

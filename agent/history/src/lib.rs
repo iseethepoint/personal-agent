@@ -34,19 +34,20 @@
 
 use std::sync::Arc;
 
-use agent_loop::{ChildRecord, Mailbox, Prefix, Record, SavedSubagent, Status, SubagentStore};
+use agent_loop::{ChildRecord, Mailbox, Prefix, Record, SavedSubagent, Status, SubagentStore, WorkerStore};
 use agent_model::{Message, Part, Role, ToolSpec};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-const MIGRATIONS: [&str; 6] = [
+const MIGRATIONS: [&str; 7] = [
     include_str!("../migrations/0001_history.sql"),
     include_str!("../migrations/0002_mailbox.sql"),
     include_str!("../migrations/0003_todo.sql"),
     include_str!("../migrations/0004_compactions.sql"),
     include_str!("../migrations/0005_restart.sql"),
     include_str!("../migrations/0006_subagents.sql"),
+    include_str!("../migrations/0007_recovery_owners.sql"),
 ];
 /// Режимы точки перезапуска (значения ядра).
 const BEFORE_INFERENCE: &str = "before_inference";
@@ -369,7 +370,7 @@ impl AgentHistory {
 impl AgentHistory {
     /// `Some(ход)` — ход идёт (`before_inference`), `None` — между ходами
     /// (`idle`).
-    pub async fn checkpoint(&self, recovery_class: Option<&str>, message_id: Option<&str>) -> Result<(), String> {
+    pub async fn checkpoint(&self, recovery_class: Option<&str>, owner: Option<&str>, message_id: Option<&str>) -> Result<(), String> {
         let (mode, payload) = match message_id {
             Some(id) => (BEFORE_INFERENCE, Some(serde_json::json!({ "message_id": id }).to_string())),
             None => (IDLE, None),
@@ -377,7 +378,7 @@ impl AgentHistory {
         let config = serde_json::json!({ "model": self.model }).to_string();
         sqlx::query(
             "insert into agent.runtime_restart_checkpoints (agent_id, mode, recovery_class, recovery_owner_id, execution_config_json, payload_json, created_at, updated_at) \
-             select $1, $2, $3, $1, $4, $5, $6, $6 where exists (select 1 from agent.agents where id = $1 and status not in ('shutdown', 'not_found')) \
+             select $1, $2, $3, coalesce($7, $1), $4, $5, $6, $6 where exists (select 1 from agent.agents where id = $1 and status not in ('shutdown', 'not_found')) \
              on conflict (agent_id) do update set mode = excluded.mode, recovery_class = excluded.recovery_class, recovery_owner_id = excluded.recovery_owner_id, \
              execution_config_json = excluded.execution_config_json, payload_json = excluded.payload_json, updated_at = excluded.updated_at",
         )
@@ -387,23 +388,25 @@ impl AgentHistory {
         .bind(config)
         .bind(payload)
         .bind((self.now)())
+        .bind(owner)
         .execute(&self.pool)
         .await
         .map_err(db)?;
         Ok(())
     }
 
-    /// Ход, оборванный перезапуском: имя из точки `before_inference`.
-    pub async fn interrupted(&self) -> Result<Option<String>, String> {
-        let payload: Option<Option<String>> = sqlx::query_scalar("select payload_json from agent.runtime_restart_checkpoints where agent_id = $1 and mode = $2")
-            .bind(&self.agent_id)
-            .bind(BEFORE_INFERENCE)
-            .fetch_optional(&self.pool)
-            .await
-            .map_err(db)?;
-        let Some(Some(json)) = payload else { return Ok(None) };
+    /// Ход, оборванный перезапуском: точка `before_inference`.
+    pub async fn interrupted(&self) -> Result<Option<agent_loop::Checkpoint>, String> {
+        let row: Option<(Option<String>, Option<String>)> =
+            sqlx::query_as("select payload_json, recovery_class from agent.runtime_restart_checkpoints where agent_id = $1 and mode = $2")
+                .bind(&self.agent_id)
+                .bind(BEFORE_INFERENCE)
+                .fetch_optional(&self.pool)
+                .await
+                .map_err(db)?;
+        let Some((Some(json), class)) = row else { return Ok(None) };
         let v: serde_json::Value = serde_json::from_str(&json).map_err(|e| format!("history: payload_json: {e}"))?;
-        Ok(v["message_id"].as_str().map(str::to_string))
+        Ok(v["message_id"].as_str().map(|m| agent_loop::Checkpoint { class, message_id: m.to_string() }))
     }
 
     /// Вести, взятые ходом, которого больше нет (не `owner`), — `aborted`
@@ -617,12 +620,12 @@ impl agent_tools::TodoStore for AgentTodo {
 }
 
 impl ChildRecord for AgentHistory {
-    fn checkpoint<'a>(&'a self, turn: Option<&'a str>) -> Fut<'a, ()> {
-        Box::pin(AgentHistory::checkpoint(self, None, turn))
+    fn checkpoint<'a>(&'a self, class: Option<&'a str>, owner: Option<&'a str>, turn: Option<&'a str>) -> Fut<'a, ()> {
+        Box::pin(AgentHistory::checkpoint(self, class, owner, turn))
     }
 
-    fn interrupted<'a>(&'a self) -> Fut<'a, bool> {
-        Box::pin(async move { Ok(AgentHistory::interrupted(self).await?.is_some()) })
+    fn interrupted<'a>(&'a self) -> Fut<'a, Option<agent_loop::Checkpoint>> {
+        Box::pin(AgentHistory::interrupted(self))
     }
 
     fn load<'a>(&'a self) -> Fut<'a, (Prefix, Vec<Message>)> {
@@ -792,6 +795,91 @@ impl SubagentStore for AgentSubagents {
                 .execute(pool)
                 .await
                 .map_err(db)?;
+            Ok(())
+        })
+    }
+}
+
+/// Владельцы восстановления в `agent.recovery_owners` — запросы ядра
+/// (около `0x1717efb`): заведение `insert … values ($1, $2, 1, $3, $4,
+/// now(), null, null) on conflict (recovery_class, owner_id) do nothing`,
+/// закрытие `update … set terminal_at = now(), terminal_status = $5 where …
+/// and terminal_at is null`.
+///
+/// Своё (в разборе не видно): строка работника в `agent.agents` — `kind =
+/// 'subagent'`, `agent_type` — класс владельца, без родителя;
+/// `message_id` владельца — id работника.
+pub struct AgentWorkers {
+    store: Store,
+    model: String,
+    now: Now,
+}
+
+impl AgentWorkers {
+    pub fn new(store: &Store, model: &str, now: Now) -> AgentWorkers {
+        AgentWorkers { store: store.clone(), model: model.into(), now }
+    }
+}
+
+impl WorkerStore for AgentWorkers {
+    fn begin<'a>(&'a self, class: &'a str, owner_id: &'a str, agent_id: &'a str, prefix: &'a Prefix) -> Fut<'a, Arc<dyn ChildRecord>> {
+        Box::pin(async move {
+            let now = (self.now)() / 1000;
+            sqlx::query(
+                "insert into agent.agents (agent_id, id, session_id, kind, parent_id, parent_agent_id, root_session_id, depth, created_at, updated_at, model, status, last_assistant_message, agent_type) \
+                 values ($1, $1, null, 'subagent', null, null, null, 0, $2, $2, $3, 'running', null, $4) on conflict (agent_id) do nothing",
+            )
+            .bind(agent_id)
+            .bind(now)
+            .bind(&self.model)
+            .bind(class)
+            .execute(&self.store.pool)
+            .await
+            .map_err(db)?;
+            sqlx::query(
+                "insert into agent.recovery_owners (recovery_class, owner_id, generation, agent_id, message_id, active_at, terminal_at, terminal_status) \
+                 values ($1, $2, 1, $3, $3, now(), null, null) on conflict (recovery_class, owner_id) do nothing",
+            )
+            .bind(class)
+            .bind(owner_id)
+            .bind(agent_id)
+            .execute(&self.store.pool)
+            .await
+            .map_err(db)?;
+            let h = AgentHistory::open(&self.store, agent_id, "subagent", &self.model, self.now.clone()).await?;
+            h.pin_prefix(prefix).await?;
+            Ok(Arc::new(h) as Arc<dyn ChildRecord>)
+        })
+    }
+
+    fn active<'a>(&'a self, class: &'a str, owner_id: &'a str) -> Fut<'a, Option<Arc<dyn ChildRecord>>> {
+        Box::pin(async move {
+            let agent: Option<String> = sqlx::query_scalar("select agent_id from agent.recovery_owners where recovery_class = $1 and owner_id = $2 and terminal_at is null")
+                .bind(class)
+                .bind(owner_id)
+                .fetch_optional(&self.store.pool)
+                .await
+                .map_err(db)?;
+            let Some(agent) = agent else { return Ok(None) };
+            let h = AgentHistory::open(&self.store, &agent, "subagent", &self.model, self.now.clone()).await?;
+            Ok(Some(Arc::new(h) as Arc<dyn ChildRecord>))
+        })
+    }
+
+    fn terminal<'a>(&'a self, class: &'a str, owner_id: &'a str, status: &'a str) -> Fut<'a, ()> {
+        Box::pin(async move {
+            let agent: Option<String> = sqlx::query_scalar(
+                "update agent.recovery_owners set terminal_at = now(), terminal_status = $3 where recovery_class = $1 and owner_id = $2 and terminal_at is null returning agent_id",
+            )
+            .bind(class)
+            .bind(owner_id)
+            .bind(status)
+            .fetch_optional(&self.store.pool)
+            .await
+            .map_err(db)?;
+            if let Some(agent) = agent {
+                sqlx::query("update agent.agents set updated_at = $1, status = 'completed' where id = $2").bind((self.now)() / 1000).bind(&agent).execute(&self.store.pool).await.map_err(db)?;
+            }
             Ok(())
         })
     }

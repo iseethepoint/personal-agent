@@ -1,0 +1,1 @@
+The agent restarted while this run was in progress and could not resume it exactly, so the run continues from what it already recorded without repeating finished steps.

@@ -122,6 +122,8 @@ pub struct Run {
     pub result_summary: Option<String>,
     pub error_text: Option<String>,
     pub attempt: i32,
+    /// Срок фазы исполнения уже вышел (`worker_execution_timed_out`).
+    pub timed_out: bool,
 }
 
 fn run(r: &sqlx::postgres::PgRow) -> Run {
@@ -136,10 +138,11 @@ fn run(r: &sqlx::postgres::PgRow) -> Run {
         result_summary: r.get("result_summary"),
         error_text: r.get("error_text"),
         attempt: r.get("attempt"),
+        timed_out: r.get("worker_execution_timed_out"),
     }
 }
 
-const RUN_COLUMNS: &str = "run_id, job_id, scheduled_for_utc, trigger_reason, status::text as status, started_at_utc, finished_at_utc, result_summary, error_text, attempt";
+const RUN_COLUMNS: &str = "run_id, job_id, scheduled_for_utc, trigger_reason, status::text as status, started_at_utc, finished_at_utc, result_summary, error_text, attempt, worker_execution_timed_out";
 
 #[derive(Clone)]
 pub struct Store {
@@ -373,6 +376,12 @@ impl Store {
         .map_err(db)?
         .rows_affected();
         Ok(n == 1)
+    }
+
+    /// Работник прогона (`worker_agent_id`).
+    pub async fn set_worker(&self, run_id: &str, agent_id: &str) -> Result<()> {
+        sqlx::query("update scheduler.job_runs set worker_agent_id = $2 where run_id = $1").bind(run_id).bind(agent_id).execute(&self.pool).await.map_err(db)?;
+        Ok(())
     }
 
     pub async fn set_phase(&self, run_id: &str, phase: &str, timed_out: bool) -> Result<()> {
