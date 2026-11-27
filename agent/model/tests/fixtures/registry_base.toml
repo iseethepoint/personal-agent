@@ -1,0 +1,66 @@
+# Образец реестра для тестов П2а: anthropic + openai_compat (локальная по адресу).
+
+[defaults]
+model = "anthropic/main"
+maintenance = "anthropic/small"
+embeddings = "local/embed"
+
+[weights.big]
+context_window = 200000
+compaction_trigger = 150000
+anthropic.adaptive_thinking = true
+anthropic.mid_conversation_system_messages = true
+anthropic.output_effort = "supported"
+anthropic.image_resolution = "high"
+anthropic.runtime_output_ceiling = 64000
+
+[weights.small]
+context_window = 200000
+compaction_trigger = 100000
+anthropic.output_effort = "unsupported"
+
+[weights.qwen]
+context_window = 32768
+compaction_trigger = 24576
+openai_compat.vision = true
+openai_compat.image_formats = ["png", "jpeg"]
+openai_compat.parallel_tool_calls = true
+
+[weights.embed]
+context_window = 512
+compaction_trigger = 512
+
+[wires]
+"big-1" = { weights = "big" }
+"small-1" = { weights = "small" }
+"qwen3:8b" = { weights = "qwen", local_inference = true }
+"minilm" = { weights = "embed", local_inference = true }
+
+[[models]]
+id = "anthropic/main"
+provider = "anthropic"
+model = "big-1"
+api_key_env = "ANTHROPIC_API_KEY"
+
+[[models]]
+id = "anthropic/small"
+provider = "anthropic"
+model = "small-1"
+api_key_env = "ANTHROPIC_API_KEY"
+
+[[models]]
+id = "local/chat"
+provider = "openai_compat"
+model = "qwen3:8b"
+base_url = "http://127.0.0.1:11434/v1"
+setup.compaction_memory_flush_use_main = true
+setup.default_model_purposes = ["CronWorker"]
+setup.overrides = [
+  { purpose = "BrowserAgent", model = "anthropic/main" },
+]
+
+[[models]]
+id = "local/embed"
+provider = "openai_compat"
+model = "minilm"
+base_url = "http://127.0.0.1:11434/v1"
