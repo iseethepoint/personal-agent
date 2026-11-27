@@ -3,9 +3,7 @@
 //! - описания всех инструментов реестра (вместе с параметрами);
 //! - все тексты `prompts/` в личном варианте;
 //! - все строки в коде `agent/*/src` (без комментариев): из них собираются
-//!   заметки, ошибки и ответы инструментов. Метки `personal-muse-only` и
-//!   `group-muse-only` — разметка текстов muse, модели не уходит (её срезает
-//!   `personal`), поэтому в строках она не считается.
+//!   заметки, ошибки и ответы инструментов.
 
 #[path = "../../loop/tests/common/mod.rs"]
 mod common;
@@ -15,8 +13,8 @@ mod pg;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use agent_loop::{first_message, personal, summarization_prompt, Inbox, Prefix, Subagents, Tools};
-use agent_memory::{MemoryTools, Store};
+use agent_loop::{first_message, personal, summarization_prompt, Inbox, Prefix, Subagents, Tools, Transcript};
+use agent_memory::{ForgetTools, MemoryTools, Store};
 use agent_tools::web::SearchConfig;
 use agent_tools::{add_search, Blocklist, Catalog, ExecTools, FileTools, Home, Todo, WebConfig, WebTools};
 use common::{model, temp_dir, Wire};
@@ -72,7 +70,7 @@ async fn all_tools() -> Tools {
     let search = SearchConfig { base_url: "http://127.0.0.1:9/v2".into(), ..cfg.search };
     WebTools::new(search, Blocklist::load(&cfg.blocklist, &root()).unwrap()).add_to(&mut tools);
     let store = Store::connect(&pg::database()).await.unwrap();
-    MemoryTools::new(&home_dir, store, None).add_to(&mut tools);
+    MemoryTools::new(&home_dir, store.clone(), None).add_to(&mut tools);
     let (_server, provider) = model(Wire::OpenaiCompat, vec![], false);
     let subagents = Subagents::new(
         Arc::new(provider),
@@ -80,7 +78,9 @@ async fn all_tools() -> Tools {
         Prefix { system: String::new(), tools: vec![] },
         temp_dir("names-spill"),
         Inbox::new(),
+        Transcript::new(),
     );
+    ForgetTools::new(subagents.clone(), &home_dir, store, None, home_dir.join("skills/forget/SKILL.md")).add_to(&mut tools);
     for t in subagents.tools() {
         tools.add(t);
     }
@@ -92,7 +92,7 @@ async fn tool_descriptions_have_no_muse_or_meta() {
     let tools = all_tools().await;
     let specs = tools.specs();
     let names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
-    for want in ["hamlet.read", "hamlet.write", "hamlet.edit", "hamlet.exec", "hamlet.skill_search", "hamlet.connector_search", "hamlet.memory_search", "subagent.spawn", "browser.search", "todo.write"] {
+    for want in ["hamlet.read", "hamlet.write", "hamlet.edit", "hamlet.exec", "hamlet.skill_search", "hamlet.connector_search", "hamlet.memory_search", "subagent.spawn", "browser.search", "todo.write", "forget.plan", "forget.confirm"] {
         assert!(names.contains(&want), "нет {want} в {names:?}");
     }
     let mut bad = Vec::new();
@@ -172,7 +172,6 @@ fn literals(src: &str) -> Vec<(usize, String)> {
 
 #[test]
 fn code_strings_have_no_muse_or_meta() {
-    let marks = ["<!-- personal-muse-only:start -->", "<!-- personal-muse-only:end -->", "<!-- group-muse-only:start -->", "<!-- group-muse-only:end -->"];
     let mut bad = Vec::new();
     let mut files = Vec::new();
     fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -193,11 +192,7 @@ fn code_strings_have_no_muse_or_meta() {
     assert!(files.len() > 20, "исходники не найдены");
     for f in &files {
         for (n, lit) in literals(&std::fs::read_to_string(f).unwrap()) {
-            let mut t = lit;
-            for m in marks {
-                t = t.replace(m, "");
-            }
-            assert_clean(&format!("{}:{n}", f.strip_prefix(root()).unwrap_or(f).display()), &t, &mut bad);
+            assert_clean(&format!("{}:{n}", f.strip_prefix(root()).unwrap_or(f).display()), &lit, &mut bad);
         }
     }
     assert!(bad.is_empty(), "{}", bad.join("\n"));

@@ -13,7 +13,7 @@ use std::pin::Pin;
 use agent_model::openai_compat::OpenaiCompatProvider;
 
 pub use files::{reindex, Reindex};
-pub use forget::{apply_pending, Forgotten};
+pub use forget::{apply_pending, ForgetTools, Forgotten};
 pub use store::{Claim, Entry, NewClaim, NewEntry, Store};
 pub use tools::MemoryTools;
 

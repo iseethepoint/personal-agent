@@ -15,7 +15,7 @@ use futures_util::future::join_all;
 use serde_json::{json, Value};
 
 use crate::prompt::Prefix;
-use crate::subagents::Inbox;
+use crate::subagents::{Inbox, Transcript};
 use crate::spill;
 use crate::tool::{ToolError, Tools};
 
@@ -34,7 +34,7 @@ pub const OUTPUT_TOKEN_CAP_NOTICE: &str = "Your previous response reached the ou
 
 /// Вставка после ответа из одного мышления — «thinking-only retry notice»
 /// muse (`strings-all.txt:54778`, ядро 0x6b1026), вариант личного muse
-/// (`personal-muse-only`: «sent to the user»).
+/// (`personal-only`: «sent to the user»).
 pub const THINKING_ONLY_NOTICE: &str = "Your previous response ended after reasoning only, with no reply and no tool call, so nothing was sent to the user and nothing ran. Text inside reasoning is never executed or shown, including a tool call written there. Continue now: make the tool call you intended as a real tool call, or write your reply.";
 
 /// Инструмент ответа в заданной форме (`output_contract.rs`,
@@ -82,6 +82,9 @@ pub struct Turn<'a, P> {
     /// Ящик, куда приходят итоги подагентов; перед каждым вызовом модели
     /// дошедшее ложится в историю.
     pub inbox: Option<Inbox>,
+    /// Куда ход кладёт снимок своей истории перед исполнением вызовов —
+    /// оттуда подагент берёт разговор родителя. Сама история не меняется.
+    pub transcript: Option<Transcript>,
 }
 
 impl<'a, P: Provider> Turn<'a, P> {
@@ -96,6 +99,7 @@ impl<'a, P: Provider> Turn<'a, P> {
             tool_timeout: TOOL_TIMEOUT,
             retries: MODEL_RETRIES,
             inbox: None,
+            transcript: None,
         }
     }
 
@@ -219,6 +223,9 @@ impl<'a, P: Provider> Turn<'a, P> {
             history.push(Message { role: Role::Assistant, content: resp.content.clone() });
             if calls.is_empty() {
                 return Ok(resp);
+            }
+            if let Some(t) = &self.transcript {
+                t.set(history);
             }
             let results = join_all(calls.into_iter().map(|(id, name, args)| self.dispatch(id, name, args))).await;
             history.push(Message { role: Role::User, content: results });

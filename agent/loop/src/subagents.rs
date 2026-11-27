@@ -2,7 +2,16 @@
 //! `subagent_execution.rs`, `subagent_completion_stream.rs` (`:1352-1353`).
 //!
 //! Подагент — тот же цикл хода со своей историей и своим набором
-//! инструментов. Работа асинхронная, как велят описания инструментов muse:
+//! инструментов. Подагент глубины 1 наследует разговор родителя, глубже —
+//! изолирован («Any subagents you spawn deeper than 1 start in isolated
+//! mode», `subagent_history_inheritance_inherited.md`;
+//! `subagent_context_depth_one_spawn_inheritance.md`): у нас глубина одна,
+//! поэтому наследуют все. Наследуется вся видимая модели история родителя
+//! на момент вызова (у muse — от `root_prompt_floor_seq`, то есть после
+//! сжатия; `strings-all.txt:84153`): копия, история родителя не меняется.
+//! За ней — заметка muse «Above is the conversation history…»
+//! (`active_turn_subagent_history_developer_message.md`), затем первое
+//! сообщение подагента. Работа асинхронная, как велят описания инструментов muse:
 //! `subagent.spawn` сразу отдаёт id, итог приходит родителю сам — в его
 //! ящик (`Inbox`), а оттуда заметкой в историю перед следующим вызовом
 //! модели. Сессия подагента живёт и после итога: `subagent.send` даёт ей
@@ -33,12 +42,15 @@ pub const USER_MESSAGE_MD: &str = include_str!("../../../prompts/subagent/subage
 pub const STANDARD_MD: &str = include_str!("../../../prompts/subagent/subagent_context_standard.md");
 pub const PERSISTENT_SESSION_MD: &str =
     include_str!("../../../prompts/subagent/subagent_context_persistent_session.md");
-pub const ISOLATED_MD: &str = include_str!("../../../prompts/subagent/subagent_history_inheritance_isolated.md");
+pub const INHERITED_MD: &str = include_str!("../../../prompts/subagent/subagent_history_inheritance_inherited.md");
+pub const PARENT_BACKGROUND_MD: &str = include_str!("../../../prompts/subagent/subagent_context_parent_background.md");
+pub const ACTIVE_TURN_MD: &str =
+    include_str!("../../../prompts/subagent/active_turn_subagent_history_developer_message.md");
 
 /// Описания инструментов — строки ядра muse (0x2cdb1b3–0x2cdd367), полные
 /// варианты: первая строка и абзацы через пустую строку. Правка (П10): в
 /// групповом куске `subagent.list` «this Muse's» → «this Hamlet's».
-const LIST_DESCRIPTION: &str = "List your child agents and the agents of <!-- personal-muse-only:start -->the user's<!-- personal-muse-only:end --><!-- group-muse-only:start -->this Hamlet's<!-- group-muse-only:end --> chats and scheduled jobs, grouped into active and recent, with a normalized status (running, done, interrupted, failed), task and final response previews, timing, and whether a finished result was already seen.\n\nRunning entries include how long the agent has been running and how long since its last activity. A quiet agent is not proof it is stuck; it may be inside one long tool call. Entries carry the agent ids the other subagent tools need, plus the browser task id for browser task owners and the artifact slug for artifact builders. An entry a chat or a scheduled job owns carries `owner`, saying which, with the schedule and run ids for scheduled work, so a scheduled job's agents are never mistaken for missing. You can view agents owned by another chat or a scheduled job, but the subagent tools cannot steer or stop them: a scheduled job's in-flight run stops with the cron stop tool and the schedule id shown in `owner`, and another chat's agents cannot be closed from here at all.\n\nCheck status only to act on it: <!-- personal-muse-only:start -->the user<!-- personal-muse-only:end --><!-- group-muse-only:start -->a member<!-- group-muse-only:end --> asks where things stand, you need an agent id, or you suspect slow or failed work. Finished results are delivered to you automatically; mentioning running work unprompted needs no fresh check, and calling this in a polling loop wastes turns.";
+const LIST_DESCRIPTION: &str = "List your child agents and the agents of <!-- personal-only:start -->the user's<!-- personal-only:end --><!-- group-only:start -->this Hamlet's<!-- group-only:end --> chats and scheduled jobs, grouped into active and recent, with a normalized status (running, done, interrupted, failed), task and final response previews, timing, and whether a finished result was already seen.\n\nRunning entries include how long the agent has been running and how long since its last activity. A quiet agent is not proof it is stuck; it may be inside one long tool call. Entries carry the agent ids the other subagent tools need, plus the browser task id for browser task owners and the artifact slug for artifact builders. An entry a chat or a scheduled job owns carries `owner`, saying which, with the schedule and run ids for scheduled work, so a scheduled job's agents are never mistaken for missing. You can view agents owned by another chat or a scheduled job, but the subagent tools cannot steer or stop them: a scheduled job's in-flight run stops with the cron stop tool and the schedule id shown in `owner`, and another chat's agents cannot be closed from here at all.\n\nCheck status only to act on it: <!-- personal-only:start -->the user<!-- personal-only:end --><!-- group-only:start -->a member<!-- group-only:end --> asks where things stand, you need an agent id, or you suspect slow or failed work. Finished results are delivered to you automatically; mentioning running work unprompted needs no fresh check, and calling this in a polling loop wastes turns.";
 const LIST_SCOPE: &str = "'direct' (default): your immediate children. 'descendants': the full subtree of agents under you.";
 const LIST_LIMIT: &str = "Max entries to return. Default 20, max 200.";
 const SEND_DESCRIPTION: &str = "Deliver follow-up input to one of your running child agents by id.\n\nDelivery is ASYNC: a success response means the message was submitted, not applied. The instruction stays pending until the agent's handoff or completion result reports it, so do not describe it as done, do not poll for it, and do not fabricate the outcome. Handle anything else the turn needs, then end your response.\n\nProvide the input in `message`, or in `items` for images or files; `items` takes precedence when both are set. Set `interrupt` true to cut off the agent's current work first, so the new input starts a fresh turn instead of queueing behind the old one.\n\nBrowser task owners cannot be steered by agent id; their parent agent continues the task through its browser tools instead. To start ordinary delegated work when no suitable agent exists, use `subagent.spawn`.";
@@ -47,7 +59,7 @@ const SEND_MESSAGE: &str = "Follow-up text for the agent. If items is also provi
 const SEND_SCOPE: &str = "Where the target may live: 'direct' (default) covers your immediate children, 'descendants' the full subtree under you.";
 const SEND_INTERRUPT: &str = "If true, interrupt the agent's current work before delivering this input.";
 const CLOSE_DESCRIPTION: &str = "Stop one of your child agents by id and end its work.\n\nUse this when the delegated work is no longer needed, the agent is stuck, or it should not keep going. To redirect an agent instead of stopping it, use `subagent.send`; to find the right id and check state first, use `subagent.list`.\n\nClosing a browser task owner stops the whole browser task, and the response includes its `browser_task_id`. If the owner's task identity cannot be recovered, the close fails and nothing is stopped.";
-const SPAWN_DESCRIPTION: &str = "Delegate a task to a new child agent that works on it in the background while you continue.\n\nDo not spawn a generic child for requested website navigation, purchases, or other live-browser work: logged-in sites, clicking, forms, or multi-step interactions. That work belongs to the browser-task delegation route, not another generic child. Generic subagents may search the public web and fetch page text from links supplied by <!-- personal-muse-only:start -->the user<!-- personal-muse-only:end --><!-- group-muse-only:start -->members<!-- group-muse-only:end --> or returned by tools; requests to visit or interact with websites are returned to the parent for appropriate delegation.\n\nThis call is ASYNC: the response only confirms the spawn and returns the new agent id. Results arrive later through the runtime, so never treat the response as completion and never produce results for delegated work yourself. After spawning, acknowledge what you delegated and end your response; do not poll, sleep, or promise a delivery time. Spawn all independent agents at once instead of one at a time.\n\nProvide the task in `message`, or in `items` when it needs images or files; `items` takes precedence when both are set. Manage the agent afterwards by its id: `subagent.list` shows status, `subagent.send` delivers follow-up input, `subagent.resume` restarts an interrupted one, and `subagent.close` stops one.\n\nSome work has its own dedicated parent-agent capability and cannot be spawned here, including browser tasks, artifacts (a page, app, document, deck, or spreadsheet), and accepted Idea builds. Artifacts do not need a subagent: the artifact tools already run the build in the background and report back. If <!-- personal-muse-only:start -->the user<!-- personal-muse-only:end --><!-- group-muse-only:start -->a member<!-- group-muse-only:end --> asks for a subagent, tell the child to use the artifact tools instead of creating a file itself. A rejected spawn returns a structured error with a stable reason code; fix the cause it names instead of retrying the same call.";
+const SPAWN_DESCRIPTION: &str = "Delegate a task to a new child agent that works on it in the background while you continue.\n\nDo not spawn a generic child for requested website navigation, purchases, or other live-browser work: logged-in sites, clicking, forms, or multi-step interactions. That work belongs to the browser-task delegation route, not another generic child. Generic subagents may search the public web and fetch page text from links supplied by <!-- personal-only:start -->the user<!-- personal-only:end --><!-- group-only:start -->members<!-- group-only:end --> or returned by tools; requests to visit or interact with websites are returned to the parent for appropriate delegation.\n\nThis call is ASYNC: the response only confirms the spawn and returns the new agent id. Results arrive later through the runtime, so never treat the response as completion and never produce results for delegated work yourself. After spawning, acknowledge what you delegated and end your response; do not poll, sleep, or promise a delivery time. Spawn all independent agents at once instead of one at a time.\n\nProvide the task in `message`, or in `items` when it needs images or files; `items` takes precedence when both are set. Manage the agent afterwards by its id: `subagent.list` shows status, `subagent.send` delivers follow-up input, `subagent.resume` restarts an interrupted one, and `subagent.close` stops one.\n\nSome work has its own dedicated parent-agent capability and cannot be spawned here, including browser tasks, artifacts (a page, app, document, deck, or spreadsheet), and accepted Idea builds. Artifacts do not need a subagent: the artifact tools already run the build in the background and report back. If <!-- personal-only:start -->the user<!-- personal-only:end --><!-- group-only:start -->a member<!-- group-only:end --> asks for a subagent, tell the child to use the artifact tools instead of creating a file itself. A rejected spawn returns a structured error with a stable reason code; fix the cause it names instead of retrying the same call.";
 const SPAWN_MESSAGE: &str = "Task instruction for the child. State the task, the outcome you want, any non-obvious constraint, and every fact it needs. If items is also provided, items takes precedence.";
 const RESUME_DESCRIPTION: &str = "Resume one of your interrupted child agents by id so it continues its existing task from where it stopped.\n\nOnly a paused or interrupted agent can be resumed. An agent that already finished or shut down is not resumed; the call returns an error saying so, because resuming a terminal agent re-runs nothing. Spawn a new agent with `subagent.spawn` to continue that work. Resume restarts the agent on its own task; to give it new direction once it is running again, use `subagent.send`.\n\nTwo kinds of agents refuse generic resume: browser task owners continue through their parent agent's dedicated browser-task control, and a web artifact builder whose build is still in flight cannot be resumed; wait for it to finish or send it guidance with `subagent.send`.";
 
@@ -111,6 +123,48 @@ impl Inbox {
     }
 }
 
+/// Снимок истории родителя: ход кладёт сюда копию перед исполнением
+/// вызовов, `subagent.spawn` берёт её отсюда.
+#[derive(Clone, Default)]
+pub struct Transcript {
+    messages: Arc<Mutex<Vec<Message>>>,
+}
+
+impl Transcript {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn set(&self, history: &[Message]) {
+        *self.messages.lock().unwrap() = history.to_vec();
+    }
+
+    pub fn snapshot(&self) -> Vec<Message> {
+        self.messages.lock().unwrap().clone()
+    }
+}
+
+/// История родителя для подагента: копия без вызовов последнего ответа —
+/// они ещё исполняются (среди них и сам `subagent.spawn`), результатов у них
+/// нет, а поставщик не примет вызов без результата.
+pub fn inherited_history(parent: &[Message]) -> Vec<Message> {
+    let mut h = parent.to_vec();
+    if let Some(last) = h.last_mut() {
+        if last.role == Role::Assistant {
+            last.content.retain(|p| !matches!(p, Part::ToolCall { .. }));
+            if last.content.is_empty() {
+                h.pop();
+            }
+        }
+    }
+    h
+}
+
+/// Что сделать с итогом подагента, прежде чем он уйдёт родителю (у muse
+/// так завершает работу исполнитель забывания: «this executor's terminal
+/// boundary owns the memory-search refresh», `strings-all.txt:55420`).
+pub type AfterDone = Arc<dyn Fn(Status, String) -> futures_util::future::BoxFuture<'static, String> + Send + Sync>;
+
 enum Input {
     Message(String),
     Resume,
@@ -132,6 +186,7 @@ struct Inner<P> {
     prefix: Prefix,
     spill_dir: std::path::PathBuf,
     inbox: Inbox,
+    parent: Transcript,
     agents: Mutex<Vec<Agent>>,
 }
 
@@ -147,8 +202,9 @@ impl<P> Clone for Subagents<P> {
 }
 
 /// Первое сообщение подагента — `subagent_context_user_message.md` muse,
-/// личный вариант. Подагент изолирован: истории родителя не наследует, и
-/// глубже не спавнит (`MAX_SPAWN_DEPTH` = 1), поэтому блоки глубины пусты.
+/// личный вариант. Подагент наследует разговор родителя: блок родителя —
+/// `subagent_context_parent_background.md` и `…_inheritance_inherited.md`;
+/// глубже он не спавнит (`MAX_SPAWN_DEPTH` = 1), поэтому блоки глубины пусты.
 pub fn first_message(task: &str) -> String {
     let standard = personal(STANDARD_MD)
         .replace("{{DEPTH_ONE_COORDINATOR_BLOCK}}\n", "")
@@ -156,7 +212,7 @@ pub fn first_message(task: &str) -> String {
     personal(USER_MESSAGE_MD)
         .replace("{{CHILD_DEPTH}}", "1")
         .replace("{{MAX_SPAWN_DEPTH}}", &MAX_SPAWN_DEPTH.to_string())
-        .replace("{{PARENT_CONTEXT_BLOCK}}", personal(ISOLATED_MD).trim_end())
+        .replace("{{PARENT_CONTEXT_BLOCK}}", &format!("{}\n{}", personal(PARENT_BACKGROUND_MD).trim_end(), personal(INHERITED_MD).trim_end()))
         .replace("{{STANDARD_SUBAGENT_BLOCK}}", &standard)
         .replace("{{PERSISTENT_SESSION_BLOCK}}", &personal(PERSISTENT_SESSION_MD))
         .replace("{{SESSION_LINES}}\n", "")
@@ -199,10 +255,19 @@ fn close_dangling_calls(history: &mut Vec<Message>) {
 }
 
 impl<P: Provider + Send + Sync + 'static> Subagents<P> {
-    /// `prefix` и `tools` — неизменное начало и набор инструментов подагента.
-    pub fn new(provider: Arc<P>, tools: Arc<Tools>, prefix: Prefix, spill_dir: impl Into<std::path::PathBuf>, inbox: Inbox) -> Self {
+    /// `prefix` и `tools` — неизменное начало и набор инструментов подагента;
+    /// `parent` — снимок истории родителя (его же отдать ходу родителя,
+    /// `Turn::transcript`).
+    pub fn new(
+        provider: Arc<P>,
+        tools: Arc<Tools>,
+        prefix: Prefix,
+        spill_dir: impl Into<std::path::PathBuf>,
+        inbox: Inbox,
+        parent: Transcript,
+    ) -> Self {
         Subagents {
-            inner: Arc::new(Inner { provider, tools, prefix, spill_dir: spill_dir.into(), inbox, agents: Mutex::new(Vec::new()) }),
+            inner: Arc::new(Inner { provider, tools, prefix, spill_dir: spill_dir.into(), inbox, parent, agents: Mutex::new(Vec::new()) }),
         }
     }
 
@@ -235,6 +300,11 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
     }
 
     pub fn spawn(&self, task: &str) -> String {
+        self.spawn_then(task, None)
+    }
+
+    /// `spawn`, но итог перед отправкой родителю проходит через `after`.
+    pub fn spawn_then(&self, task: &str, after: Option<AfterDone>) -> String {
         let mut agents = self.inner.agents.lock().unwrap();
         let id = format!("agent-{}", agents.len() + 1);
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -243,8 +313,13 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         let inner = self.inner.clone();
         let stop = interrupt.clone();
         let agent_id = id.clone();
+        let mut history = inherited_history(&self.inner.parent.snapshot());
+        if !history.is_empty() {
+            history.push(Message { role: Role::Developer, content: vec![Part::Text { text: personal(ACTIVE_TURN_MD).trim_end().to_string() }] });
+        }
         let handle = tokio::spawn(async move {
             let mut conv = Conversation::new(inner.prefix.clone());
+            conv.history = history;
             while let Some(input) = rx.recv().await {
                 if let Input::Message(text) = input {
                     conv.history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
@@ -269,6 +344,10 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                     Ok(resp) => (Status::Done, resp.text()),
                     Err(TurnError::Model(e)) if e.retryable => (Status::Interrupted, e.to_string()),
                     Err(e) => (Status::Failed, e.to_string()),
+                };
+                let text = match &after {
+                    Some(f) => f(status, text).await,
+                    None => text,
                 };
                 Self::set(&inner, &agent_id, status, Some(text.clone()));
                 inner.inbox.push(handoff(&agent_id, status, &text));

@@ -6,7 +6,7 @@ mod common;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use agent_loop::{first_message, Inbox, Prefix, Status, Subagents, Tools, Turn, CONTROL_TIMEOUT};
+use agent_loop::{first_message, inherited_history, Inbox, Prefix, Status, Subagents, Tools, Transcript, Turn, CONTROL_TIMEOUT};
 use agent_model::{Message, Part, Role, ToolResultPart};
 use common::{model, temp_dir, tools, AnyProvider, Server, Step, Wire};
 use serde_json::{json, Value};
@@ -29,10 +29,14 @@ macro_rules! both {
 
 /// Подагенты на своём сервере; инструменты подагента — тестовые.
 fn children(wire: Wire, steps: Vec<Step>) -> (Server, Subagents<AnyProvider>) {
+    children_of(wire, steps, Transcript::new())
+}
+
+fn children_of(wire: Wire, steps: Vec<Step>, parent: Transcript) -> (Server, Subagents<AnyProvider>) {
     let (server, p) = model(wire, steps, false);
     let child_tools = tools();
     let prefix = Prefix { system: "Ты — подагент.".into(), tools: child_tools.specs() };
-    let s = Subagents::new(Arc::new(p), Arc::new(child_tools), prefix, temp_dir("child"), Inbox::new());
+    let s = Subagents::new(Arc::new(p), Arc::new(child_tools), prefix, temp_dir("child"), Inbox::new(), parent);
     (server, s)
 }
 
@@ -57,7 +61,8 @@ async fn wait(inbox: &Inbox) -> Vec<Message> {
 }
 
 async fn spawn_and_handoff(wire: Wire) {
-    let (child_server, subs) = children(wire, vec![Step::Text("Ответ: 42")]);
+    let transcript = Transcript::new();
+    let (child_server, subs) = children_of(wire, vec![Step::Text("Ответ: 42")], transcript.clone());
     let mut parent_tools = tools();
     for tool in subs.tools() {
         parent_tools.add(tool);
@@ -70,6 +75,7 @@ async fn spawn_and_handoff(wire: Wire) {
     let (parent_server, pp) = model(wire, parent_steps, false);
     let mut turn = Turn::new(&pp, &parent_tools, "Ты — родитель.", temp_dir("parent"));
     turn.inbox = Some(subs.inbox().clone());
+    turn.transcript = Some(transcript);
     let mut h = vec![Message { role: Role::User, content: vec![Part::Text { text: "узнай ответ".into() }] }];
 
     // Ход родителя: spawn сразу отдаёт id, итог ещё не пришёл.
@@ -87,18 +93,32 @@ async fn spawn_and_handoff(wire: Wire) {
     // Итог приходит сам; следующий ход родителя видит его в истории.
     tokio::time::timeout(Duration::from_secs(5), subs.inbox().wait()).await.unwrap();
     assert_eq!(subs.status(&id), Some(Status::Done));
+    // История родителя не тронута: свой вызов spawn и его результат на месте.
+    assert_eq!(h.len(), 4);
+    assert!(h[1].content.iter().any(|p| matches!(p, Part::ToolCall { id, .. } if id == "p1")));
     h.push(Message { role: Role::User, content: vec![Part::Text { text: "ну что?".into() }] });
     turn.run(&mut h, &mut |_: &str| {}).await.unwrap();
     let last = parent_server.requests()[2]["messages"].to_string();
     assert!(last.contains(&format!("[Subagent Result] agent_id: {id}, status: done")), "{last}");
     assert!(last.contains("Ответ: 42"));
 
-    // Подагент работал со своей историей: текст muse и задача.
+    // Подагент унаследовал разговор родителя: его слова, затем заметка
+    // muse, затем своё первое сообщение; висящего вызова spawn в копии нет.
     let child = child_server.requests()[0].to_string();
-    assert!(child.contains("[Subagent Context] You are running as a subagent (depth 1/1)"));
+    let at = |t: &str| child.find(t).unwrap_or_else(|| panic!("нет «{t}» в {child}"));
+    assert!(at("узнай ответ") < at("Above is the conversation history, included as background."));
+    assert!(at("Above is the conversation history") < at("[Subagent Context] You are running as a subagent (depth 1/1)"));
+    assert!(child.contains("The messages above were forked from your parent agent's context"));
+    assert!(child.contains("You inherit transcript context from your parent agent."));
     assert!(child.contains("[Subagent Task]: посчитай ответ"));
-    assert!(child.contains("You are running in isolated mode."));
-    assert!(!child.contains("{{") && !child.contains("<!--") && !child.contains("узнай ответ"));
+    assert!(!child.contains("isolated mode") && !child.contains("\"p1\"") && !child.contains("{{") && !child.contains("<!--"));
+    // Начало родителя не тронуто: системный текст его запросов один и тот же,
+    // у подагента — свой.
+    let sys = |r: &Value| r.get("system").cloned().unwrap_or_else(|| r["messages"][0].clone());
+    let pr = parent_server.requests();
+    assert_eq!(sys(&pr[0]), sys(&pr[2]));
+    assert!(sys(&pr[0]).to_string().contains("Ты — родитель.") && !child.contains("Ты — родитель."));
+    assert!(child.contains("Ты — подагент."));
     // Описания инструментов родителя — тексты muse.
     let tools_json = parent_server.requests()[0]["tools"].to_string();
     assert!(tools_json.contains("Delegate a task to a new child agent that works on it in the background while you continue."));
@@ -222,3 +242,23 @@ async fn send_with_interrupt(wire: Wire) {
     assert!(next.contains("interrupted before the tool finished") && next.contains("брось, сделай иначе"), "{next}");
 }
 both!(send_with_interrupt);
+
+#[test]
+fn inherited_history_drops_pending_calls_only() {
+    let call = Part::ToolCall { id: "p1".into(), name: "subagent.spawn".into(), arguments: json!({}) };
+    let done = Part::ToolCall { id: "p0".into(), name: "echo".into(), arguments: json!({}) };
+    let result = Part::ToolResult { call_id: "p0".into(), content: vec![], is_error: false };
+    let user = Message { role: Role::User, content: vec![Part::Text { text: "привет".into() }] };
+    let parent = vec![
+        user.clone(),
+        Message { role: Role::Assistant, content: vec![done.clone()] },
+        Message { role: Role::User, content: vec![result.clone()] },
+        Message { role: Role::Assistant, content: vec![Part::Text { text: "сейчас".into() }, call.clone()] },
+    ];
+    let h = inherited_history(&parent);
+    assert_eq!(h.len(), 4);
+    assert_eq!(h[1].content, vec![done]);
+    assert_eq!(h[3].content, vec![Part::Text { text: "сейчас".into() }]);
+    let only_call = vec![user, Message { role: Role::Assistant, content: vec![call] }];
+    assert_eq!(inherited_history(&only_call).len(), 1);
+}

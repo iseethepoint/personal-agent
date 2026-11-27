@@ -32,13 +32,13 @@ pub const MEMORY_FLUSH_PROMPT_MD: &str = include_str!("../../../prompts/compacti
 /// Заголовок сводки в истории — строка ядра muse (0xb3a958).
 pub const SUMMARY_HEADER: &str = "Context checkpoint compaction summary:\n";
 
-const PERSONAL_START: &str = "<!-- personal-muse-only:start -->";
-const PERSONAL_END: &str = "<!-- personal-muse-only:end -->";
-const GROUP_START: &str = "<!-- group-muse-only:start -->";
-const GROUP_END: &str = "<!-- group-muse-only:end -->";
+const PERSONAL_START: &str = "<!-- personal-only:start -->";
+const PERSONAL_END: &str = "<!-- personal-only:end -->";
+const GROUP_START: &str = "<!-- group-only:start -->";
+const GROUP_END: &str = "<!-- group-only:end -->";
 
-/// Личный вариант текста muse: куски `personal-muse-only` остаются без
-/// меток, куски `group-muse-only` убираются. Строка, на которой были
+/// Личный вариант текста muse: куски `personal-only` остаются без
+/// меток, куски `group-only` убираются. Строка, на которой были
 /// только метки, убирается целиком.
 pub fn personal(text: &str) -> String {
     const MARK: char = '\u{0}';

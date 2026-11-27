@@ -1,0 +1,1 @@
+- You inherit transcript context from your parent agent. Your explicit subagent task and latest parent agent message define your assignment; use prior messages only as background context and do not broaden the task by recreating sibling work from inherited transcript.
