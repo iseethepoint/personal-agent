@@ -174,6 +174,32 @@ enum Input {
     Resume,
 }
 
+/// Итог особого подагента для ящика родителя: (статус, последний текст) →
+/// заметка. Зовётся и при `subagent.close` — «a terminal handoff still
+/// arrives» (`strings-all.txt:55755`).
+pub type Finish = Arc<dyn Fn(Status, String) -> futures_util::future::BoxFuture<'static, Message> + Send + Sync>;
+
+/// Особый подагент — свой системный текст и набор инструментов, а не
+/// родительские (у muse — «seat»-профиль, например `deep_research`,
+/// `strings-all.txt:74383`): первое сообщение, конец работы — вызов
+/// терминального инструмента (`done`), одно напоминание, если ход кончился
+/// без него, срок работы и своя заметка-итог. Без монитора и без истории
+/// родителя.
+pub struct Kind {
+    pub task: String,
+    pub first: String,
+    pub prefix: Prefix,
+    pub tools: Arc<Tools>,
+    pub terminal: Vec<String>,
+    /// Дошла ли работа до терминального вызова.
+    pub done: Arc<dyn Fn() -> bool + Send + Sync>,
+    /// Напоминание, если ход кончился без терминального вызова.
+    pub nudge: Option<String>,
+    /// Срок всей работы.
+    pub deadline: Option<std::time::Duration>,
+    pub finish: Finish,
+}
+
 struct Agent {
     id: String,
     task: String,
@@ -182,6 +208,8 @@ struct Agent {
     tx: mpsc::UnboundedSender<Input>,
     interrupt: Arc<Notify>,
     handle: tokio::task::JoinHandle<()>,
+    /// Итог особого подагента при закрытии.
+    finish: Option<Finish>,
 }
 
 struct Inner<P> {
@@ -385,7 +413,69 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 inner.inbox.push(handoff(&agent_id, status, &text));
             }
         });
-        agents.push(Agent { id: id.clone(), task: task.to_string(), status: Status::Running, result: None, tx, interrupt, handle });
+        agents.push(Agent { id: id.clone(), task: task.to_string(), status: Status::Running, result: None, tx, interrupt, handle, finish: None });
+        id
+    }
+
+    /// Запустить особого подагента (`Kind`); дополнения — тем же
+    /// `subagent.send`, остановка — `subagent.close`.
+    pub fn spawn_kind(&self, kind: Kind) -> String {
+        let mut agents = self.inner.agents.lock().unwrap();
+        let id = format!("agent-{}", agents.len() + 1);
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let interrupt = Arc::new(Notify::new());
+        let _ = tx.send(Input::Message(kind.first.clone()));
+        let inner = self.inner.clone();
+        let stop = interrupt.clone();
+        let agent_id = id.clone();
+        let finish = kind.finish.clone();
+        let started = tokio::time::Instant::now();
+        let again = tx.clone();
+        let handle = tokio::spawn(async move {
+            let mut history: Vec<Message> = Vec::new();
+            let mut nudged = false;
+            while let Some(input) = rx.recv().await {
+                if let Input::Message(text) = input {
+                    history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
+                }
+                Self::set(&inner, &agent_id, Status::Running, None);
+                let mut turn = Turn::from_prefix(&*inner.provider, &kind.tools, &kind.prefix, inner.spill_dir.clone());
+                turn.terminal = kind.terminal.clone();
+                let mut quiet = |_: &str| {};
+                let left = kind.deadline.map(|d| d.saturating_sub(started.elapsed()));
+                let outcome = tokio::select! {
+                    r = turn.run(&mut history, &mut quiet) => Some(Some(r)),
+                    _ = stop.notified() => None,
+                    _ = async { match left { Some(l) => tokio::time::sleep(l).await, None => std::future::pending().await } } => Some(None),
+                };
+                let Some(outcome) = outcome else {
+                    close_dangling_calls(&mut history);
+                    continue;
+                };
+                if !rx.is_empty() && outcome.is_some() {
+                    continue;
+                }
+                let (status, text) = match outcome {
+                    None => (Status::Failed, "deadline reached before the terminal call".to_string()),
+                    Some(Ok(resp)) if (kind.done)() => (Status::Done, resp.text()),
+                    Some(Ok(_)) if !nudged && kind.nudge.is_some() => {
+                        nudged = true;
+                        let _ = again.send(Input::Message(kind.nudge.clone().unwrap_or_default()));
+                        continue;
+                    }
+                    Some(Ok(resp)) => (Status::Failed, resp.text()),
+                    Some(Err(TurnError::Model(e))) if e.retryable => (Status::Interrupted, e.to_string()),
+                    Some(Err(e)) => (Status::Failed, e.to_string()),
+                };
+                let note = (kind.finish)(status, text.clone()).await;
+                Self::set(&inner, &agent_id, status, Some(text));
+                inner.inbox.push(note);
+                if status != Status::Interrupted {
+                    break;
+                }
+            }
+        });
+        agents.push(Agent { id: id.clone(), task: kind.task, status: Status::Running, result: None, tx, interrupt, handle, finish: Some(finish) });
         id
     }
 
@@ -417,13 +507,19 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
     /// Остановить подагента и дождаться конца его работы — не дольше срока
     /// команды.
     pub async fn close(&self, id: &str) -> Result<(), String> {
-        let handle = {
+        let (handle, finish) = {
             let mut agents = self.inner.agents.lock().unwrap();
             let a = agents.iter_mut().find(|a| a.id == id).ok_or_else(|| unknown(id))?;
+            let was_running = a.status == Status::Running;
             a.status = Status::Closed;
             a.handle.abort();
-            std::mem::replace(&mut a.handle, tokio::spawn(async {}))
+            let finish = if was_running { a.finish.clone() } else { None };
+            (std::mem::replace(&mut a.handle, tokio::spawn(async {})), finish)
         };
+        if let Some(f) = finish {
+            let note = f(Status::Closed, "stopped by subagent.close".into()).await;
+            self.inner.inbox.push(note);
+        }
         match tokio::time::timeout(CONTROL_TIMEOUT, handle).await {
             Ok(_) => Ok(()),
             Err(_) => Err(format!("closing agent {id} did not finish within {CONTROL_TIMEOUT:?}")),

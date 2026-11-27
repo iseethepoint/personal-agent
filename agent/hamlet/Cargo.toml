@@ -16,6 +16,7 @@ agent-memory = { path = "../memory" }
 agent-cron = { path = "../cron" }
 agent-goals = { path = "../goals" }
 agent-browser = { path = "../browser" }
+agent-research = { path = "../research" }
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "io-std"] }

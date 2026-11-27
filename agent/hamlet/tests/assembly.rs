@@ -6,6 +6,8 @@
 mod common;
 #[path = "../../memory/tests/pg/mod.rs"]
 mod pg;
+#[path = "../../research/tests/firecrawl/mod.rs"]
+mod firecrawl;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -54,6 +56,10 @@ fn t0() -> i64 {
 /// Временная папка агента: реестр на поддельный сервер, база — свой адрес
 /// в своей переменной.
 fn agent_dir(name: &str, wire: Wire, server: &Server) -> PathBuf {
+    agent_dir_with(name, wire, server, "http://127.0.0.1:9/v2")
+}
+
+fn agent_dir_with(name: &str, wire: Wire, server: &Server, search_base: &str) -> PathBuf {
     let dir = temp_dir(&format!("hamlet-{name}"));
     let n = NEXT.fetch_add(1, Ordering::SeqCst);
     let db_var = format!("HAMLET_TEST_DB_{}_{n}", std::process::id());
@@ -79,7 +85,7 @@ fn agent_dir(name: &str, wire: Wire, server: &Server) -> PathBuf {
     std::fs::write(
         dir.join("config/web.toml"),
         format!(
-            "[search]\nprovider = \"firecrawl\"\nbase_url = \"http://127.0.0.1:9/v2\"\napi_key_env = \"{key_var}\"\n\n[blocklist]\ndomains = \"{}\"\nregex = \"{}\"\n",
+            "[search]\nprovider = \"firecrawl\"\nbase_url = \"{search_base}\"\napi_key_env = \"{key_var}\"\n\n[blocklist]\ndomains = \"{}\"\nregex = \"{}\"\n",
             bl.join("mase_all_domains.fst").display(),
             bl.join("mase_blocklist_regex.json").display()
         ),
@@ -99,8 +105,8 @@ async fn build(dir: &Path, clock: FakeClock) -> Arc<Hamlet> {
 
 /// Полный список инструментов главного агента — красный, если что-то не
 /// подключено.
-const MAIN_TOOLS: [&str; 70] = [
-    "browser.browse", "browser.find", "browser.lookup_citation_url", "browser.open", "browser.search", "browser.windows",
+const MAIN_TOOLS: [&str; 71] = [
+    "browser.browse", "browser.find", "browser.lookup_citation_url", "browser.open", "browser.search", "browser.windows", "browser_deep_research",
     "cron.add", "cron.list", "cron.remove", "cron.run", "cron.runs", "cron.status", "cron.stop", "cron.update", "cron.view",
     "forget.confirm", "forget.plan",
     "hamlet.connector_search", "hamlet.edit", "hamlet.exec", "hamlet.memory_explain", "hamlet.memory_get", "hamlet.memory_search", "hamlet.read", "hamlet.skill_search", "hamlet.write",
@@ -231,4 +237,43 @@ fn example_agent_dir_parses() {
     assert_eq!(d.toml.database.url_env, "HAMLET_DATABASE_URL");
     let text = std::fs::read_to_string(root().join("agents/hamlet/agent.toml")).unwrap();
     assert!(!text.contains("sk-") && !text.contains("postgres://"), "в папке только имена переменных");
+}
+
+/// Глубокое исследование в собранном агенте: исследователь ищет в
+/// поддельном Firecrawl, итог со ссылкой приходит в ящик и даёт новый ход
+/// главного агента.
+#[tokio::test]
+async fn research_handoff_wakes_main_agent() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let fc = firecrawl::firecrawl(
+            (200, json!({"success": true, "data": {"web": [{"url": "https://example.org/rust", "title": "Rust", "description": "Rust 1.100 released 2027-01-10."}]}})),
+            std::collections::HashMap::new(),
+        );
+        let (server, _p) = model(
+            wire,
+            vec![
+                Step::Calls(vec![("s1", "browser.search", json!({"primary_query": {"query": "rust 1.100", "language_code": "en"}}))]),
+                Step::Calls(vec![("f1", "finish_research", json!({"summary": "Rust 1.100 was released on 2027-01-10 (index: https://example.org/rust)."}))]),
+                Step::Text("Research is in: Rust 1.100 came out on 2027-01-10."),
+            ],
+            true,
+        );
+        let dir = agent_dir_with("research", wire, &server, &fc.base);
+        let h = build(&dir, FakeClock::at(t0())).await;
+        let (tx, rx) = mpsc::channel(4);
+        let (otx, mut orx) = mpsc::unbounded_channel();
+        let runner = {
+            let h = h.clone();
+            tokio::spawn(async move { h.run(rx, otx).await })
+        };
+        let tool = h.tools.get("browser_deep_research").expect("инструмент в реестре");
+        tool.call(json!({"mission": "When was Rust 1.100 released?", "topic": "rust release"})).await.unwrap();
+        let answer = tokio::time::timeout(Duration::from_secs(30), orx.recv()).await.unwrap().unwrap();
+        assert_eq!(answer, "Research is in: Rust 1.100 came out on 2027-01-10.", "{wire:?}");
+        let last = server.requests().last().unwrap().to_string();
+        assert!(last.contains("Deep research finished.") && last.contains("https://example.org/rust") && last.contains("research_notes/rust-release-20270115-0800"), "{wire:?}: ход по итогу исследования");
+        drop(tx);
+        runner.await.unwrap();
+        h.browsers.shutdown().await;
+    }
 }

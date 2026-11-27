@@ -187,6 +187,15 @@ impl WebTools {
         }
     }
 
+    /// Веб-индекс исследователя: только `browser.search` и `browser.open`
+    /// (профиль `deep_research` muse: «browser_open», «browser_search»,
+    /// `strings-all.txt:74383`).
+    pub fn add_index_to(&self, tools: &mut Tools) {
+        for op in [Op::Search, Op::Open] {
+            tools.add(WebTool { op, web: self.clone() });
+        }
+    }
+
     fn key(&self) -> Result<String, ToolError> {
         std::env::var(&self.inner.cfg.api_key_env)
             .ok()

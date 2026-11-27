@@ -109,9 +109,57 @@ fn str_arg<'a>(v: &'a Value, k: &str) -> Option<&'a str> {
     v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty())
 }
 
-struct Observe(Arc<Window>);
-struct Act(Arc<Window>);
-struct Tabs(Arc<Window>);
+/// Окно для инструментов страницы: уже открытое (окно задачи браузера)
+/// или открываемое при первом вызове (окно исследования — «It opens on your
+/// first browser call», `blocks/deep_research/your_environment.md`).
+#[derive(Clone)]
+pub enum WindowRef {
+    Ready(Arc<Window>),
+    Lazy(Arc<LazyWindow>),
+}
+
+/// Окно, которое запускает свой Chromium с временным профилем при первом
+/// вызове; не запустилось — вызовы говорят, что браузер недоступен.
+pub struct LazyWindow {
+    pub bin: PathBuf,
+    pub profile_dir: PathBuf,
+    pub headless: bool,
+    cell: tokio::sync::OnceCell<Result<Arc<Window>, String>>,
+}
+
+impl LazyWindow {
+    pub fn new(bin: PathBuf, profile_dir: PathBuf, headless: bool) -> Arc<Self> {
+        Arc::new(LazyWindow { bin, profile_dir, headless, cell: tokio::sync::OnceCell::new() })
+    }
+
+    pub async fn get(&self) -> Result<Arc<Window>, String> {
+        self.cell
+            .get_or_init(|| async { Window::open(&self.bin, &self.profile_dir, self.headless).await.map_err(|e| format!("The research browser is unavailable ({e}); continue from the web index.")) })
+            .await
+            .clone()
+    }
+
+    /// Закрыть окно, если оно открывалось, и удалить профиль.
+    pub async fn close(&self) {
+        if let Some(Ok(w)) = self.cell.get() {
+            w.close().await;
+        }
+        let _ = tokio::fs::remove_dir_all(&self.profile_dir).await;
+    }
+}
+
+impl WindowRef {
+    async fn get(&self) -> Result<Arc<Window>, ToolError> {
+        match self {
+            WindowRef::Ready(w) => Ok(w.clone()),
+            WindowRef::Lazy(l) => l.get().await.map_err(ToolError::Failed),
+        }
+    }
+}
+
+pub struct Observe(pub WindowRef);
+pub struct Act(pub WindowRef);
+pub struct Tabs(pub WindowRef);
 struct RequestInput(Arc<dyn Asker>);
 struct ReportTool(Arc<Mutex<Option<Report>>>);
 
@@ -135,7 +183,7 @@ impl Tool for Observe {
                 ("element", None) => return Err(ToolError::Failed("the element view needs a target from the latest view".into())),
                 _ => None,
             };
-            let v = self.0.observe(tab, view, str_arg(&args, "query"), element).await.map_err(ToolError::Failed)?;
+            let v = self.0.get().await?.observe(tab, view, str_arg(&args, "query"), element).await.map_err(ToolError::Failed)?;
             Ok(v.parts())
         })
     }
@@ -152,7 +200,7 @@ impl Tool for Act {
             if actions.is_empty() {
                 return Err(ToolError::InvalidArguments("actions is required".into()));
             }
-            self.0.act(tab, &actions).await.map_err(ToolError::Failed)
+            self.0.get().await?.act(tab, &actions).await.map_err(ToolError::Failed)
         })
     }
 }
@@ -164,7 +212,7 @@ impl Tool for Tabs {
     fn call(&self, args: Value) -> ToolFuture<'_> {
         Box::pin(async move {
             let kind = str_arg(&args, "kind").ok_or_else(|| ToolError::InvalidArguments("kind is required".into()))?;
-            self.0.tabs(kind, str_arg(&args, "url"), str_arg(&args, "tab"), str_arg(&args, "ref")).await.map_err(ToolError::Failed)
+            self.0.get().await?.tabs(kind, str_arg(&args, "url"), str_arg(&args, "tab"), str_arg(&args, "ref")).await.map_err(ToolError::Failed)
         })
     }
 }
@@ -232,9 +280,9 @@ impl<P: Provider + Send + Sync + 'static> Planner<P> {
     pub async fn run(&self, history: &mut Vec<Message>, message: String) -> Result<Report, String> {
         let slot = Arc::new(Mutex::new(None));
         let mut tools = Tools::new();
-        tools.add(Observe(self.window.clone()));
-        tools.add(Act(self.window.clone()));
-        tools.add(Tabs(self.window.clone()));
+        tools.add(Observe(WindowRef::Ready(self.window.clone())));
+        tools.add(Act(WindowRef::Ready(self.window.clone())));
+        tools.add(Tabs(WindowRef::Ready(self.window.clone())));
         tools.add(RequestInput(self.asker.clone()));
         tools.add(ReportTool(slot.clone()));
         let mut turn = Turn::new(&*self.provider, &tools, system(&self.locale), self.spill_dir.clone());

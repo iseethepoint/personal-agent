@@ -29,6 +29,12 @@ impl Services {
     /// же такта). Перед первым тактом — восстановление прогонов и пульс,
     /// как `Scheduler::run_forever`.
     pub fn start(h: &Hamlet, tick: Duration) -> Services {
+        // Исследования, прерванные перезапуском, — снова в работу
+        // (`research_reattach` muse).
+        let research = h.research.clone();
+        let reattach = tokio::spawn(async move {
+            research.reattach().await;
+        });
         let s = h.scheduler.clone();
         let handle = tokio::spawn(async move {
             if let Err(e) = s.recover().await {
@@ -44,7 +50,7 @@ impl Services {
                 tokio::time::sleep(tick).await;
             }
         });
-        Services { handles: vec![handle] }
+        Services { handles: vec![handle, reattach] }
     }
 
     pub async fn stop(self, h: &Hamlet) {

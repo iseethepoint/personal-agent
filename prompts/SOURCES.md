@@ -107,3 +107,17 @@
 | `browser/main/question.md` | `71f6a0`, `71fb14` | убраны «No user can answer during this run.» (фоновые запуски) и часть об обзоре корзины; `{question}` — блок полей вопроса (своё) |
 
 Своё в коде (`agent/browser/src/browsers.rs`): вид списка окон, метаданных итога и блока вопроса; закрытие простаивающих окон — при обращении к окнам; один Chromium на профиль, профиль — папка `profiles/<id>`; новую вкладку от страницы забирает окно, чьё действие идёт. Не взяты в П4к-1б: сводка `<browser_status>` в каждом ходе, `browser.profiles`, окна расписаний.
+
+## Глубокое исследование (П4з)
+
+Исходник — `P/hatch-agent/prompts/blocks/deep_research/*.md`, `P/hatch-agent/prompts/research/resumed_after_restart.md` и строки ядра. Общие правки: метки `*-muse-only` → `*-only`; «Muse » → «Hamlet »; блоки `browser-code-only` убраны (`browser.run` нет), у `no-browser-code-only` сняты метки; `browser_search`/`browser_open` → `browser.search`/`browser.open` (имена наших инструментов).
+
+| Файл | Исходник | Правки |
+|---|---|---|
+| `deep_research/{who_you_are,assignment,how_you_work,discretion,safety,security_authority,your_environment}.md` | те же | только общие |
+| `deep_research/tools.md` | `tools.md` | убраны `look` (наведения по описанию нет) и `research_data` (рыночные данные — своей службы нет); `{tooling_lines}` подставляет код |
+| `deep_research/reporting_back.md` | `reporting_back.md` | убрано предложение о файлах `data/*.json` (`research_data`) |
+| `deep_research/resumed_after_restart.md` | `research/resumed_after_restart.md` | без правок; `{directory_clause}`, `{remaining_minutes}` подставляет код |
+| `deep_research/tools.json` | строки ядра: описание и поля `browser_deep_research` (`strings-all.txt:75909-75911`), квитанция (`:55486`), `finish_research` и `research_notes` с ошибками (`:75909`, `:78572`, `:78634`, `:55462`), первое сообщение (`:15174-15175`, `:33048`), напоминание (`:55462`), `AGENTS.md` (`:36270-36273`), итог и сбой (`:225914`, `:42210-42211`, `:35746`), фразы о папке после перезапуска (`:55759-55762`, `:12944`) | имя поля папки — `topic` (в разборе не найдено, своё); в остальном без правок |
+
+Своё в коде (`agent/research/src/lib.rs`): состояние запуска — `.run.json` в папке; истории исследователя не храним — после перезапуска он продолжает по своим заметкам; одно окно исследования на запуск; вид `{tooling_lines}` и `{acknowledgment}`.
