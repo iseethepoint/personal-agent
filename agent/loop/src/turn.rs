@@ -15,6 +15,7 @@ use futures_util::future::join_all;
 use serde_json::{json, Value};
 
 use crate::prompt::Prefix;
+use crate::subagents::Inbox;
 use crate::spill;
 use crate::tool::{ToolError, Tools};
 
@@ -78,6 +79,9 @@ pub struct Turn<'a, P> {
     pub spill_dir: PathBuf,
     pub tool_timeout: Duration,
     pub retries: u32,
+    /// Ящик, куда приходят итоги подагентов; перед каждым вызовом модели
+    /// дошедшее ложится в историю.
+    pub inbox: Option<Inbox>,
 }
 
 impl<'a, P: Provider> Turn<'a, P> {
@@ -91,6 +95,7 @@ impl<'a, P: Provider> Turn<'a, P> {
             spill_dir: spill_dir.into(),
             tool_timeout: TOOL_TIMEOUT,
             retries: MODEL_RETRIES,
+            inbox: None,
         }
     }
 
@@ -169,6 +174,9 @@ impl<'a, P: Provider> Turn<'a, P> {
         contract: Option<&str>,
     ) -> Result<Response, TurnError> {
         loop {
+            if let Some(inbox) = &self.inbox {
+                history.extend(inbox.drain());
+            }
             let resp = self.infer(history, on_text, tools, settings).await?;
             let calls: Vec<(String, String, Value)> = resp
                 .content
