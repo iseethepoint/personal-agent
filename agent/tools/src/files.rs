@@ -54,6 +54,11 @@ impl FileTools {
     }
 
     /// Добавить `muse.read`, `muse.write`, `muse.edit` в реестр.
+    /// Только чтение (`hamlet.read`) — набор проверяющего ответов.
+    pub fn add_read_to(&self, tools: &mut Tools) {
+        tools.add(Read(self.clone()));
+    }
+
     pub fn add_to(&self, tools: &mut Tools) {
         tools.add(Read(self.clone())).add(Write(self.clone())).add(Edit(self.clone()));
     }

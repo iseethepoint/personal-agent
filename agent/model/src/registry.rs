@@ -37,6 +37,8 @@ pub enum Purpose {
     TrackingGoalLifecycle,
     /// Внимание дела после события («Goal Attention»).
     GoalAttention,
+    /// Нужна ли ответу проверка фактов («Request Verification Classifier»).
+    ResponseVerificationClassifier,
     SelfImprovementStep,
     BrowserAgent,
     BrowserMain,
