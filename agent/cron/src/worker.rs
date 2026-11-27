@@ -289,7 +289,9 @@ pub fn resolution_specs() -> Vec<ToolSpec> {
 /// — исполнение кончилось таким инструментом: фаза итога не идёт, итог —
 /// исходный черновик).
 pub enum Kind {
-    Cron { mode: String },
+    /// `resolve` — инструменты исполнения, которые есть и в фазе итога
+    /// (роль `scheduler_cron_resolve`: `exec`).
+    Cron { mode: String, resolve: Vec<String> },
     Hook { resolve: String },
     Verify { resolve: String, terminal: Vec<String>, stop: Arc<dyn Fn() -> bool + Send + Sync> },
 }
@@ -437,7 +439,7 @@ pub async fn run<P: Provider>(
             text.push_str("\n\n");
         }
         match &kind {
-            Kind::Cron { mode } => text.push_str(personal(RESOLUTION_CONTRACT).replace("{mode}", mode).trim_end()),
+            Kind::Cron { mode, .. } => text.push_str(personal(RESOLUTION_CONTRACT).replace("{mode}", mode).trim_end()),
             Kind::Hook { resolve } | Kind::Verify { resolve, .. } => text.push_str(resolve.trim_end()),
         }
         history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
@@ -460,6 +462,13 @@ pub async fn run<P: Provider>(
 
     let resolution = Resolution { evidence: Arc::new(evidence), signal: Arc::new(Mutex::new(None)), hook };
     let mut terminal = Tools::new();
+    if let Kind::Cron { resolve, .. } = &kind {
+        for name in resolve {
+            if let Some(t) = tools.get(name) {
+                terminal.add_shared(name, t.clone());
+            }
+        }
+    }
     let quiet_name = if hook {
         terminal.add(NothingToDo(resolution.clone()));
         NOTHING_TO_DO

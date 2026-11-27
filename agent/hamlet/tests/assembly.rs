@@ -1274,3 +1274,70 @@ async fn cron_verification_survives_restart() {
         services.stop(&h2).await;
     }
 }
+
+/// Имена инструментов запроса (оба провода).
+fn request_tool_names(req: &serde_json::Value) -> Vec<String> {
+    req["tools"].as_array().map(|a| a.iter().filter_map(|t| t["name"].as_str().or(t["function"]["name"].as_str()).map(str::to_string)).collect()).unwrap_or_default()
+}
+
+/// П3з-1: наборы по ролям muse. Сброс памяти — ровно роль `memory_flush`;
+/// подагент (`owner_subagent_depth1`) — без `todo.write`, забывания и окон
+/// браузера; итог работника расписаний (`scheduler_cron_resolve`) — с
+/// `exec`; работник расписаний (`scheduler_cron_execute`) — без `hooks.*`.
+/// Без отбора по ролям — красный.
+#[tokio::test]
+async fn roles_shape_tool_sets() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s, _p) = model(
+            wire,
+            vec![
+                Step::Text("Nothing to record."),
+                Step::Text("Done."),
+                Step::Text("Counting."),
+                Step::Calls(vec![("n1", "hamlet.nothing_to_report", json!({}))]),
+            ],
+            true,
+        );
+        let dir = agent_dir("roles", wire, &s);
+        let h = build(&dir, FakeClock::at(t0())).await;
+        let wait = |n: usize| {
+            let s = &s;
+            async move {
+                for _ in 0..300 {
+                    if s.requests().len() >= n {
+                        return;
+                    }
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                panic!("нет запроса {n}");
+            }
+        };
+        let main_names: Vec<String> = h.tools.upfront_specs().into_iter().map(|t| t.name).collect();
+        assert!(main_names.contains(&"todo.write".to_string()) && main_names.contains(&"forget.plan".to_string()), "{wire:?}");
+
+        let conv = h.conversation().await.unwrap();
+        h.compactor(false).flush(&conv).await.unwrap();
+        let mut flush = request_tool_names(&s.requests()[0]);
+        flush.sort();
+        assert_eq!(flush, ["hamlet.exec", "hamlet.memory_get", "hamlet.memory_search", "hamlet.read", "hamlet.write"], "{wire:?}");
+
+        h.subagents.spawn("look around");
+        wait(2).await;
+        let sub = request_tool_names(&s.requests()[1]);
+        assert!(sub.contains(&"hamlet.read".to_string()) && sub.contains(&"hamlet.exec".to_string()), "{wire:?}: {sub:?}");
+        for absent in ["todo.write", "forget.plan", "forget.confirm", "browser.windows", "browser.browse", "browser_deep_research"] {
+            assert!(!sub.contains(&absent.to_string()), "{wire:?}: {absent} у подагента: {sub:?}");
+        }
+
+        let job = json!({"id": "count", "enabled": true, "mode": "task", "title": "Count", "body": "Count the files.",
+            "schedule": {"kind": "runonce", "at": "2027-02-01T08:00", "timezone": "UTC", "timing": "exact"}});
+        h.tools.get("cron.add").unwrap().call(job).await.unwrap();
+        h.tools.get("cron.run").unwrap().call(json!({"id": "count"})).await.unwrap();
+        let services = Services::start(&h);
+        wait(4).await;
+        let exec = request_tool_names(&s.requests()[2]);
+        assert!(exec.contains(&"hamlet.exec".to_string()) && !exec.iter().any(|n| n.starts_with("hooks.")) && !exec.contains(&"todo.write".to_string()), "{wire:?}: {exec:?}");
+        assert_eq!(request_tool_names(&s.requests()[3]), ["hamlet.exec", "hamlet.nothing_to_report", "hamlet.notify_main_agent"], "{wire:?}");
+        services.stop(&h).await;
+    }
+}
