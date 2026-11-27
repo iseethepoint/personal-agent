@@ -1,0 +1,1 @@
+use the nearby dates listed above when they cover the date. For other dates, keep the weekday only if a verified `date` command result is already in context.

@@ -6,6 +6,9 @@
 # только в срезе 1 профилей — разделы другой обвязки (флаг
 # system_prompt_harness_overrides; срез отдают 0xcdb6520/0xcdb1920, отрисовщик
 # 0xcd56910 читает только срез 0), в системный текст стандартной обвязки не идут;
+# via = "browser_table" — раздел 0x64 (варианты 0–9): ветка зовёт 0x29ace370 →
+# 0xbd3db90, блоки — по варианту из таблицы 0x2906bd30 (записи по 40 байт:
+# имя, путь, вид); это тексты браузерного исполнителя (профили 1–5);
 # via = "unresolved" — разбор не закончен.
 
 [[section]]
@@ -1182,8 +1185,13 @@ text = "file"
 
 [[section]]
 id = "64"
-via = "unresolved"
-note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+via = "browser_table"
+[[section.block]]
+block = "browser/system.md"
+text = "file"
+[[section.block]]
+block = "browser/pages.md"
+text = "file"
 
 [[section]]
 id = "65"
@@ -2019,8 +2027,43 @@ text = "core 0x7e9b37"
 
 [[section]]
 id = "164"
-via = "unresolved"
-note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+via = "browser_table"
+[[section.block]]
+block = "browser/instructions/assignment.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/specialists.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/browsing.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/obstacles.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/asking.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/bot_checks.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/commitments.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/facts.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/privacy.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/conduct.md"
+text = "file"
+[[section.block]]
+block = "tools/copyrighted_material.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/reporting.md"
+text = "file"
 
 [[section]]
 id = "186"
@@ -2539,8 +2582,13 @@ text = "core 0x7e9b37"
 
 [[section]]
 id = "264"
-via = "unresolved"
-note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+via = "browser_table"
+[[section.block]]
+block = "browser/workflows/login/system.md"
+text = "file"
+[[section.block]]
+block = "browser/pages.md"
+text = "file"
 
 [[section]]
 id = "2ab"
@@ -2665,8 +2713,46 @@ text = "core 0x7e9b37"
 
 [[section]]
 id = "364"
-via = "unresolved"
-note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+via = "browser_table"
+[[section.block]]
+block = "browser/instructions/specialist_assignment.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/login.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/verification_codes.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/browsing.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/obstacles.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/asking.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/bot_checks.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/commitments.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/facts.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/privacy.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/conduct.md"
+text = "file"
+[[section.block]]
+block = "tools/copyrighted_material.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/reporting.md"
+text = "file"
 
 [[section]]
 id = "3ab"
@@ -2766,8 +2852,13 @@ text = "core 0x7e9b37"
 
 [[section]]
 id = "464"
-via = "unresolved"
-note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+via = "browser_table"
+[[section.block]]
+block = "browser/workflows/checkout/system.md"
+text = "file"
+[[section.block]]
+block = "browser/pages.md"
+text = "file"
 
 [[section]]
 id = "4ab"
@@ -2851,8 +2942,46 @@ text = "core 0x7e9b37"
 
 [[section]]
 id = "564"
-via = "unresolved"
-note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+via = "browser_table"
+[[section.block]]
+block = "browser/instructions/specialist_assignment.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/checkout.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/verification_codes.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/browsing.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/obstacles.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/asking.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/bot_checks.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/commitments.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/facts.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/privacy.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/conduct.md"
+text = "file"
+[[section.block]]
+block = "tools/copyrighted_material.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/reporting.md"
+text = "file"
 
 [[section]]
 id = "5ab"
@@ -2936,8 +3065,13 @@ text = "core 0x7e9b37"
 
 [[section]]
 id = "664"
-via = "unresolved"
-note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+via = "browser_table"
+[[section.block]]
+block = "browser/workflows/bot_challenge/system.md"
+text = "file"
+[[section.block]]
+block = "browser/pages.md"
+text = "file"
 
 [[section]]
 id = "6ab"
@@ -3029,8 +3163,34 @@ text = "core 0x7e9b37"
 
 [[section]]
 id = "764"
-via = "unresolved"
-note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+via = "browser_table"
+[[section.block]]
+block = "browser/instructions/specialist_assignment.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/challenges.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/browsing.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/obstacles.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/facts.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/privacy.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/conduct.md"
+text = "file"
+[[section.block]]
+block = "tools/copyrighted_material.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/reporting.md"
+text = "file"
 
 [[section]]
 id = "7ab"
@@ -3086,8 +3246,10 @@ text = "file"
 
 [[section]]
 id = "864"
-via = "unresolved"
-note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+via = "browser_table"
+[[section.block]]
+block = "browser/workflows/poppy/system.md"
+text = "file"
 
 [[section]]
 id = "8ab"
@@ -3151,8 +3313,22 @@ text = "file"
 
 [[section]]
 id = "964"
-via = "unresolved"
-note = "STOP call callq	*0x1f1138ff(%rip)       # 0x29ace370"
+via = "browser_table"
+[[section.block]]
+block = "browser/instructions/poppy.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/commitments.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/facts.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/privacy.md"
+text = "file"
+[[section.block]]
+block = "browser/instructions/conduct.md"
+text = "file"
 
 [[section]]
 id = "9ab"

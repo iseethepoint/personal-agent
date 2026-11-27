@@ -906,26 +906,26 @@
 | Номер | Адрес | Роль | У Hamlet / строка плана | Срезы (адрес, разделов) |
 |---|---|---|---|---|
 | main | `0x290bbdd0` | главный разговор (`main_chat`) | agent/hamlet/src/main_prompt.rs (П5-1) | `0x9904d4` (21) · `0x9904fe` (42) · `0x990552` (25) |
-| 0 | `0x290bbe00` | подагент (`subagent`) | agent/loop/src/subagents.rs — П5-2 ч.1 | `0x990584` (13) · `0x99059e` (14) · `0x9905ba` (22) |
-| 1 | `0x290bbe38` | не опознан: раздел 0x64 вариант 0 — вызов через 0x29ace370 (таблица 0x2906bd30) (`unidentified`) | — | `0x4a628c` (2) · `0x9905e6` (1) |
-| 2 | `0x290bbe70` | не опознан: раздел 0x64 вариант 2 — вызов через 0x29ace370 (таблица 0x2906bd30) (`unidentified`) | — | `0x4a7c64` (2) · `0x9905e8` (1) |
-| 3 | `0x290bbea8` | не опознан: раздел 0x64 вариант 4 — вызов через 0x29ace370 (таблица 0x2906bd30) (`unidentified`) | — | `0x4a662c` (2) · `0x4a8440` (2) |
-| 4 | `0x290bbee0` | не опознан: раздел 0x64 вариант 6 — вызов через 0x29ace370 (таблица 0x2906bd30) (`unidentified`) | — | `0x4a93f0` (2) · `0x9905ea` (1) |
-| 5 | `0x290bbf18` | не опознан: раздел 0x64 вариант 8 — вызов через 0x29ace370 (таблица 0x2906bd30) (`unidentified`) | — | `0x4a5748` (2) · `0x9905ec` (1) |
+| 0 | `0x290bbe00` | подагент (`subagent`) | agent/hamlet/src/subagent_prompt.rs (П5-2 ч.1); шаги workflow — тот же профиль (ч.3) | `0x990584` (13) · `0x99059e` (14) · `0x9905ba` (22) |
+| 1 | `0x290bbe38` | исполнитель окна браузера (`browser_planner`): раздел 0x64 в.0 — `browser/system.md`, `browser/pages.md` | agent/browser/src/planner.rs (П5-2 ч.3) | `0x4a628c` (2) · `0x9905e6` (1) |
+| 2 | `0x290bbe70` | специалист входа (`browser_login`): 0x64 в.2 | П4к-2 | `0x4a7c64` (2) · `0x9905e8` (1) |
+| 3 | `0x290bbea8` | специалист покупки (`browser_checkout`): 0x64 в.4 | П4к-4 | `0x4a662c` (2) · `0x4a8440` (2) |
+| 4 | `0x290bbee0` | специалист проверок ботов (`browser_bot_challenge`): 0x64 в.6 | П4к-3 | `0x4a93f0` (2) · `0x9905ea` (1) |
+| 5 | `0x290bbf18` | poppy (`browser_poppy`): 0x64 в.8 | П4к-3 | `0x4a5748` (2) · `0x9905ec` (1) |
 | 6 | `0x290bbf50` | глубокое исследование (`deep_research`) | agent/research/src/lib.rs | `0x9905ee` (10) |
 | 7 | `0x290bbf88` | сборщик идей (`ideas_builder`) | П22 | `0x990602` (18) · `0x99059e` (14) · `0x9905ba` (22) |
 | 8 | `0x290bbfc0` | синхронизация устройств (`device_sync`) | П21 | `0x990626` (7) · `0x990634` (13) · `0x9905ba` (22) |
 | 9 | `0x290bbff8` | загрузка медиа (`media_upload`) | П14 | `0x99064e` (6) · `0x99059e` (14) · `0x9905ba` (22) |
-| 10 | `0x290bc030` | работник наблюдателя (hooks) (`event_hook`) | agent/cron/src/hooks.rs — П5-2 ч.3 | `0x99065a` (7) · `0x4b0fa0` (16) · `0x9905ba` (22) |
+| 10 | `0x290bc030` | работник наблюдателя (hooks) (`event_hook`) | agent/hamlet/src/background_prompt.rs (П5-2 ч.3) | `0x99065a` (7) · `0x4b0fa0` (16) · `0x9905ba` (22) |
 | 11 | `0x290bc068` | работник контекста (`context_worker`) | П13 | `0x990668` (6) · `0x4b0fa0` (16) · `0x9905ba` (22) |
 | 12 | `0x290bc0a0` | синхронизация с другим агентом (`peer_sync`) | П19 | `0x49af90` (4) · `0x990674` (13) · `0x9905ba` (22) |
 | 13 | `0x290bc0d8` | работник контекста (второй вариант) (`context_worker`) | П13 | `0x990668` (6) · `0x99068e` (18) · `0x9905ba` (22) |
 | 14 | `0x290bc110` | проактивность (`proactivity`) | П13 | `0x4ac194` (2) · `0x4696c0` (8) · `0x9905ba` (22) |
 | 15 | `0x290bc148` | шаг цели (фон) (`objective_step`) | П11 | `0x9906b2` (5) · `0x9906bc` (7) |
-| 16 | `0x290bc180` | итог работника (execute_resolve) (`execute_resolve`) | agent/cron/src/hooks.rs (роль execute_resolve_worker) — П5-2 ч.3 | `0x4a3198` (4) · `0x9906ca` (10) · `0x9905ba` (22) |
+| 16 | `0x290bc180` | итог работника (execute_resolve) (`execute_resolve`) | нет части: других работников execute_resolve у Hamlet нет | `0x4a3198` (4) · `0x9906ca` (10) · `0x9905ba` (22) |
 | 17 | `0x290bc1b8` | почтовый разговор (`mail_conversation`) | П16 | `0x49e4a0` (4) · `0x9906ca` (10) · `0x9905ba` (22) |
 | 18 | `0x290bc1f0` | разговор с компанией (`company_conversation`) | П19 | `0x9906de` (3) · `0x9905ba` (22) |
-| 19 | `0x290bc228` | проверяющий (`verification`) | agent/cron/src/verification.rs — П5-2 ч.3 | `0x49a180` (4) · `0x9906bc` (7) |
+| 19 | `0x290bc228` | проверяющий (`verification`) | agent/hamlet/src/background_prompt.rs (П5-2 ч.3) | `0x49a180` (4) · `0x9906bc` (7) |
 | 20 | `0x290bc260` | побочный чат (`side_chat`) | П6, П19 | `0x9906e4` (21) · `0x99070e` (44) · `0x990766` (23) |
 | 21 | `0x290bc298` | чат с другими агентами (`peer_chat`) | П19 | `0x990794` (7) · `0x9907a2` (53) · `0x99080c` (23) |
 | 22 | `0x290bc2d0` | работник расписаний (`scheduler_worker`) | agent/hamlet/src/scheduler_prompt.rs (П5-2 ч.2) | `0x99083a` (13) · `0x4b0fa0` (16) · `0x9905ba` (22) |
@@ -936,7 +936,7 @@
 | 27 | `0x290bc3e8` | лёгкий сборщик сайтов (новый) (`spaces_builder_lite_new`) | П17 | `0x4c49a0` (16) · `0x99059e` (14) · `0x9905ba` (22) |
 | 28 | `0x290bc420` | лёгкий сборщик сайтов (правка) (`spaces_builder_lite_edit`) | П17 | `0x990898` (17) · `0x99059e` (14) · `0x9905ba` (22) |
 | 29 | `0x290bc458` | задача сайта (`space_task`) | П17 | `0x9908ba` (13) · `0x99059e` (14) · `0x9905ba` (22) |
-| 30 | `0x290bc490` | сброс памяти (`memory_flush`) | agent/loop/src/compaction.rs — П5-2 ч.3 | `0x49a850` (4) · `0x99059e` (14) · `0x9905ba` (22) |
+| 30 | `0x290bc490` | сброс памяти (`memory_flush`) | agent/hamlet/src/background_prompt.rs (П5-2 ч.3) | `0x49a850` (4) · `0x99059e` (14) · `0x9905ba` (22) |
 | 31 | `0x290bc4c8` | самоулучшение: ideas (`self_improvement_ideas`) | П22 | `0x9908d4` (7) · `0x99059e` (14) · `0x9905ba` (22) |
 | 32 | `0x290bc500` | самоулучшение: ideas (`self_improvement_ideas`) | П22 | `0x9908e2` (6) · `0x99059e` (14) · `0x9905ba` (22) |
 | 33 | `0x290bc538` | самоулучшение: ideas (`self_improvement_ideas`) | П22 | `0x9908ee` (6) · `0x99059e` (14) · `0x9905ba` (22) |
@@ -1084,3 +1084,65 @@
 - нет `{переменных}`, меток, muse.
 
 Сквозной — `assembly.rs` (`conversation_writes_searches_schedules_and_wakes_on_handoff`): у исполнения текст профиля 22 и метка перед сообщением, у итога — текст профиля 23 со строкой года.
+
+## Системные тексты фоновых ролей и браузера (П5-2, часть 3)
+
+**Какой профиль у какой роли.** Профиль выбирается по виду контекста. Сборщик `0xcdbbdf0` берёт тег контекста (1–14) и по таблице `0xa242a0` получает индекс профиля в таблице описателей `0x290d0708`: 0 — главный, n+1 — профиль n. Без контекста индекс — 1, то есть профиль 0. Соответствие видов:
+- 1–5, 7 — профили 24–29 (артефакты, пространства);
+- 6 — профиль 0 (подагент);
+- 8–12 — профиль 1 (браузер);
+- 13 — профиль 6 (глубокое исследование);
+- 14 — профиль 7 (строитель идей).
+
+Фоновые профили 10/16/19/30 выбираются своими работниками.
+
+| профиль | роль | у Hamlet |
+|---|---|---|
+| 10 `0x290bc030`, срез `0x99065a`: `7f 7d 3d 7e 7c 335 33b` | работник наблюдателя | `background_prompt::event_hook`, `Scheduler::hook_system` (на момент прогона) |
+| 16 `0x290bc180`, срез `0x4a3198`: `126 3d 435 33b` | общий работник execute_resolve (`background/execute_resolve`) | нет части: у Hamlet через execute_resolve идут только наблюдатель (профиль 10) и проверка (профиль 19) |
+| 19 `0x290bc228`, срез `0x49a180`: `326 3d 435 33b` | проверяющий (проверка ответа и отчётов расписаний) | `background_prompt::verification`, `Verifier::system` (на момент проверки) |
+| 30 `0x290bc490`, срез `0x49a850`: `9c 3d 735 73b` | сброс памяти (перед сжатием и периодический) | `background_prompt::memory_flush`, `Compactor::flush_system`. Раньше ход сброса шёл с системным текстом главного |
+| 0 | шаги workflow (роль `workflow_subagent_depth1`) | `subagent_prompt::assemble(набор шага, inherits = false, can_spawn = false)`. Своего профиля у шага в таблице нет: это подагент (вид 6), изолированный, без своих подагентов |
+| 1–5 | браузер: исполнитель, вход, покупка, проверки ботов, poppy | см. ниже |
+
+**Переменные:**
+- `temporal_awareness_window` — `crate::temporal::window`, общий модуль; шаблон и правила — как в части 2.
+  - С `exec` (`hamlet.exec` в наборе: наблюдатель — роль `execute_resolve_worker`, сброс — роль `memory_flush`): `{nearby_dates}` пуст, правило с `date -d`.
+  - Без `exec` (проверяющий, роль `verifier`), при поле `+0x384` = 0 (в метке времени Hamlet соседних дат нет): `{nearby_dates}` = «Nearby dates (in the user's timezone): » (`0x3b06c0`) и 7 дней от −3 до +3 через « | » (`0x26a60870`), затем `"\n\n"`.
+  - День соседних дат (`0x26a64a30`): «{день} {дата}» (`0x3be7b5`); день — короткое имя из таблицы `0x298df0c8` (воскресенье — `0x2caa505`), дата — `%Y-%m-%d` (`0x498548`). Пометки: −1 `(yesterday)` (`0x32d45a`), 0 `(today)` (`0x3f7d82`), +1 `(tomorrow)` (`0x3b06b2`). Правила — `0xa143ab`, `0xa1470a` (`prompts/shared/temporal_*_listed.md`, `temporal_nearby_dates.md`).
+  - Без `exec` при поле `+0x384` ≠ 0: «listed next to the current time» (`0xa142fb`, `0xa14658`), соседние даты стоят в метке. У Hamlet не нужно.
+- `prompt_injection_defense` — раздел `0x35`, обёртка `"\n{}\n\n"`:
+  - наблюдатель — вариант 3 (`0x29054da8`, 12 записей; `shared/security_authority_detached_worker`);
+  - проверяющий — вариант 4 (`0x29055108`, 12; `background/security_authority`);
+  - сброс — вариант 7 (`0x29055c00`, 9; `memory_flush/security_authority`).
+- `runtime_facts` (`33b`, `73b`) → П8.
+
+Блоки, которых у Hamlet нет: `shared/discretion_connections` (П19), `shared/runtime` (П8). Блок `event_hook/tools` уходит целиком: в нём правила вызовов и упоминание раздела `Runtime` (П8). У `scheduler_resolution/tools` упоминание `Runtime` — весь блок, поэтому тот блок не уходит.
+
+**Браузер.** Раздел `0x64` («не опознан» в части 1) выбирает тексты по варианту из таблицы `0x2906bd30`: вызов `0x29ace370` → `0xbd3db90`; записи по 40 байт — имя, путь, вид. Это профили браузерного исполнителя:
+
+| профиль | срез 0 | срез 1 |
+|---|---|---|
+| 1 — исполнитель | в.0: `browser/system.md`, `browser/pages.md` | в.1: 12 файлов `browser/instructions/*` и `tools/copyrighted_material.md` |
+| 2 — вход | в.2: `workflows/login/system.md`, `pages.md` | в.3 |
+| 3 — покупка | в.4: `workflows/checkout/system.md`, `pages.md` | в.5 |
+| 4 — проверки ботов | в.6: `workflows/bot_challenge/system.md`, `pages.md` | в.7 |
+| 5 — poppy | в.8: `workflows/poppy/system.md` | в.9 |
+
+Профиль 1 у Hamlet — `agent/browser/src/planner.rs`; тест порядка `browser_planner_follows_profile` (`agent/hamlet/tests/profiles.rs`) проверяет, что `system.md` стоит перед `pages.md`. Профили 2–5 → П4к-2/П4к-3/П4к-4. В `prompts/profiles/sections.toml` разделы `64`–`964` — `via = "browser_table"` с блоками. «Не опознан» остаётся только `0x75`.
+
+Открытый вопрос (передан ревизору). Системный текст исполнителя у Hamlet (П4к-1) сейчас: `system.md`, затем 9 файлов `instructions/*`, затем `pages.md`, затем `presentation_language.md`. Профиль 1 рисует только `system.md` и `pages.md`. `instructions/*` стоят в срезе 1, то есть в другой обвязке, по тому же правилу, что у главного. Где у muse в стандартной обвязке `instructions/*` и `presentation_language.md`, по ядру не найдено (`0xcdb6520` отдаёт срез 1 по `0xc468b20`, без профиля — набор `0xa13f88`). Сборку исполнителя в этом срезе не менял.
+
+**Блоки, которые уходят целиком, хотя части, о которых они говорят, у Hamlet появятся позже** (правило П5-1: блок целиком):
+- `shared/tool_rules_detached_approvals` (работник расписаний) — согласия на вызовы → П20;
+- `agent/safety_credentials`, `agent/safety_credentials_worker`, `shared/safety_credentials_detached_worker`, `shared/safety_credentials_transient_limits` — Secure Vault, ссылки `[credential:…]` → П18, Wallet → П20;
+- `agent/safety_oversight`, `chat/safety_oversight` — медиа → П14/П15;
+- `scheduler_worker/how_this_run_ends` — передача работы браузеру → П4к-3.
+
+**Тексты:** 14 новых блоков (P и ядро), правки П10 — как в частях 1–2. Тексты наблюдателя — прежние `prompts/hooks/*` (совпадают с muse); `agent/cron::hooks::worker_system` удалён.
+
+**Тесты:**
+- `agent/hamlet/tests/background_prompt.rs` — порядок по собранному тексту профилей 10/19/30, стеки, окно времени с `exec` и без него (соседние даты в поясе);
+- `assembly.rs` — у наблюдателя, проверяющего и сброса в запросах свои тексты;
+- `agent/cron/tests/hooks.rs` — текст работника наблюдателя берётся на момент прогона;
+- `profiles.rs` — браузер; список констант порядка удалён, все роли проверяются по тексту.

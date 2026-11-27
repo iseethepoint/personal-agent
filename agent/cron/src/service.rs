@@ -252,6 +252,9 @@ pub struct Scheduler<P> {
     /// Метка времени перед сообщением работнику (`worker_turns/staging.rs`
     /// muse); без неё — сообщение одно.
     time_tag: Option<agent_loop::TimeTag>,
+    /// Системный текст работника наблюдателя на момент прогона (профиль
+    /// `event_hook`); без него — `system`.
+    hook_system: Option<Arc<dyn Fn() -> String + Send + Sync>>,
     tools: Arc<Tools>,
     /// Набор работника наблюдателя; без него — набор работника расписаний.
     hook_tools: Option<Arc<Tools>>,
@@ -285,6 +288,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             cron_system: None,
             resolve_system: None,
             time_tag: None,
+            hook_system: None,
             tools,
             hook_tools: None,
             resolve_tools: Vec::new(),
@@ -323,6 +327,12 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
     /// Метка времени перед сообщением работнику расписаний.
     pub fn time_tag(&mut self, tag: agent_loop::TimeTag) -> &mut Self {
         self.time_tag = Some(tag);
+        self
+    }
+
+    /// Системный текст работника наблюдателя на момент прогона.
+    pub fn hook_system(&mut self, f: Arc<dyn Fn() -> String + Send + Sync>) -> &mut Self {
+        self.hook_system = Some(f);
         self
     }
 
@@ -610,7 +620,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             core: self.core.clone(),
             provider: self.provider.clone(),
             tools: self.hook_tools.clone().unwrap_or_else(|| self.tools.clone()),
-            system: crate::hooks::worker_system(&self.system),
+            system: self.hook_system.as_ref().map(|f| f()).unwrap_or_else(|| self.system.clone()),
             spill: self.spill_dir.clone(),
             inbox: self.inbox.clone(),
             workers: self.workers.clone(),

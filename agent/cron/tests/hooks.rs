@@ -116,7 +116,12 @@ fn hook(id: &str) -> Value {
 async fn hook_wakes_worker_only_when_script_says_wake() {
     for wire in WIRES {
         let worker = vec![Step::Text("The flag says: deploy finished."), Step::Calls(vec![("n1", "hamlet.notify_main_agent", json!({"message": "Деплой закончился."}))])];
-        let c = ctx("wake", wire, worker).await;
+        let mut c = ctx("wake", wire, worker).await;
+        // Системный текст работника — на момент прогона (у Hamlet — профиль
+        // `event_hook`, `agent-hamlet::background_prompt`).
+        let n = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let k = n.clone();
+        c.sched.hook_system(Arc::new(move || format!("HOOK SYSTEM {}", k.fetch_add(1, std::sync::atomic::Ordering::SeqCst))));
         flag_script(&c.home);
         let r = c.call("hooks.add", hook("flag")).await.unwrap();
         assert_eq!(r["enabled"], false, "{r}");
@@ -144,7 +149,8 @@ async fn hook_wakes_worker_only_when_script_says_wake() {
         let first = reqs[0].to_string();
         assert!(first.contains("[EVENT HOOK \u{2014} EXECUTE]") && first.contains("source_ref: hook:flag"), "{first}");
         assert!(first.contains("\\\"wake_reason\\\": \\\"flag appeared\\\"") && first.contains("<hook_instruction>\\nCheck the flag"), "{first}");
-        assert!(first.contains("You are an event hook worker"), "системный текст работника наблюдателя");
+        assert!(first.contains("HOOK SYSTEM 0") && !first.contains("worker system"), "системный текст работника наблюдателя");
+        assert!(n.load(std::sync::atomic::Ordering::SeqCst) >= 1);
         assert!(reqs[1].to_string().contains("[EVENT HOOK \u{2014} RESOLVE]"));
         assert_eq!(tool_names(&reqs[1]), ["hamlet.nothing_to_do", "hamlet.notify_main_agent"]);
         let h = c.handoffs();

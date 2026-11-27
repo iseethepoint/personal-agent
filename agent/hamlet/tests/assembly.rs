@@ -919,6 +919,8 @@ async fn hook_run_continues_after_restart() {
         assert!(notes.iter().any(|n| n.ends_with("The backup finished.")), "{wire:?}: {notes:?}");
         let body = s2.requests()[0].to_string();
         assert!(body.contains("[EVENT HOOK \u{2014} EXECUTE]"), "{wire:?}: история работника из базы");
+        // П5-2 ч.3: системный текст работника — профиль `event_hook`.
+        assert!(body.contains("You are an event hook worker") && body.contains("## Temporal Awareness") && body.contains("first use `hamlet.exec`"), "{wire:?}");
         assert!(body.contains(&serde_json::to_string(agent_loop::INTERRUPTED_TOOL_CALL).unwrap()[1..60]), "{wire:?}: {body}");
         let state = |id: String| {
             let pool = pool.clone();
@@ -1170,6 +1172,9 @@ async fn health_answer_is_verified_before_delivery() {
         let r = |i: usize| reqs[i].to_string();
         assert!(r(1).contains("hamlet.submit_request_verification") && r(1).contains("<request>") && r(1).contains("paracetamol"), "{wire:?}: классификатор");
         assert!(r(2).contains("<verification-draft>") && r(2).contains("Take 2 g of paracetamol at once.") && r(2).contains("verifier.not_relevant"), "{wire:?}: проверяющий");
+        // П5-2 ч.3: системный текст проверяющего — профиль `verification`
+        // (без `exec` — соседние даты).
+        assert!(r(2).contains("You independently verify the response") && r(2).contains("Fri 2027-01-15 (today)") && !r(2).contains("You are Hamlet's"), "{wire:?}");
         assert!(r(3).contains("Call hamlet.notify_main_agent with only the"), "{wire:?}: фаза итога");
         assert!(r(4).contains("job_id: response_verification") && r(4).contains("Take at most 1 g per dose and no more than 4 g a day."), "{wire:?}: заметка главному агенту");
         let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
@@ -1276,6 +1281,8 @@ async fn periodic_memory_flush_runs_past_threshold() {
         let flush = reqs[1].to_string();
         assert!(flush.contains("Today's memory log at ~/memory/2027-01-15.md already ends with the entries below.") && flush.contains("- Owner drinks tea."), "{wire:?}");
         assert!(flush.contains("Pre-compaction memory flush."), "{wire:?}");
+        // П5-2 ч.3: системный текст сброса — профиль `memory_flush`.
+        assert!(flush.contains("running a memory flush before older context is condensed") && !flush.contains("## Personalization"), "{wire:?}");
         assert_eq!(h.history.flush_progress().await.unwrap(), conv.history.len(), "{wire:?}: всё сброшено");
 
         h.inbox.push_user(line("ok?")).await;

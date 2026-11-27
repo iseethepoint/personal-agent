@@ -1,0 +1,1 @@
+- Do not calculate a weekday from memory. Use the nearby dates listed above or a verified `date` command result already in context. Otherwise omit the weekday.

@@ -167,7 +167,7 @@ const CHAT: [&str; 47] = [
 
 /// П5-1, часть 2 и П5-2: блоки ядра, которые нужны сборке главного текста и
 /// текста подагента.
-const SHARED: [&str; 41] = [
+const SHARED: [&str; 50] = [
     "discretion.md",
     "discretion_alignment_task.md",
     "discretion_trust.md",
@@ -180,14 +180,19 @@ const SHARED: [&str; 41] = [
     "managing_context_body.md",
     "memory_recall_doctrine.md",
     "safety_core_conversational.md",
+    "safety_core_detached.md",
+    "safety_credentials_detached_worker.md",
     "safety_credentials_transient_limits.md",
     "safety_delegated_authority_requester.md",
+    "safety_delegated_authority_task.md",
     "safety_hard_stops.md",
     "safety_security_policy.md",
     "safety_self_modification.md",
+    "safety_self_modification_detached.md",
     "safety_sensitive_attributes.md",
     "scheduled_work_mechanics.md",
     "security_authority.md",
+    "security_authority_detached_worker.md",
     "security_content_markers.md",
     "security_file_uploads.md",
     "security_gates.md",
@@ -200,9 +205,13 @@ const SHARED: [&str; 41] = [
     "security_task_alignment.md",
     "subagents.md",
     "temporal_awareness_window.md",
+    "temporal_awareness_window_only.md",
     "temporal_guidance_detached.md",
+    "temporal_nearby_dates.md",
     "temporal_weekday_clause_exec.md",
+    "temporal_weekday_clause_listed.md",
     "temporal_weekday_rule_exec.md",
+    "temporal_weekday_rule_listed.md",
     "tool_rules_detached_approvals.md",
     "tool_rules_no_time_guesses.md",
     "tool_rules_reporting_truth.md",
@@ -245,6 +254,18 @@ const SCHEDULER_RESOLUTION: [&str; 5] = [
     "security_authority.md",
     "temporal_awareness.md",
     "tool_call_style.md",
+    "who_you_are.md",
+];
+
+/// П5-2, часть 3: задания фоновых ролей и сброс памяти.
+const BACKGROUND: [&str; 2] = [
+    "security_authority.md",
+    "verification.md",
+];
+
+const MEMORY_FLUSH: [&str; 3] = [
+    "safety.md",
+    "security_authority.md",
     "who_you_are.md",
 ];
 
@@ -301,6 +322,8 @@ fn every_core_block_is_present() {
         ("prompts/session", &SESSION[..]),
         ("prompts/subagents", &SUBAGENTS[..]),
         ("prompts/agent", &AGENT[..]),
+        ("prompts/background", &BACKGROUND[..]),
+        ("prompts/memory_flush", &MEMORY_FLUSH[..]),
         ("prompts/scheduler_worker", &SCHEDULER_WORKER[..]),
         ("prompts/scheduler_resolution", &SCHEDULER_RESOLUTION[..]),
     ] {
