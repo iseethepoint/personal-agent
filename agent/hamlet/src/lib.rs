@@ -278,9 +278,25 @@ impl Hamlet {
 
         // Подагенты: общий набор, своё начало подсказки; монитор — модель
         // `SubagentMonitor`.
-        let sub_tools = Arc::new(roles::Role::get("owner_subagent_depth1").apply(with_workflows(parts.base(None)?)));
+        // Глубина — по ролям: у кого в роли `subagent.spawn`, тот заводит
+        // своих (`owner_subagent_depth1` — да, `owner_subagent_depth2` — нет).
+        let depth1 = roles::Role::get("owner_subagent_depth1");
+        let sub_tools = Arc::new(depth1.apply(with_workflows(parts.base(None)?)));
         let sub_prefix = Prefix::assemble(&system, &home_dir, &sub_tools);
-        let subagents = Subagents::new(main.clone(), sub_tools, sub_prefix, spill_dir.clone(), inbox.clone(), transcript.clone());
+        let spawns = depth1.allows("subagent.spawn");
+        let subagents = Subagents::new(
+            main.clone(),
+            sub_tools,
+            if spawns { agent_loop::spawning_prefix(sub_prefix) } else { sub_prefix },
+            spill_dir.clone(),
+            inbox.clone(),
+            transcript.clone(),
+        );
+        if spawns {
+            let deep_tools = Arc::new(roles::Role::get("owner_subagent_depth2").apply(with_workflows(parts.base(None)?)));
+            let deep_prefix = Prefix::assemble(&system, &home_dir, &deep_tools);
+            subagents.set_deeper(deep_tools, deep_prefix);
+        }
         subagents.set_monitor(Monitor::new(Arc::new(provider(&resolve(&reg, Purpose::SubagentMonitor, sel)?)?), &home_dir));
         // Подагенты в базе: после перезапуска — снова в списке, оборванные
         // ходы продолжаются (`restart_rehydration` muse).

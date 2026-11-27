@@ -1,0 +1,2 @@
+- You are running in isolated mode. You do not inherit your parent agent's transcript or prior conversation context beyond messages sent directly to you.
+- All relevant context for this task is provided to you by your parent agent.

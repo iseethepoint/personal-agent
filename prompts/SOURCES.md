@@ -591,3 +591,23 @@
 - `forget.plan` — у muse «ordinary untyped read-only planning subagent» (строка ядра около `0xa38dfb`): обычный подагент, отдельной роли нет, «только чтение» — заданием; у Hamlet так и есть (подагент роли `owner_subagent_depth1`, задание «Stay read-only…»);
 - исследователь — в определениях ролей ядра своей роли нет (есть `feed_workflow_agent_research`, `proactivity_researcher`, `self_improvement_web_research` — другие службы); `research_delegate.rs` заводит подагента со своим набором — у Hamlet так же (`agent_research`);
 - свой системный текст роли (`prompt_gates`) — тексты блоков системной подсказки, П5.
+
+## Подагенты глубины 2 (П3з-2)
+
+Тексты muse как есть (`hatch-agent/prompts/session/`): `subagent/subagent_history_inheritance_isolated.md`, `subagent_context_depth_one_coordinator.md`, `subagent_context_depth_one_spawn_inheritance.md`, `subagent_spawning.md`. Роль `prompts/roles/owner_subagent_depth2.toml` — определение ядра как есть (П10: `muse_*` → `hamlet_*`).
+
+Устройство — как у muse:
+- предел глубины — из ролей: у `owner_subagent_depth1` есть `subagent.*`, у `owner_subagent_depth2` нет; `MAX_SPAWN_DEPTH` = 2 (в первом сообщении «depth N/2»). Отказ ядра «Agent depth limit reached. Solve the task yourself.» (`0x883b6b`, код `agent_depth_limit`, `0x884450`) не взят: на глубине 2 инструмента нет;
+- подагент глубины 1 наследует разговор родителя, глубины 2 — изолирован («Any subagents you spawn deeper than 1 start in isolated mode», `subagent_history_inheritance_inherited.md`): без копии разговора, без заметки «Above is the conversation history…», блок родителя — `…_isolated.md`;
+- итог внука — в ящик его родителя («Your sub-agents will announce their results back to you automatically (not to your parent agent)», `subagent_spawning.md`): ход подагента забирает его между шагами; кончился ход — итог будит подагента новым ходом, его ответ снова уходит корню (отсюда `…_depth_one_coordinator.md`: «restate the full synthesized deliverable»);
+- `scope` у `subagent.list` / `subagent.send`: `direct` — свои дети, `descendants` — всё поддерево (описания полей — строки ядра);
+- в базе: `agents.depth` и `subagent_spawns.child_depth` — 2, `parent_agent_id` — подагент; после перезапуска дерево собирается по `subagent_spawns.parent_agent_id`, внук с точкой `before_inference` продолжает ход.
+
+Своё:
+- раздел `subagent_spawning.md` — в конце системного текста подагента глубины 1 (в шаблоне ядра это `subagent_spawning_section` при `can_spawn`, место в тексте не видно); описания `subagent.*` — за прочими;
+- блоки глубины 1 в первом сообщении — у подагента глубины 1, который сам заводит подагентов (условие ядра не видно);
+- id подагентов — один счёт `agent-<n>` на всё дерево;
+- в записи поддерева `subagent.list` — поле `parent_agent_id` (имя — по столбцу `subagent_spawns`);
+- `subagent.close` останавливает и подагентов закрытого (в разборе не видно);
+- таблица `agent_ancestors` ядра не взята: поддерево читается из памяти, после перезапуска — из `subagent_spawns`;
+- ящик подагента — в памяти: итог внука, не взятый подагентом до перезапуска, не восстанавливается (у корня ящик — в базе).
