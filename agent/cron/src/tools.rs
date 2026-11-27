@@ -221,7 +221,7 @@ fn required_id(args: &Value) -> Result<String, ToolError> {
 }
 
 /// Отпечаток определения для `jobs.source_hash`.
-fn fingerprint(text: &str) -> String {
+pub(crate) fn fingerprint(text: &str) -> String {
     let mut h = DefaultHasher::new();
     text.hash(&mut h);
     format!("{:016x}", h.finish())
@@ -280,6 +280,7 @@ impl CronTool {
             "schedule": d.schedule,
             "source_path": j.source_path,
             "owner": null,
+            "system": d.mode == "heartbeat",
             "last_run_at_utc": j.last_run_at_utc,
             "last_status": j.last_status,
         });
@@ -460,6 +461,7 @@ impl CronTool {
     async fn update(&self, args: &Value) -> Result<Value, ToolError> {
         let id = required_id(args)?;
         let job = self.job(&id).await?;
+        system_guard(&job)?;
         let mut d = job.definition.clone();
         self.apply(args, &mut d, false)?;
         let now = self.core.now();
@@ -471,6 +473,7 @@ impl CronTool {
     async fn remove(&self, args: &Value) -> Result<Value, ToolError> {
         let id = required_id(args)?;
         let job = self.job(&id).await?;
+        system_guard(&job)?;
         let now = self.core.now();
         for r in self.core.store.active_runs(&id).await.map_err(failed)? {
             if let Some(h) = self.core.running.lock().unwrap().remove(&r.run_id) {
@@ -540,6 +543,16 @@ impl CronTool {
         }
         Ok(json!({"message": "The in-flight run was stopped and its worker and subagents were cancelled. The stop notice for the job's chat is saved and will be delivered shortly."}))
     }
+}
+
+/// Системное задание (пульс) этими инструментами не меняется — текст ядра
+/// «… is the assistant's heartbeat and cannot be paused or resumed»
+/// (`strings-all.txt:38953`).
+fn system_guard(job: &Job) -> Result<(), ToolError> {
+    if job.definition.mode == "heartbeat" {
+        return Err(failed(format!("{} is the assistant's heartbeat and cannot be paused or resumed", job.job_id)));
+    }
+    Ok(())
 }
 
 fn merge(a: &mut Value, b: Value) {
