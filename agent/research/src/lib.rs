@@ -358,7 +358,7 @@ impl<P: Provider + Send + Sync + 'static> DeepResearch<P> {
                 if !dir.join("report.md").exists() {
                     out.push_str(&t("run.no_report"));
                 }
-                self.subagents.inbox().push(note(out));
+                self.subagents.inbox().push(note(out)).await;
                 continue;
             }
             let left = self.deadline - elapsed;

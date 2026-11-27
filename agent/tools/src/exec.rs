@@ -312,7 +312,7 @@ impl ExecTools {
             };
             s.changed.notify_waiters();
             if let (Some(m), Some(inbox)) = (deliver, &me.inner.inbox) {
-                inbox.push(m);
+                inbox.push(m).await;
             }
         });
 

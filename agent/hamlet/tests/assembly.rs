@@ -463,3 +463,32 @@ async fn conversation_survives_restart() {
         h2.browsers.shutdown().await;
     }
 }
+
+/// П3е-2: ящик в базе — весть, пришедшая, когда хода нет, и не взятая до
+/// остановки, после перезапуска доходит новым ходом и закрывается.
+#[tokio::test]
+async fn mailbox_survives_restart() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s1, _p) = model(wire, vec![], true);
+        let dir = agent_dir("mailbox", wire, &s1);
+        let h1 = build(&dir, FakeClock::at(t0())).await;
+        let note = |t: &str| agent_model::Message { role: agent_model::Role::Developer, content: vec![agent_model::Part::Text { text: t.into() }] };
+        h1.inbox.push(note("[Subagent Result] the report is ready.")).await;
+        h1.browsers.shutdown().await;
+        drop(h1);
+
+        let (s2, _p) = model(wire, vec![Step::Text("The report is ready.")], true);
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(one_run(&h2, None).await, "The report is ready.", "{wire:?}");
+        assert!(s2.requests()[0].to_string().contains("[Subagent Result] the report is ready."), "{wire:?}: весть дошла");
+        // Весть взята ходом и закрыта; в истории она есть.
+        assert!(h2.inbox.drain().is_empty());
+        let saved = h2.history.load().await.unwrap().unwrap();
+        assert!(saved.history.iter().any(|m| m.text().contains("the report is ready")), "{wire:?}");
+        let h3 = build(&dir, FakeClock::at(t0())).await;
+        assert!(h3.inbox.drain().is_empty(), "{wire:?}: закрытая весть не возвращается");
+        h2.browsers.shutdown().await;
+        h3.browsers.shutdown().await;
+    }
+}

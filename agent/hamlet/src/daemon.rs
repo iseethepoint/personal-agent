@@ -87,7 +87,16 @@ impl Hamlet {
         t.inbox = Some(self.inbox.clone());
         t.transcript = Some(self.transcript.clone());
         t.record = Some(self.history.clone());
-        let resp = t.run(&mut conv.history, &mut |_| {}).await.map_err(|e| e.to_string())?;
+        // Имя хода для ящика (`stream_owner_message_id`). Своё: `root:turn:<мс>:<n>`.
+        static TURNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let turn_id = format!("{}:turn:{}:{}", crate::ROOT_AGENT, self.clock.now_ms(), TURNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+        t.turn_id = Some(turn_id.clone());
+        let result = t.run(&mut conv.history, &mut |_| {}).await;
+        // Вести, взятые ходом, закрываются по его итогу.
+        if let Err(e) = self.inbox.complete(&turn_id, result.is_ok()).await {
+            eprintln!("mailbox complete: {e}");
+        }
+        let resp = result.map_err(|e| e.to_string())?;
         conv.record_usage(&resp.usage);
         Ok(resp.text())
     }

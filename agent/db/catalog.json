@@ -436,6 +436,166 @@
         {
           "comment": null,
           "default": null,
+          "name": "submission_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "accepted_ordinal",
+          "nullable": false,
+          "position": 2,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "agent_id",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "conversation_epoch",
+          "nullable": false,
+          "position": 4,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "submission_kind",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "routing_scope",
+          "nullable": false,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "state",
+          "nullable": false,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "stream_owner_message_id",
+          "nullable": true,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "submission_json",
+          "nullable": false,
+          "position": 9,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "transcript_event_seq",
+          "nullable": true,
+          "position": 10,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "accepted_at",
+          "nullable": false,
+          "position": 11,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "attached_at",
+          "nullable": true,
+          "position": 12,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "terminalized_at",
+          "nullable": true,
+          "position": 13,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "checkpoint_custody",
+          "nullable": true,
+          "position": 14,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "agent_id",
+          "name": "message_mailbox_agent_id_conversation_epoch_accepted_ordina_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "conversation_epoch",
+          "name": "message_mailbox_agent_id_conversation_epoch_accepted_ordina_key",
+          "position": 2,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "accepted_ordinal",
+          "name": "message_mailbox_agent_id_conversation_epoch_accepted_ordina_key",
+          "position": 3,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "agent_id",
+          "name": "message_mailbox_agent_id_fkey",
+          "position": 1,
+          "references": {
+            "column": "agent_id",
+            "schema": "agent",
+            "table": "agents"
+          },
+          "type": "FOREIGN KEY"
+        },
+        {
+          "column": "submission_id",
+          "name": "message_mailbox_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "message_mailbox",
+      "schema": "agent"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
           "name": "agent_id",
           "nullable": false,
           "position": 1,

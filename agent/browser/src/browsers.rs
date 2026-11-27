@@ -169,7 +169,7 @@ impl Asker for TaskAsker {
                 block.push(format!("context: {c}"));
             }
             block.push(format!("original assignment:\n{}", self.task.assignment));
-            self.inbox.push(note(personal(QUESTION_MD).replace("{question}", &block.join("\n")).trim_end().to_string()));
+            self.inbox.push(note(personal(QUESTION_MD).replace("{question}", &block.join("\n")).trim_end().to_string())).await;
             rx.await.map_err(|_| "This browser has closed and cannot accept more work.".to_string())
         })
     }
@@ -280,7 +280,7 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
                     planner.run(&mut history, message).await
                 };
                 let report = result.unwrap_or_else(|e| Report { status: "blocked".into(), summary: format!("The browser failed: {e}"), reason: Some("browser_failure".into()), products: vec![] });
-                me.inbox.push(handoff(&task.id, &report, started.elapsed()));
+                me.inbox.push(handoff(&task.id, &report, started.elapsed())).await;
                 *task.last_active.lock().unwrap() = Instant::now();
                 // Обновления, пришедшие на стыке, — следующая работа.
                 let mut running = task.running.lock().unwrap();
@@ -325,10 +325,13 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
         if let Some(tab) = str_arg(args, "tab") {
             body = format!("Work in tab {tab}.\n\n{body}");
         }
-        let mut running = t.running.lock().unwrap();
-        if *running {
-            t.updates.push(Message { role: Role::User, content: vec![Part::Text { text: update_message(&body) }] });
-            drop(running);
+        // Идёт работа — весть-обновление; нет — окно начинает новую работу.
+        let was_running = {
+            let mut running = t.running.lock().unwrap();
+            std::mem::replace(&mut *running, true)
+        };
+        if was_running {
+            t.updates.push(Message { role: Role::User, content: vec![Part::Text { text: update_message(&body) }] }).await;
             let waiting: Vec<String> = t.questions.lock().unwrap().iter().map(|w| w.id.clone()).collect();
             let mut out = format!("Sent to the window (task_id {task_id}) as an update.");
             if !waiting.is_empty() {
@@ -339,8 +342,6 @@ impl<P: Provider + Send + Sync + 'static> Browsers<P> {
             }
             return Ok(format!("{out}\n\n{accepted}"));
         }
-        *running = true;
-        drop(running);
         self.start(t.clone(), update_message(&body));
         Ok(format!("The window (task_id {task_id}) accepted the request as new work.\n\n{accepted}"))
     }

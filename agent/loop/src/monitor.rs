@@ -148,7 +148,7 @@ impl<P: Provider + Send + Sync + 'static> Monitor<P> {
                         "[Automatic progress note from a running subagent task, not a user message]\nmonitor_event_id: {event}\ncoordinator_agent_id: {agent_id}\ncoordinator_agent_status: running\nworker_agent_id: {agent_id}\nworker_agent_status: running\ncoordinator_children:\n(none)\ntrigger:\n{trig}"
                     ),
                 }],
-            });
+            }).await;
         }
         notify
     }

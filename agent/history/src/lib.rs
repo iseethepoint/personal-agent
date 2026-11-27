@@ -34,13 +34,13 @@
 
 use std::sync::Arc;
 
-use agent_loop::{Prefix, Record};
+use agent_loop::{Mailbox, Prefix, Record};
 use agent_model::{Message, Part, Role, ToolSpec};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-const MIGRATION: &str = include_str!("../migrations/0001_history.sql");
+const MIGRATIONS: [&str; 2] = [include_str!("../migrations/0001_history.sql"), include_str!("../migrations/0002_mailbox.sql")];
 const PREFIX_PIN: &str = "prompt_prefix";
 const VOLATILE: &str = "volatile";
 
@@ -59,7 +59,9 @@ pub struct Store {
 impl Store {
     pub async fn connect(url: &str) -> Result<Store, String> {
         let pool = PgPoolOptions::new().max_connections(4).connect(url).await.map_err(db)?;
-        sqlx::raw_sql(MIGRATION).execute(&pool).await.map_err(db)?;
+        for m in MIGRATIONS {
+            sqlx::raw_sql(m).execute(&pool).await.map_err(db)?;
+        }
         Ok(Store { pool })
     }
 
@@ -284,5 +286,96 @@ impl AgentHistory {
 impl Record for AgentHistory {
     fn record<'a>(&'a self, history: &'a [Message]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
         Box::pin(self.sync(history, None))
+    }
+}
+
+/// Ящик агента в `agent.message_mailbox` — запросы по форме ядра:
+/// `INSERT INTO agent.message_mailbox (submission_id, agent_id,
+/// conversation_epoch, submission_kind, routing_scope, state, …)`,
+/// `UPDATE … SET state = 'attached', checkpoint_custody = 'executing',
+/// stream_owner_message_id = $3, attached_at = now() WHERE … state =
+/// 'accepted'`, `UPDATE … SET state = CASE WHEN $4 THEN 'completed' ELSE
+/// 'aborted' END, terminalized_at = now() WHERE … state = 'attached'`,
+/// `SELECT accepted_ordinal, submission_json … WHERE agent_id = $1 AND state
+/// = 'accepted' ORDER BY accepted_ordinal`.
+///
+/// Своё (в разборе не видно): `submission_id` — `<agent_id>:mailbox:<ordinal>`,
+/// `accepted_ordinal` — следующий по агенту, `conversation_epoch` — 0,
+/// `submission_kind` — `notice` (вести служб; строки владельца идут в
+/// историю сразу), `routing_scope` — `root`, `submission_json` — сообщение.
+pub struct AgentMailbox {
+    pool: PgPool,
+    agent_id: String,
+}
+
+impl AgentMailbox {
+    pub fn new(store: &Store, agent_id: &str) -> AgentMailbox {
+        AgentMailbox { pool: store.pool.clone(), agent_id: agent_id.into() }
+    }
+}
+
+type Fut<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + 'a>>;
+
+impl Mailbox for AgentMailbox {
+    fn accept<'a>(&'a self, m: &'a Message) -> Fut<'a, String> {
+        Box::pin(async move {
+            let json = serde_json::to_string(m).map_err(|e| e.to_string())?;
+            sqlx::query_scalar(
+                "with next as (select coalesce(max(accepted_ordinal), 0) + 1 as ord from agent.message_mailbox where agent_id = $1 and conversation_epoch = 0) \
+                 insert into agent.message_mailbox (submission_id, accepted_ordinal, agent_id, conversation_epoch, submission_kind, routing_scope, state, submission_json) \
+                 select $1 || ':mailbox:' || ord, ord, $1, 0, 'notice', 'root', 'accepted', $2 from next returning submission_id",
+            )
+            .bind(&self.agent_id)
+            .bind(json)
+            .fetch_one(&self.pool)
+            .await
+            .map_err(db)
+        })
+    }
+
+    fn attach<'a>(&'a self, ids: &'a [String], owner: &'a str) -> Fut<'a, ()> {
+        Box::pin(async move {
+            sqlx::query(
+                "update agent.message_mailbox set state = 'attached', checkpoint_custody = 'executing', stream_owner_message_id = $3, attached_at = now() \
+                 where submission_id = any($1) and agent_id = $2 and state = 'accepted' and stream_owner_message_id is null",
+            )
+            .bind(ids)
+            .bind(&self.agent_id)
+            .bind(owner)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+            Ok(())
+        })
+    }
+
+    fn complete<'a>(&'a self, owner: &'a str, ok: bool) -> Fut<'a, ()> {
+        Box::pin(async move {
+            sqlx::query(
+                "update agent.message_mailbox set state = case when $3 then 'completed' else 'aborted' end, checkpoint_custody = coalesce(checkpoint_custody, 'executing'), terminalized_at = now() \
+                 where agent_id = $1 and stream_owner_message_id = $2 and state = 'attached'",
+            )
+            .bind(&self.agent_id)
+            .bind(owner)
+            .bind(ok)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+            Ok(())
+        })
+    }
+
+    fn pending<'a>(&'a self) -> Fut<'a, Vec<(String, Message)>> {
+        Box::pin(async move {
+            let rows: Vec<(String, String)> =
+                sqlx::query_as("select submission_id, submission_json from agent.message_mailbox where agent_id = $1 and state = 'accepted' order by accepted_ordinal")
+                    .bind(&self.agent_id)
+                    .fetch_all(&self.pool)
+                    .await
+                    .map_err(db)?;
+            rows.into_iter()
+                .map(|(id, json)| serde_json::from_str(&json).map(|m| (id, m)).map_err(|e| format!("history: submission_json: {e}")))
+                .collect()
+        })
     }
 }

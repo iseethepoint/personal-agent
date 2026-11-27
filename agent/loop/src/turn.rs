@@ -99,6 +99,8 @@ pub struct Turn<'a, P> {
     /// Запись хода по мере хода (`history_persistence` muse): после каждой
     /// правки истории ход отдаёт её целиком, записанное не повторяется.
     pub record: Option<std::sync::Arc<dyn Record>>,
+    /// Имя хода для ящика (`stream_owner_message_id`).
+    pub turn_id: Option<String>,
 }
 
 /// Куда ход пишет свою историю по мере хода.
@@ -133,6 +135,7 @@ impl<'a, P: Provider> Turn<'a, P> {
             terminal: Vec::new(),
             on_step: None,
             record: None,
+            turn_id: None,
         }
     }
 
@@ -211,10 +214,19 @@ impl<'a, P: Provider> Turn<'a, P> {
         contract: Option<&str>,
     ) -> Result<Response, TurnError> {
         loop {
-            if let Some(inbox) = &self.inbox {
-                history.extend(inbox.drain());
-            }
+            let taken = match &self.inbox {
+                Some(inbox) => {
+                    let (ids, msgs) = inbox.take();
+                    history.extend(msgs);
+                    ids
+                }
+                None => Vec::new(),
+            };
             self.save(history).await?;
+            // Взятые вести уже в истории — `attached` за этим ходом.
+            if let (Some(inbox), false) = (&self.inbox, taken.is_empty()) {
+                inbox.attach(&taken, self.turn_id.as_deref().unwrap_or_default()).await.map_err(TurnError::Record)?;
+            }
             // Загруженные функции отложенных пространств — в конец списка
             // (`tool_search.rs`).
             let loaded = self.tools.loaded(history);
