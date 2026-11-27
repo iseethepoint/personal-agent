@@ -169,11 +169,31 @@ async fn edit_reports_closest_match() {
     .await
     .unwrap_err();
     assert!(err.contains("old_text was not present\n\nclosest match: similarity 0.98 (threshold 0.80), chars 12..56, lines 2-3"), "{err}");
-    assert!(err.contains("\nsnippet:\n    let total = 10;\n    println!(\"{total}\");\nold_text vs closest match:\n--- old_text\n+++ closest match\n@@\n"), "{err}");
+    assert!(err.contains("\nsnippet:\n    let total = 10;\n    println!(\"{total}\");\nold_text vs closest match:\n--- old_text\n+++ closest match\n@@ -1,2 +1,2 @@\n"), "{err}");
     assert!(err.contains("-    let totl = 10;\n+    let total = 10;\n     println!"), "{err}");
+    // Похожесть — по знакам, не по байтам (`strsim::normalized_levenshtein`):
+    // одна замена на 17 знаков — 0.94 (по байтам было бы 1/19 → 0.95).
+    std::fs::write(home.join("u.rs"), "    let имя = 10;\n").unwrap();
+    let err = call(&tools, "hamlet.edit", json!({"path": "u.rs", "old_text": "    let имъ = 10;", "new_text": "x"})).await.unwrap_err();
+    assert!(err.contains("closest match: similarity 0.94 (threshold 0.80)"), "{err}");
     // Совсем непохожее — без ближайшего.
     let err = call(&tools, "hamlet.edit", json!({"path": "c.rs", "old_text": "struct Foo;", "new_text": "x"})).await.unwrap_err();
     assert!(!err.contains("closest match"), "{err}");
+}
+
+#[tokio::test]
+async fn read_converts_documents_to_markdown() {
+    let (home, _tmp, tools) = setup("docs");
+    std::fs::write(home.join("note.rtf"), "{\\rtf1\\ansi Hello {\\b bold} world.\\par Second line.\\par}").unwrap();
+    let r = call(&tools, "hamlet.read", json!({"path": "note.rtf"})).await.unwrap();
+    assert!(r.contains("Hello **bold** world."), "{r}");
+    assert!(r.contains("Second line."), "{r}");
+    // CSV — текст как есть.
+    std::fs::write(home.join("t.csv"), "a,b\n1,2\n").unwrap();
+    assert_eq!(call(&tools, "hamlet.read", json!({"path": "t.csv"})).await.unwrap(), "a,b\n1,2");
+    std::fs::write(home.join("bad.docx"), "not a zip").unwrap();
+    let err = call(&tools, "hamlet.read", json!({"path": "bad.docx"})).await.unwrap_err();
+    assert!(err.starts_with("failed to convert ") && err.contains("bad.docx to Markdown"), "{err}");
 }
 
 #[tokio::test]

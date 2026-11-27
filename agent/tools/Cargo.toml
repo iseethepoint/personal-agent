@@ -17,6 +17,12 @@ regex = "1"
 fst = "0.4"
 toml = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# Те же крейты и версии, что в ядре muse (`crates.txt`, `source-files.txt`):
+# перевод документов в `read`, поиск навыков, ближайшее совпадение в `edit`.
+anydoc = "=0.1.7"
+bm25 = "=2.3.2"
+strsim = "=0.11.1"
+similar = "=2.7.0"
 
 [dev-dependencies]
 agent-browser = { path = "../browser" }

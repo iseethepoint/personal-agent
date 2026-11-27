@@ -231,12 +231,13 @@ impl Catalog {
                 .take(limit)
                 .collect());
         }
-        let docs: Vec<Vec<String>> = items.iter().map(|i| words(&self.descriptor(&i.entry))).collect();
-        let scores = bm25(&words(query), &docs);
-        let mut ranked: Vec<(f64, Item)> =
-            scores.into_iter().zip(items).filter(|(s, _)| *s > 0.0).collect();
-        ranked.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
-        Ok(ranked.into_iter().take(limit).map(|(_, i)| i).collect())
+        // Крейт `bm25` 2.3.2, как у muse (`crates.txt:396`, в ядре —
+        // `default_tokenizer.rs`; `whichlang` нет — язык постоянный, по
+        // умолчанию английский); k1, b — умолчания крейта.
+        let docs = items.iter().enumerate().map(|(n, i)| bm25::Document::new(n, self.descriptor(&i.entry)));
+        let engine = bm25::SearchEngineBuilder::<usize>::with_documents(bm25::LanguageMode::default(), docs).build();
+        let mut slots: Vec<Option<Item>> = items.into_iter().map(Some).collect();
+        Ok(engine.search(query, limit).into_iter().filter(|r| r.score > 0.0).filter_map(|r| slots[r.document.id].take()).collect())
     }
 
     /// Описание для поиска по словам: у навыка — name, title, description;
@@ -251,36 +252,6 @@ impl Catalog {
         }
         s
     }
-}
-
-fn words(s: &str) -> Vec<String> {
-    s.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(|w| w.to_lowercase()).collect()
-}
-
-/// BM25 с обычными k1 = 1.2, b = 0.75 (чисел muse в разборе нет).
-fn bm25(query: &[String], docs: &[Vec<String>]) -> Vec<f64> {
-    let (k1, b) = (1.2, 0.75);
-    let n = docs.len() as f64;
-    let avg = docs.iter().map(|d| d.len()).sum::<usize>() as f64 / n.max(1.0);
-    let mut terms: Vec<&String> = query.iter().collect();
-    terms.sort();
-    terms.dedup();
-    docs.iter()
-        .map(|d| {
-            terms
-                .iter()
-                .map(|t| {
-                    let df = docs.iter().filter(|x| x.contains(t)).count() as f64;
-                    let tf = d.iter().filter(|w| w == t).count() as f64;
-                    if tf == 0.0 {
-                        return 0.0;
-                    }
-                    let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
-                    idf * tf * (k1 + 1.0) / (tf + k1 * (1.0 - b + b * d.len() as f64 / avg.max(1.0)))
-                })
-                .sum()
-        })
-        .collect()
 }
 
 struct Search {
