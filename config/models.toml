@@ -61,7 +61,9 @@ openai_compat.vision = false
 openai_compat.tool_output_error_status = false
 openai_compat.reasoning = true
 openai_compat.parallel_tool_calls = false
-openai_compat.developer_role = true
+# Роль developer посреди разговора не проверена на Ollama — выключено;
+# включить после проверки на живом сервере — П7.
+openai_compat.developer_role = false
 openai_compat.runtime_output_ceiling = 8192
 
 [wires]

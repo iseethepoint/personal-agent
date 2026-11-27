@@ -1,14 +1,17 @@
 //! Временный Postgres для тестов: свой кластер на прогон (initdb во
 //! временной папке), только TCP на 127.0.0.1, без unix-сокета; у каждого
-//! теста своя база. При выходе процесса кластер останавливается, папка
-//! удаляется.
+//! теста своя база. Кластер гасит сторож — отдельный процесс в своей
+//! группе: ждёт, пока процесс теста исчезнет (обычный выход, паника, сигнал,
+//! SIGKILL), останавливает кластер и удаляет папку. Перед запуском убираются
+//! осиротевшие кластеры прошлых прогонов (процесс-владелец мёртв).
 //!
 //! Бинарники — `AGENT_PG_BIN`, иначе Homebrew `postgresql@18`, иначе
 //! `pg_config --bindir`. Нужен pgvector (см. README).
 
 use std::net::TcpListener;
 use std::path::PathBuf;
-use std::process::Command;
+use std::os::unix::process::CommandExt;
+use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
@@ -36,20 +39,46 @@ fn bin_dir() -> PathBuf {
     PathBuf::from(String::from_utf8_lossy(&out.stdout).trim())
 }
 
-extern "C" fn stop_cluster() {
-    if let Some(c) = CLUSTER.get() {
-        let _ = Command::new(c.bin.join("pg_ctl"))
-            .args(["-D"])
-            .arg(c.dir.join("data"))
-            .args(["-m", "immediate", "-w", "stop"])
-            .output();
-        let _ = std::fs::remove_dir_all(&c.dir);
+/// Сторож: `kill -0` раз в секунду; когда процесса теста нет —
+/// `pg_ctl stop` и удаление папки. Своя группа процессов — Ctrl-C по
+/// группе теста его не задевает.
+fn watch(bin: &std::path::Path, dir: &std::path::Path) {
+    Command::new("/bin/sh")
+        .arg("-c")
+        .arg(r#"while kill -0 "$1" 2>/dev/null; do sleep 1; done; "$2" -D "$3/data" -m immediate -w stop; rm -rf "$3""#)
+        .arg("pg-watch")
+        .arg(std::process::id().to_string())
+        .arg(bin.join("pg_ctl"))
+        .arg(dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .process_group(0)
+        .spawn()
+        .expect("сторож кластера");
+}
+
+/// Кластеры прошлых прогонов, чей процесс-владелец (число в имени папки)
+/// уже мёртв: остановить и удалить.
+fn sweep_orphans(bin: &std::path::Path) {
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        let Some(pid) = name.strip_prefix("agent-memory-pg-").and_then(|r| r.split('-').next()).and_then(|p| p.parse::<i32>().ok()) else {
+            continue;
+        };
+        if unsafe { libc::kill(pid, 0) } == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH) {
+            continue;
+        }
+        let _ = Command::new(bin.join("pg_ctl")).arg("-D").arg(e.path().join("data")).args(["-m", "immediate", "-w", "stop"]).output();
+        let _ = std::fs::remove_dir_all(e.path());
     }
 }
 
 fn cluster() -> &'static Cluster {
     CLUSTER.get_or_init(|| {
         let bin = bin_dir();
+        sweep_orphans(&bin);
         let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
         let dir = std::env::temp_dir().join(format!("agent-memory-pg-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -77,9 +106,7 @@ fn cluster() -> &'static Cluster {
             let _ = std::fs::remove_dir_all(&c.dir);
             panic!("pg_ctl start: {}\n{log}", String::from_utf8_lossy(&start.stderr));
         }
-        unsafe {
-            libc::atexit(stop_cluster);
-        }
+        watch(&c.bin, &c.dir);
         c
     })
 }

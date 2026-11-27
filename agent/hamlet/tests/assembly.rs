@@ -652,10 +652,13 @@ async fn subagents_survive_restart() {
 #[tokio::test]
 async fn subagent_tree_survives_restart() {
     for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        // Подагент и внук зовут модель вперемешку: каждый ответ — своему
+        // (внук — «(depth 2/2)», подагент — «split the work»), очерёдность
+        // запросов не важна.
         let steps = vec![
-            Step::Calls(vec![("c1", "subagent.spawn", json!({"message": "grand work: count the logs"})), ("c2", "hamlet.exec", json!({"command": "sleep 0.5"}))]),
-            Step::Calls(vec![("g1", "hamlet.exec", json!({"command": "sleep 30"}))]),
-            Step::Text("Delegated to a grandchild."),
+            Step::When("split the work", Box::new(Step::Calls(vec![("c1", "subagent.spawn", json!({"message": "grand work: count the logs"})), ("c2", "hamlet.exec", json!({"command": "sleep 0.5"}))]))),
+            Step::When("(depth 2/2)", Box::new(Step::Calls(vec![("g1", "hamlet.exec", json!({"command": "sleep 30"}))]))),
+            Step::When("split the work", Box::new(Step::Text("Delegated to a grandchild."))),
         ];
         let (s1, _p) = model(wire, steps, true);
         let s1 = Arc::new(s1);
@@ -680,12 +683,13 @@ async fn subagent_tree_survives_restart() {
         .join()
         .unwrap();
         let r = s1.requests();
-        let (child, grand) = (request_start(wire, &r[0]), r[1].to_string());
+        let gi = r.iter().position(|q| q.to_string().contains("(depth 2/2)")).expect("запрос внука");
+        let (child, grand) = (request_start(wire, &r[0]), r[gi].to_string());
         // Пояс задан — свои метки времени и у подагента, и у внука.
         assert!(r[0].to_string().contains("[Fri 2027-01-15 08:00:00 UTC] [client_timezone=UTC]") && has_time_tag(&grand), "{wire:?}");
         assert!(child.contains("## Subagents") && child.contains("You can delegate work to subagents. They run in the background while you stay focused on your own task.") && !child.contains("## Sub-Agent Spawning") && child.contains("\"subagent.spawn\""), "{wire:?}: {child}");
         assert!(grand.contains("(depth 2/2)") && grand.contains("isolated mode") && !grand.contains("split the work"), "{wire:?}: {grand}");
-        assert!(!request_start(wire, &r[1]).contains("\"subagent.spawn\""), "{wire:?}: у внука нет subagent.*");
+        assert!(!request_start(wire, &r[gi]).contains("\"subagent.spawn\""), "{wire:?}: у внука нет subagent.*");
 
         let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
         let (depth, parent): (i32, Option<String>) = sqlx::query_as("select depth, parent_agent_id from agent.agents where id = 'agent-2'").fetch_one(&pool).await.unwrap();
@@ -907,10 +911,17 @@ async fn hook_run_continues_after_restart() {
         repoint(&dir, &s1, &s2);
         let h2 = build(&dir, FakeClock::at(t0())).await;
         let services = Services::start(&h2);
+        let state = |id: String| {
+            let pool = pool.clone();
+            async move { sqlx::query_as::<_, (String, Option<String>)>("select status, last_error_stage from runtime.execute_resolve_runs where run_id = $1").bind(id).fetch_one(&pool).await.unwrap() }
+        };
+        // Живой прогон продолжается своей задачей, а `hook:old:2` закрывает
+        // цикл восстановления после неё: две заметки не значат, что цикл
+        // дошёл до `hook:old:2`, — ждём и его.
         let mut notes = Vec::new();
         for _ in 0..300 {
             notes.extend(h2.inbox.drain().into_iter().map(|m| m.text()));
-            if notes.len() >= 2 {
+            if notes.len() >= 2 && state("hook:old:2".into()).await.0 != "pending" {
                 break;
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
@@ -922,10 +933,6 @@ async fn hook_run_continues_after_restart() {
         // П5-2 ч.3: системный текст работника — профиль `event_hook`.
         assert!(body.contains("You are an event hook worker") && body.contains("## Temporal Awareness") && body.contains("first use `hamlet.exec`"), "{wire:?}");
         assert!(body.contains(&serde_json::to_string(agent_loop::INTERRUPTED_TOOL_CALL).unwrap()[1..60]), "{wire:?}: {body}");
-        let state = |id: String| {
-            let pool = pool.clone();
-            async move { sqlx::query_as::<_, (String, Option<String>)>("select status, last_error_stage from runtime.execute_resolve_runs where run_id = $1").bind(id).fetch_one(&pool).await.unwrap() }
-        };
         assert_eq!(state(run_id.clone()).await.0, "completed_notified", "{wire:?}");
         assert_eq!(state("hook:old:1".into()).await.0, "completed_notified", "{wire:?}");
         assert_eq!(state("hook:old:2".into()).await, ("failed".to_string(), Some("invalid_restart_checkpoint".to_string())), "{wire:?}");
