@@ -161,8 +161,7 @@ impl Hamlet {
     /// Проверка черновика хода (`agent_cron::verification`): только у хода
     /// со строкой владельца; классификатор видит строку и недавние реплики,
     /// проверяющий — строку, черновик и вызовы хода. `Some` — исправленный
-    /// черновик. Своё: ход проверяющего — вызов с аргументами и первая
-    /// строка результата (до 500 знаков).
+    /// черновик.
     pub async fn verify(&self, history: &[Message], start: usize, draft: &str) -> Option<String> {
         let v = self.verification.as_ref()?;
         if draft.trim().is_empty() {
@@ -181,23 +180,10 @@ impl Hamlet {
             .collect();
         recent = recent.split_off(recent.len().saturating_sub(agent_cron::verification::RECENT_MESSAGES));
         let category = agent_cron::verification::classify(&v.classifier, &request, &recent, &self.spill_dir).await?;
-        let mut trajectory = vec![];
-        for m in &history[at + 1..history.len().saturating_sub(1)] {
-            for p in &m.content {
-                match p {
-                    Part::ToolCall { name, arguments, .. } => trajectory.push(format!("call {name} {arguments}")),
-                    Part::ToolResult { content, is_error, .. } => {
-                        let first = content.iter().find_map(|c| if let agent_model::ToolResultPart::Text { text } = c { Some(text.as_str()) } else { None }).unwrap_or("");
-                        let first: String = first.lines().next().unwrap_or("").chars().take(500).collect();
-                        trajectory.push(format!("{} {first}", if *is_error { "error" } else { "result" }));
-                    }
-                    _ => {}
-                }
-            }
-        }
-        match v.verifier.verify(category, &request, draft, &trajectory.join("\n")).await {
+        let trajectory = agent_cron::verification::trajectory(&history[at + 1..history.len().saturating_sub(1)]);
+        match v.verifier.verify(category, &request, draft, &trajectory).await {
             agent_cron::verification::Verdict::Revised(r) => Some(r),
-            agent_cron::verification::Verdict::Original => None,
+            agent_cron::verification::Verdict::Original | agent_cron::verification::Verdict::Unfinished => None,
         }
     }
 

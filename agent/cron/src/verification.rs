@@ -23,6 +23,22 @@
 //! вызовы этого хода с первой строкой результата; системный текст
 //! проверяющего — системный текст агента; проверка идёт внутри хода, а не
 //! фоновым прогоном; `run_id` — `verification:<мс>:<n>`.
+//!
+//! Отчёт расписания — как у muse (`hatch-db-scheduler/src/scheduler/
+//! cron_verification.rs`, место `cron_verification_classifier` на модели
+//! `main_chat`, инструмент `submit_cron_verification`, текст
+//! `cron_classifier.md`): только успешный отчёт («cron report is not
+//! successful»), категории `health`, `bookings`, `purchases` (`purchases.md`)
+//! или `none`. Проверяющий тот же. Сбой проверки — к отчёту дописывается
+//! `unverified_handoff.md` («Verification did not finish. Present
+//! consequential factual claims in this report as unverified.»).
+//!
+//! Своё для отчётов: вход классификатора — `<task>` (тело задания) и
+//! `<report>`; исправленный отчёт заменяет исходный в итоге прогона и в
+//! заметке главному агенту; пометка о сбое — после отчёта через пустую
+//! строку; категория не сохраняется в прогоне (у muse —
+//! `retain_cron_verification_category` в `pending_terminal_result_json`,
+//! у нас ступени отложенного итога нет).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -44,8 +60,12 @@ const HEALTH_RELEVANCE_MD: &str = include_str!("../../../prompts/verification/he
 const BOOKINGS_MD: &str = include_str!("../../../prompts/verification/bookings.md");
 const NOT_RELEVANT_MD: &str = include_str!("../../../prompts/verification/not_relevant.md");
 const FEEDBACK_MD: &str = include_str!("../../../prompts/verification/feedback.md");
+const CRON_CLASSIFIER_MD: &str = include_str!("../../../prompts/verification/cron_classifier.md");
+const PURCHASES_MD: &str = include_str!("../../../prompts/verification/purchases.md");
+const UNVERIFIED_MD: &str = include_str!("../../../prompts/verification/unverified_handoff.md");
 
 pub const SUBMIT: &str = "hamlet.submit_request_verification";
+pub const SUBMIT_CRON: &str = "hamlet.submit_cron_verification";
 pub const NOT_RELEVANT: &str = "verifier.not_relevant";
 /// Сколько недавних реплик видит классификатор. Своё: в разборе не видно.
 pub const RECENT_MESSAGES: usize = 10;
@@ -55,6 +75,7 @@ pub const RECENT_MESSAGES: usize = 10;
 pub enum Category {
     Health,
     Bookings,
+    Purchases,
 }
 
 impl Category {
@@ -62,6 +83,7 @@ impl Category {
         match self {
             Category::Health => "health",
             Category::Bookings => "bookings",
+            Category::Purchases => "purchases",
         }
     }
 }
@@ -73,6 +95,8 @@ pub enum Verdict {
     Revised(String),
     /// Черновик отдаётся как есть.
     Original,
+    /// Проверка не закончилась («Verification did not finish.»).
+    Unfinished,
 }
 
 /// Заметка главному агенту с исправленным черновиком.
@@ -80,17 +104,24 @@ pub fn feedback(revised: &str) -> String {
     personal(FEEDBACK_MD).replace("{worker_message}", revised).trim_end().to_string()
 }
 
-struct Submit(Arc<Mutex<Option<String>>>);
+/// Инструмент классификатора: одна категория из `choices`.
+struct Submit {
+    slot: Arc<Mutex<Option<String>>>,
+    name: &'static str,
+    description: &'static str,
+    schema: &'static str,
+    choices: &'static [&'static str],
+}
 
 impl Tool for Submit {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
-            name: SUBMIT.into(),
-            description: "Submit whether the supplied request needs factual verification.".into(),
+            name: self.name.into(),
+            description: self.description.into(),
             input_schema: json!({
                 "type": "object",
-                "description": "Submit the request verification category.",
-                "properties": {"category": {"type": "string", "enum": ["health", "bookings", "none"]}},
+                "description": self.schema,
+                "properties": {"category": {"type": "string", "enum": self.choices}},
                 "required": ["category"],
                 "additionalProperties": false,
             }),
@@ -100,36 +131,88 @@ impl Tool for Submit {
     fn call(&self, args: Value) -> ToolFuture<'_> {
         Box::pin(async move {
             let c = args.get("category").and_then(Value::as_str).unwrap_or_default();
-            if !["health", "bookings", "none"].contains(&c) {
-                return Err(ToolError::InvalidArguments("category must be one of health|bookings|none".into()));
+            if !self.choices.contains(&c) {
+                return Err(ToolError::InvalidArguments(format!("category must be one of {}", self.choices.join("|"))));
             }
-            *self.0.lock().unwrap() = Some(c.to_string());
+            *self.slot.lock().unwrap() = Some(c.to_string());
             Ok(vec![ToolResultPart::Text { text: "ok".into() }])
         })
     }
 }
 
-/// Отнести просьбу к категории. `recent` — недавние реплики (говорящий,
-/// текст) до просьбы. Сбой модели — без проверки.
-pub async fn classify<P: Provider>(provider: &P, request: &str, recent: &[(String, String)], spill: &std::path::Path) -> Option<Category> {
-    let slot = Arc::new(Mutex::new(None));
+/// Ход классификатора: одна категория или `None` (`none`, сбой модели).
+async fn submit_category<P: Provider>(provider: &P, tool: Submit, system: &str, user: String, spill: &std::path::Path, what: &str) -> Option<Category> {
+    let slot = tool.slot.clone();
+    let name = tool.name;
     let mut tools = Tools::new();
-    tools.add(Submit(slot.clone()));
-    let lines: Vec<String> = recent.iter().map(|(who, text)| format!("{who}: {text}")).collect();
-    let user = format!("<recent_conversation>\n{}\n</recent_conversation>\n\n<request>\n{request}\n</request>", lines.join("\n\n"));
+    tools.add(tool);
     let mut history = vec![Message { role: Role::User, content: vec![Part::Text { text: user }] }];
-    let mut turn = Turn::new(provider, &tools, personal(CLASSIFIER_MD).trim_end().to_string(), spill);
-    turn.terminal = vec![SUBMIT.into()];
+    let mut turn = Turn::new(provider, &tools, personal(system).trim_end().to_string(), spill);
+    turn.terminal = vec![name.into()];
     if let Err(e) = turn.run(&mut history, &mut |_| {}).await {
-        eprintln!("request verification classifier failed; delivering without verification: {e}");
+        eprintln!("{what} verification classifier failed; delivering without verification: {e}");
         return None;
     }
     let got = slot.lock().unwrap().clone();
     match got.as_deref() {
         Some("health") => Some(Category::Health),
         Some("bookings") => Some(Category::Bookings),
+        Some("purchases") => Some(Category::Purchases),
         _ => None,
     }
+}
+
+/// Отнести просьбу к категории. `recent` — недавние реплики (говорящий,
+/// текст) до просьбы. Сбой модели — без проверки.
+pub async fn classify<P: Provider>(provider: &P, request: &str, recent: &[(String, String)], spill: &std::path::Path) -> Option<Category> {
+    let tool = Submit {
+        slot: Arc::new(Mutex::new(None)),
+        name: SUBMIT,
+        description: "Submit whether the supplied request needs factual verification.",
+        schema: "Submit the request verification category.",
+        choices: &["health", "bookings", "none"],
+    };
+    let lines: Vec<String> = recent.iter().map(|(who, text)| format!("{who}: {text}")).collect();
+    let user = format!("<recent_conversation>\n{}\n</recent_conversation>\n\n<request>\n{request}\n</request>", lines.join("\n\n"));
+    submit_category(provider, tool, CLASSIFIER_MD, user, spill, "request").await
+}
+
+/// Отнести отчёт расписания к категории. Сбой модели — без проверки.
+pub async fn classify_cron<P: Provider>(provider: &P, task: &str, report: &str, spill: &std::path::Path) -> Option<Category> {
+    let tool = Submit {
+        slot: Arc::new(Mutex::new(None)),
+        name: SUBMIT_CRON,
+        description: "Submit whether the supplied cron report needs factual verification.",
+        schema: "Submit the cron report verification category.",
+        choices: &["health", "bookings", "purchases", "none"],
+    };
+    let user = format!("<task>\n{task}\n</task>\n\n<report>\n{report}\n</report>");
+    submit_category(provider, tool, CRON_CLASSIFIER_MD, user, spill, "cron report").await
+}
+
+/// Ход для проверяющего: вызовы с аргументами и первая строка результата
+/// (до 500 знаков). Своё: в разборе не видно.
+pub fn trajectory(messages: &[Message]) -> String {
+    let mut out = vec![];
+    for m in messages {
+        for p in &m.content {
+            match p {
+                Part::ToolCall { name, arguments, .. } => out.push(format!("call {name} {arguments}")),
+                Part::ToolResult { content, is_error, .. } => {
+                    let first = content.iter().find_map(|c| if let ToolResultPart::Text { text } = c { Some(text.as_str()) } else { None }).unwrap_or("");
+                    let first: String = first.lines().next().unwrap_or("").chars().take(500).collect();
+                    out.push(format!("{} {first}", if *is_error { "error" } else { "result" }));
+                }
+                _ => {}
+            }
+        }
+    }
+    out.join("\n")
+}
+
+/// Отчёт, проверка которого не закончилась.
+pub fn unverified(report: &str) -> String {
+    format!("{}\n\n{}", report.trim_end(), UNVERIFIED_MD.trim_end())
 }
 
 struct NotRelevant(Arc<Mutex<bool>>);
@@ -156,6 +239,7 @@ pub fn execute_message(category: Category, task: &str, draft: &str, trajectory: 
     let guidance = match category {
         Category::Health => format!("{}\n\n{}", HEALTH_MD.trim_end(), HEALTH_RELEVANCE_MD.trim_end()),
         Category::Bookings => BOOKINGS_MD.trim_end().to_string(),
+        Category::Purchases => PURCHASES_MD.trim_end().to_string(),
     };
     let evidence = EVIDENCE_MD.trim_end().replace("{review_scope}", REVIEW_SCOPE_MD.trim_end());
     let body = EXECUTE_MD.trim_end().replace("{category_guidance}", &guidance).replace("{evidence_instructions}", &evidence);
@@ -173,17 +257,30 @@ pub struct Verifier<P> {
     pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
 
+impl<P> Clone for Verifier<P> {
+    fn clone(&self) -> Self {
+        Verifier {
+            store: self.store.clone(),
+            provider: self.provider.clone(),
+            tools: self.tools.clone(),
+            system: self.system.clone(),
+            spill_dir: self.spill_dir.clone(),
+            now: self.now.clone(),
+        }
+    }
+}
+
 static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 impl<P: Provider + Send + Sync + 'static> Verifier<P> {
-    /// Проверить черновик; сбой — черновик как есть («Verification did not
+    /// Проверить черновик; сбой — `Unfinished` («Verification did not
     /// finish.» ядра — в журнал).
     pub async fn verify(&self, category: Category, task: &str, draft: &str, trajectory: &str) -> Verdict {
         let run_id = format!("verification:{}:{}", (self.now)(), RUNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
         let meta = json!({"category": category.as_str()});
         if let Err(e) = self.store.run_insert("verification", &run_id, &run_id, "verification", &meta).await {
             eprintln!("Verification did not finish. {e}");
-            return Verdict::Original;
+            return Verdict::Unfinished;
         }
         let agent_id = format!("verifier:{run_id}");
         let _ = self.store.hook_run_claim(&run_id, &agent_id, &format!("{run_id}:execute"), &format!("{run_id}:resolve")).await;
@@ -221,12 +318,34 @@ impl<P: Provider + Send + Sync + 'static> Verifier<P> {
             None => {
                 let err = out.error.unwrap_or_else(|| "verification completed without a response".into());
                 eprintln!("Verification did not finish. {err}");
-                (Verdict::Original, self.store.hook_run_fail(&run_id, "resolve", &err).await)
+                (Verdict::Unfinished, self.store.hook_run_fail(&run_id, "resolve", &err).await)
             }
         };
         if let Err(e) = settled {
             eprintln!("verification {run_id}: {e}");
         }
         verdict
+    }
+}
+
+/// Проверка отчётов расписаний: классификатор (модель `main_chat`) и
+/// проверяющий.
+pub struct CronVerification<P> {
+    pub classifier: Arc<P>,
+    pub verifier: Verifier<P>,
+}
+
+impl<P: Provider + Send + Sync + 'static> CronVerification<P> {
+    /// Отчёт после проверки: исправленный, исходный или с пометкой о сбое.
+    /// `worker` — история работника (для хода проверяющего).
+    pub async fn check(&self, task: &str, report: &str, worker: &[Message], spill: &std::path::Path) -> String {
+        let Some(category) = classify_cron(&*self.classifier, task, report, spill).await else {
+            return report.to_string();
+        };
+        match self.verifier.verify(category, task, report, &trajectory(worker)).await {
+            Verdict::Revised(r) => r,
+            Verdict::Original => report.to_string(),
+            Verdict::Unfinished => unverified(report),
+        }
     }
 }

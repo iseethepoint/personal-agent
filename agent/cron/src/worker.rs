@@ -301,6 +301,8 @@ pub struct Outcome {
     pub timed_out: bool,
     /// Ошибка модели, если ход не дошёл до итога.
     pub error: Option<String>,
+    /// История работника (ход для проверяющего отчёта).
+    pub history: Vec<Message>,
 }
 
 /// Классы владельцев восстановления фаз работника расписаний — значения
@@ -421,7 +423,7 @@ pub async fn run<P: Provider>(
                 if let Some(r) = &recording {
                     r.checkpoint(None, None).await;
                 }
-                return Outcome { signal: Some(Signal::Quiet), timed_out, error: None };
+                return Outcome { signal: Some(Signal::Quiet), timed_out, error: None, history };
             }
         }
         let (failed, unanswered) = collect(&history);
@@ -477,7 +479,7 @@ pub async fn run<P: Provider>(
         r.checkpoint(None, None).await;
     }
     let signal = resolution.signal.lock().unwrap().clone();
-    Outcome { signal, timed_out, error }
+    Outcome { signal, timed_out, error, history }
 }
 
 /// После прерванного по сроку хода у вызовов без результата появляется
