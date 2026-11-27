@@ -391,3 +391,75 @@ async fn memory_file_change_wakes_reindex() {
     assert!(found.contains("memory/trip.md"), "{found}");
     services.stop(&h).await;
 }
+
+/// П3е-1: перенаправить папку агента на другой поддельный сервер модели
+/// (та же база, тот же дом).
+fn repoint(dir: &Path, old: &Server, new: &Server) {
+    let p = dir.join("config/models.toml");
+    let s = std::fs::read_to_string(&p).unwrap().replace(&old.base_url, &new.base_url);
+    std::fs::write(p, s).unwrap();
+}
+
+/// Начало запроса: системный текст и описания инструментов (оба провода).
+fn request_start(wire: Wire, req: &serde_json::Value) -> String {
+    match wire {
+        Wire::Anthropic => format!("{}{}", req["system"], req["tools"]),
+        Wire::OpenaiCompat => format!("{}{}", req["messages"][0], req["tools"]),
+    }
+}
+
+async fn one_run(h: &Arc<Hamlet>, line: Option<&str>) -> String {
+    let (tx, rx) = mpsc::channel(4);
+    let (otx, mut orx) = mpsc::unbounded_channel();
+    let runner = {
+        let h = h.clone();
+        tokio::spawn(async move { h.run(rx, otx).await })
+    };
+    if let Some(l) = line {
+        tx.send(l.into()).await.unwrap();
+    }
+    let out = tokio::time::timeout(Duration::from_secs(30), orx.recv()).await.unwrap().unwrap();
+    runner.abort();
+    out
+}
+
+/// П3е-1: история главного агента пишется в базу по мере хода; после
+/// перезапуска разговор продолжается с тем же началом подсказки байт в байт
+/// (даже если файл дома изменился), а ход, прерванный посреди, —
+/// продолжается сам.
+#[tokio::test]
+async fn conversation_survives_restart() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        // Первый запуск: ход; второй ход прерывается после результата
+        // инструмента (сервер модели больше не отвечает).
+        let (s1, _p) = model(wire, vec![Step::Text("One."), Step::Calls(vec![("r1", "hamlet.read", json!({"path": "MEMORY.md"}))])], true);
+        let dir = agent_dir("restart", wire, &s1);
+        let h1 = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(one_run(&h1, Some("first")).await, "One.", "{wire:?}");
+        let broken = one_run(&h1, Some("read memory")).await;
+        assert!(broken.starts_with("[ошибка хода]"), "{wire:?}: {broken}");
+        let first_start = request_start(wire, &s1.requests()[0]);
+        h1.browsers.shutdown().await;
+        drop(h1);
+
+        // Файл дома меняется, пока программа стоит: начало закреплено.
+        std::fs::write(dir.join("home/MEMORY.md"), "# Memory\n\nChanged while stopped.\n").unwrap();
+        let (s2, _p) = model(wire, vec![Step::Text("Coffee without sugar.")], true);
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        // Ход продолжается без новой строки: история кончалась результатом.
+        assert_eq!(one_run(&h2, None).await, "Coffee without sugar.", "{wire:?}");
+        let req = &s2.requests()[0];
+        assert_eq!(request_start(wire, req), first_start, "{wire:?}: начало подсказки байт в байт");
+        let body = req.to_string();
+        assert!(body.contains("first") && body.contains("One.") && body.contains("read memory"), "{wire:?}: история из базы");
+        assert!(body.contains("The owner drinks coffee without sugar."), "{wire:?}: результат инструмента из базы");
+        assert!(!body.contains("Changed while stopped."), "{wire:?}");
+        // В базе: first, заметка изменчивого, One., read memory, вызов,
+        // результат, ответ после перезапуска.
+        let saved = h2.history.load().await.unwrap().unwrap();
+        assert_eq!(saved.history.len(), 7, "{wire:?}: {:?}", saved.history);
+        assert!(saved.last_volatile.is_some_and(|v| v.contains("2027-01-15")), "{wire:?}");
+        h2.browsers.shutdown().await;
+    }
+}

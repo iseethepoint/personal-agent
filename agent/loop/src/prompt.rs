@@ -72,6 +72,17 @@ impl Conversation {
         Conversation { prefix, history: Vec::new(), last_volatile: None, anchor: None }
     }
 
+    /// Разговор, восстановленный после перезапуска: закреплённое начало,
+    /// история и последняя заметка изменчивого.
+    pub fn restore(prefix: Prefix, history: Vec<Message>, last_volatile: Option<String>) -> Self {
+        Conversation { prefix, history, last_volatile, anchor: None }
+    }
+
+    /// Последняя заметка изменчивого, ушедшая в историю.
+    pub fn last_volatile(&self) -> Option<&str> {
+        self.last_volatile.as_deref()
+    }
+
     /// Сообщение владельца и, если изменилось, заметка изменчивого за ним —
     /// в хвост разговора.
     pub fn push_user(&mut self, content: Vec<Part>, volatile: &str) {

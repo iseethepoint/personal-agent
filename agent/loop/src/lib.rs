@@ -17,5 +17,5 @@ pub use subagents::{first_message, inherited_history, AfterDone, Finish, Inbox, 
 pub use tool::{Tool, ToolError, ToolFuture, Tools};
 pub use tool_search::{Loaded, Namespace, LOAD_TOOL};
 pub use turn::{
-    forced_tool_choice, StepCall, StepHook, Turn, TurnError, MODEL_RETRIES, OUTPUT_TOKEN_CAP_NOTICE, SUBMIT_RESULT, THINKING_ONLY_NOTICE, TOOL_TIMEOUT,
+    forced_tool_choice, Record, StepCall, StepHook, Turn, TurnError, MODEL_RETRIES, OUTPUT_TOKEN_CAP_NOTICE, SUBMIT_RESULT, THINKING_ONLY_NOTICE, TOOL_TIMEOUT,
 };
