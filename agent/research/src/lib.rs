@@ -31,9 +31,17 @@
 //! каждый ход); перечень инструментов `{tooling_lines}` — имя и первая
 //! фраза описания; квитанция `{acknowledgment}` — `agent_id` и папка.
 //! Не взяты: `research_data` (рыночные данные — своей службы нет),
-//! `browser.run`, `look`-цели, предел 512 KiB наблюдений окна.
+//! `browser.run`, `look`-цели.
+//!
+//! Окно исследования отдаёт около 512 KiB наблюдений за миссию, дальше
+//! остаётся только индекс (`how_you_work.md`: «your research window returns
+//! about 512 KiB of observations per mission, after which only the index
+//! remains»). Своё: считаются байты текста и картинок (base64) в ответах
+//! инструментов окна; после подъёма с перезапуска счёт начинается заново
+//! (окно новое); текст отказа — `WINDOW_SPENT`.
 
 use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::Duration;
 
@@ -243,9 +251,10 @@ impl<P: Provider + Send + Sync + 'static> DeepResearch<P> {
         );
         let mut tools = Tools::new();
         self.web.add_index_to(&mut tools);
-        tools.add(Observe(WindowRef::Lazy(window.clone())));
-        tools.add(Act(WindowRef::Lazy(window.clone())));
-        tools.add(Tabs(WindowRef::Lazy(window.clone())));
+        let spent = Arc::new(AtomicUsize::new(0));
+        tools.add(Metered { inner: Observe(WindowRef::Lazy(window.clone())), spent: spent.clone() });
+        tools.add(Metered { inner: Act(WindowRef::Lazy(window.clone())), spent: spent.clone() });
+        tools.add(Metered { inner: Tabs(WindowRef::Lazy(window.clone())), spent });
         tools.add(NotesTool { dir: dir.clone() });
         tools.add(FinishTool(slot.clone()));
         let system = Self::system(&tools);
@@ -395,5 +404,70 @@ impl<P: Provider + Send + Sync + 'static> Tool for DelegateTool<P> {
             let out = self.0.delegate(mission, args.get("topic").and_then(Value::as_str)).await.map_err(ToolError::Failed)?;
             Ok(text(out))
         })
+    }
+}
+
+/// Наблюдений окна за миссию — около 512 KiB (`how_you_work.md`).
+pub const WINDOW_BUDGET_BYTES: usize = 512 * 1024;
+
+/// Своё: отказ окна после исчерпания наблюдений.
+pub const WINDOW_SPENT: &str = "The research window has returned its 512 KiB of observations for this mission; only the index remains. Continue with `browser.search` and `browser.open`.";
+
+/// Инструмент окна со счётом наблюдений миссии.
+struct Metered<T> {
+    inner: T,
+    spent: Arc<AtomicUsize>,
+}
+
+impl<T: Tool> Tool for Metered<T> {
+    fn spec(&self) -> ToolSpec {
+        self.inner.spec()
+    }
+
+    fn call(&self, args: serde_json::Value) -> ToolFuture<'_> {
+        Box::pin(async move {
+            if self.spent.load(Ordering::SeqCst) >= WINDOW_BUDGET_BYTES {
+                return Err(ToolError::Failed(WINDOW_SPENT.into()));
+            }
+            let out = self.inner.call(args).await?;
+            let bytes: usize = out
+                .iter()
+                .map(|p| match p {
+                    ToolResultPart::Text { text } => text.len(),
+                    ToolResultPart::Image(i) => i.data_base64.len(),
+                })
+                .sum();
+            self.spent.fetch_add(bytes, Ordering::SeqCst);
+            Ok(out)
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct Big(usize);
+
+    impl Tool for Big {
+        fn spec(&self) -> ToolSpec {
+            ToolSpec { name: "browser.observe".into(), description: String::new(), input_schema: serde_json::json!({"type": "object"}) }
+        }
+        fn call(&self, _: serde_json::Value) -> ToolFuture<'_> {
+            let n = self.0;
+            Box::pin(async move { Ok(vec![ToolResultPart::Text { text: "x".repeat(n) }]) })
+        }
+    }
+
+    #[tokio::test]
+    async fn window_observations_stop_after_512_kib() {
+        let spent = Arc::new(AtomicUsize::new(0));
+        let w = Metered { inner: Big(300 * 1024), spent: spent.clone() };
+        let other = Metered { inner: Big(10), spent };
+        w.call(serde_json::json!({})).await.unwrap();
+        // 300 KiB < 512 KiB — ещё можно; после второго — 600 KiB, дальше только индекс.
+        w.call(serde_json::json!({})).await.unwrap();
+        let e = other.call(serde_json::json!({})).await.unwrap_err().to_string();
+        assert_eq!(e, WINDOW_SPENT);
     }
 }

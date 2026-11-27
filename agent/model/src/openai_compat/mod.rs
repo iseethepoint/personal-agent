@@ -59,6 +59,10 @@ impl OpenaiCompatProvider {
         self
     }
 
+    pub fn timeouts(&self) -> Timeouts {
+        self.timeouts
+    }
+
     /// Поставщик для выбранной модели. Ключ нужен, только если в реестре
     /// записано имя переменной (локальному серверу ключ не нужен).
     pub fn from_resolved(r: &Resolved<'_>) -> Result<Self, ProviderError> {

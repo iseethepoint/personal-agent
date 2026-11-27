@@ -21,9 +21,12 @@
 //! Скрипт запускается своим запуском `bash` с окружением агента без ключей
 //! моделей и поиска; у muse — через обычный исполнитель команд. Своё.
 //! Не взято: `delivery` (один разговор — главный, П6), `connection.*`,
-//! таблицы `execute_resolve_*` (итог идёт сразу в ящик), пределы
-//! `poll_interval_secs` / `script_timeout_secs` и размера скрипта (чисел в
-//! разборе нет).
+//! таблицы `execute_resolve_*` (итог идёт сразу в ящик).
+//!
+//! Пределы определения — ядро (функция 0x10243e80, objdump): `prompt` не
+//! длиннее 65 536 байт, `poll_interval_secs` от 5 до 604 800,
+//! `script_timeout_secs` от 1 до 600; проверки в этом порядке, тексты
+//! ошибок — строки ядра (`0x366ffe`, `0x3950a0`, `0x437955`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -526,11 +529,11 @@ impl Tool for HookTool {
                 p.insert("id".into(), id);
                 p.insert("script_path".into(), json!({"type": "string", "description": field("script_path")}));
                 p.insert("prompt".into(), json!({"type": "string", "description": field("prompt")}));
-                p.insert("poll_interval_secs".into(), json!({"type": "integer", "minimum": 1, "description": field("poll_interval_secs")}));
+                p.insert("poll_interval_secs".into(), json!({"type": "integer", "minimum": POLL_SECS.0, "maximum": POLL_SECS.1, "description": field("poll_interval_secs")}));
                 // Описания `script_timeout_secs` в разборе нет — своё.
                 p.insert(
                     "script_timeout_secs".into(),
-                    json!({"type": "integer", "minimum": 1, "description": format!("Seconds the polling script may run before it is stopped. Defaults to {DEFAULT_SCRIPT_TIMEOUT_SECS}.")}),
+                    json!({"type": "integer", "minimum": 1, "maximum": MAX_SCRIPT_TIMEOUT_SECS, "description": format!("Seconds the polling script may run before it is stopped. Defaults to {DEFAULT_SCRIPT_TIMEOUT_SECS}.")}),
                 );
                 required.push("id");
                 if self.op == Op::Add {
@@ -569,6 +572,24 @@ impl Tool for HookTool {
 
 fn str_arg<'a>(args: &'a Value, k: &str) -> Option<&'a str> {
     args.get(k).and_then(Value::as_str)
+}
+
+pub const MAX_PROMPT_BYTES: usize = 65_536;
+pub const POLL_SECS: (i64, i64) = (5, 604_800);
+pub const MAX_SCRIPT_TIMEOUT_SECS: i64 = 600;
+
+/// Пределы определения наблюдателя (ядро, 0x10243e80).
+fn check_limits(d: &HookDef) -> Result<(), String> {
+    if d.prompt.len() > MAX_PROMPT_BYTES {
+        return Err(format!("prompt exceeds the {MAX_PROMPT_BYTES}-byte limit"));
+    }
+    if !(POLL_SECS.0..=POLL_SECS.1).contains(&d.poll_interval_secs) {
+        return Err(format!("poll_interval_secs must be between {} and {}", POLL_SECS.0, POLL_SECS.1));
+    }
+    if !(1..=MAX_SCRIPT_TIMEOUT_SECS).contains(&d.script_timeout_secs) {
+        return Err(format!("script_timeout_secs must be between 1 and {MAX_SCRIPT_TIMEOUT_SECS}"));
+    }
+    Ok(())
 }
 
 fn positive(args: &Value, k: &str) -> Result<Option<i64>, String> {
@@ -646,6 +667,7 @@ impl HookTool {
                     created_at_ms: now,
                     updated_at_ms: now,
                 };
+                check_limits(&d)?;
                 save(core, &d).await?;
                 let mut v = self.view(&d);
                 v["message"] = text("texts", "created").into();
@@ -670,6 +692,7 @@ impl HookTool {
                 if let Some(n) = positive(args, "script_timeout_secs")? {
                     d.script_timeout_secs = n;
                 }
+                check_limits(&d)?;
                 d.updated_at_ms = core.now();
                 save(core, &d).await?;
                 Ok(self.view(&d))

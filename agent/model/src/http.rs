@@ -11,6 +11,9 @@ use crate::types::{ProviderError, ProviderErrorKind};
 /// Ожидание ответа сервера до начала потока: 600 с —
 /// `JARVIS_MODEL_STREAM_FIRST_CHUNK_TIMEOUT_MS` muse (ядро, `0x26a6bfa0`).
 pub const FIRST_CHUNK_TIMEOUT: Duration = Duration::from_millis(600_000);
+/// То же у работника расписаний: 1 800 000 мс (30 мин) —
+/// `JARVIS_CRON_MODEL_STREAM_FIRST_CHUNK_TIMEOUT_MS` muse (ядро, `0x26a6c020`).
+pub const CRON_FIRST_CHUNK_TIMEOUT: Duration = Duration::from_millis(1_800_000);
 /// Тишина между кусками потока: 90 с —
 /// `JARVIS_MODEL_STREAM_CHUNK_IDLE_TIMEOUT_MS` muse (ядро, `0x26a6bf80`).
 pub const STREAM_IDLE_TIMEOUT: Duration = Duration::from_millis(90_000);
