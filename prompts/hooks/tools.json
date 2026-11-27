@@ -1,0 +1,32 @@
+{
+ "namespace": "Create and manage event hooks: event-based automations where a Bash polling script decides when to wake a worker agent. Use a hook to monitor a changing condition with a lightweight script that polls frequently, filters out routine results, and wakes an agent only when something relevant happens. Use a cron when time or cadence itself is the trigger.\nA hook has two parts:\n1. A Bash polling script ending in `.sh` under `~/hooks/scripts/`. Write it with `#!/usr/bin/env bash`, `set -euo pipefail`, and `source \"$HAMLET_HOOK_RUNTIME\"`. It runs through the normal tracked shell executor with the same base command environment as an ordinary shell command, but without secrets or connector credentials. Use public endpoints or local data, bounded fetches such as `curl --fail --silent --show-error --max-time 10 ...`, and `jq` for JSON. Record useful observations with `log \"observation\" '{\"price\":251.20}'`. Every run must end with exactly one `silent \"reason\" '{\"optional\":\"payload\"}'` or `wake \"reason\" '{\"optional\":\"payload\"}'`. If a fetch is inconclusive, log the failure and stay silent. If a conclusive condition means no future poll is useful, call `disable_after_run` before the final `wake` or `silent`. Track state between polls under `~/hooks/state/`. `HAMLET_HOOK_DRY_RUN` is `1` for dry runs and `0` otherwise; compare it explicitly to `1` before skipping or redirecting state writes. Dry runs do not isolate script-managed state.\n2. An instruction for the worker agent launched after `wake`. The wake reason and payload arrive automatically as event data. Write the instruction so the worker reports what it found in its execute summary; do not instruct it to write a report file <!-- personal-only:start -->the user did not ask<!-- personal-only:end --><!-- group-only:start -->no member asked<!-- group-only:end --> for into `workspace/your_files/`.\nTo create a hook, write the script first, then use `add` with a short stable id, the script path, the worker instruction, and a polling interval. A new hook starts disabled, and `update` preserves its current enabled state. After adding or updating, use `dry_run` to test: it waits synchronously for the script and log append, reports the decision, and launches no agent. Fix and repeat `dry_run` until the fetch and decision work, then `enable` to start polling.",
+ "tools": {
+  "hooks.list": "List hook definitions.",
+  "hooks.view": "View one hook definition by id.",
+  "hooks.add": "Add an event hook definition. Write the Bash polling script under ~/hooks/scripts/ first, then register it with a short stable id, the script path, the worker instruction, and a polling interval. A new hook starts disabled: test it with dry_run, then enable it.",
+  "hooks.update": "Update an event hook definition in place. The hook's current enabled state is preserved; after updating, test with dry_run.",
+  "hooks.enable": "Enable a hook so its polling script runs again.",
+  "hooks.disable": "Disable a hook; the definition stays but polling stops.",
+  "hooks.remove": "Remove a hook definition.",
+  "hooks.dry_run": "Synchronously test only the script with HAMLET_HOOK_DRY_RUN=1 and no wake/disable side effects; it does not isolate script-managed state.",
+  "hooks.run": "Live run with HAMLET_HOOK_DRY_RUN=0: a wake starts the asynchronous agent lifecycle.",
+  "hooks.logs": "Recent entries from the hook's append-only JSONL invocation log."
+ },
+ "fields": {
+  "id": "Short, descriptive stable id.",
+  "script_path": "Bash file under ~/hooks/scripts/. Write the file before adding or updating the hook.",
+  "prompt": "Instruction for the worker agent launched when the polling script calls wake(...). The worker receives this with the wake reason and payload, performs any necessary verification, analysis, judgment, or follow-up using available tools, and then decides whether the main agent should be notified.",
+  "poll_interval_secs": "Seconds between script polls. Defaults to 60.",
+  "include_disabled": "Include disabled definitions in list.",
+  "limit": "Maximum recent entries to return from the hook's append-only JSONL invocation log."
+ },
+ "texts": {
+  "created": "The hook was created disabled. Dry-run it to test the script without waking an agent or changing live state, then enable it when the result is correct.",
+  "dry_run_wake": "This dry run reached a wake decision but admitted no wake, so no agent ran. Dry runs do not isolate script-managed state: if the script recorded this detection, the next live poll can treat it as already handled and stay silent. Persist state with hook_state_set, which skips the write on dry runs, or compare HAMLET_HOOK_DRY_RUN to 1 before writing. Confirm with a live run before relying on this hook.",
+  "all_zero": "Every value this dry run observed is zero or empty, so the script may not be able to see its subject at all: a wrong folder or filter, a query matching nothing, or data that has not synced yet. A detector that cannot observe its subject stays silent forever while the hook looks healthy. Confirm the script reports real values for the thing you are watching before enabling it.",
+  "never_woke": "This hook has never produced a wake, in a dry run or live, across its recorded invocation history. You have verified that it can stay silent, not that it can fire. If you have not traced the wake case by hand, check that some value the script reads actually changes when the event you care about happens.",
+  "execute_intro": "You were woken up by the polling script with the following event data. Carry out the hook instruction using the available tools.",
+  "resolve": "Review the execute phase result and decide whether the main agent needs to be notified. If there is a meaningful result, uncertainty that needs user attention, or a failure the user should know about, call hamlet.notify_main_agent with a message that keeps the result's details intact. If the run was duplicate, stale, empty, already handled, or not worth surfacing, call hamlet.nothing_to_do. You must call exactly one terminal tool. Do not write assistant text instead.",
+  "result": "This result came from an event hook <!-- personal-only:start -->the user<!-- personal-only:end --><!-- group-only:start -->a member<!-- group-only:end --> asked for. Respond naturally in the target chat with the useful conclusion. Do not mention hook ids, scripts, polling, worker phases, or internal runtime details."
+ }
+}

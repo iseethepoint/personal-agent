@@ -24,6 +24,30 @@ use crate::worker::{self, Signal};
 
 const HANDOFF_INTRO: &str = include_str!("../../../prompts/cron/main_agent_handoff_intro.md");
 
+pub const HEARTBEAT_ID: &str = "heartbeat";
+
+/// Шаблон `HEARTBEAT.md` — тело шаблона ядра (`strings-all.txt:84903-84908`)
+/// и первый вариант комментария (`:85426`).
+pub const HEARTBEAT_TEMPLATE: &str = "# HEARTBEAT.md\n\n# Keep this file empty (or with only comments) to skip heartbeat API calls.\n\n_Recurring checks for your heartbeat worker. Add one per line, and the next tick picks them up._\n";
+
+/// Предел `HEARTBEAT.md` в сообщении — 100 000 знаков (`strings-all.txt:84929`).
+const HEARTBEAT_MAX_CHARS: usize = 100_000;
+
+/// Есть ли в `HEARTBEAT.md` инструкции: строки, кроме пустых, комментариев
+/// `#` и строки-подсказки шаблона. Что именно считается инструкцией, в
+/// разборе не видно — своё.
+pub fn has_instructions(text: &str) -> bool {
+    text.lines().map(str::trim).any(|l| !l.is_empty() && !l.starts_with('#') && !(l.starts_with('_') && l.ends_with('_')) && !l.starts_with("<!--"))
+}
+
+fn truncate_heartbeat(text: &str) -> String {
+    if text.chars().count() <= HEARTBEAT_MAX_CHARS {
+        return text.to_string();
+    }
+    let head: String = text.chars().take(HEARTBEAT_MAX_CHARS).collect();
+    format!("HEARTBEAT.md exceeds 100000 characters. This message includes only the first 100000 characters; read ~/HEARTBEAT.md for the rest of the contents.\n\n{head}")
+}
+
 /// Ровный такт службы. Своё (см. заголовок).
 pub const TICK: Duration = Duration::from_secs(15);
 
@@ -43,11 +67,31 @@ pub struct Core {
     /// Текущий пояс владельца, если известен.
     pub user_tz: Option<String>,
     pub(crate) running: Mutex<HashMap<String, JoinHandle<()>>>,
+    /// Имена переменных с ключами: скрипты наблюдателей их не получают.
+    pub secret_envs: Vec<String>,
+    /// Сроки следующих опросов наблюдателей.
+    pub(crate) next_poll: crate::hooks::PollSchedule,
+    /// Срабатывания наблюдателей, ждущие работника.
+    pub(crate) wakes: Mutex<Vec<crate::hooks::Wake>>,
 }
 
 impl Core {
     pub fn new(store: Store, clock: Arc<dyn Clock>, home: impl Into<PathBuf>, user_tz: Option<String>) -> Arc<Core> {
-        Arc::new(Core { store, clock, home: home.into(), user_tz, running: Mutex::new(HashMap::new()) })
+        Self::with_secrets(store, clock, home, user_tz, Vec::new())
+    }
+
+    /// `secret_envs` — как у `hamlet.exec` (`agent_tools::secret_envs`).
+    pub fn with_secrets(store: Store, clock: Arc<dyn Clock>, home: impl Into<PathBuf>, user_tz: Option<String>, secret_envs: Vec<String>) -> Arc<Core> {
+        Arc::new(Core {
+            store,
+            clock,
+            home: home.into(),
+            user_tz,
+            running: Mutex::new(HashMap::new()),
+            secret_envs,
+            next_poll: Default::default(),
+            wakes: Mutex::new(Vec::new()),
+        })
     }
 
     pub fn now(&self) -> i64 {
@@ -103,6 +147,11 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         for b in &self.background {
             b().await?;
         }
+        crate::hooks::poll(&self.core).await?;
+        let wakes: Vec<_> = self.core.wakes.lock().unwrap().drain(..).collect();
+        for w in wakes {
+            self.wake(w);
+        }
         let now = self.core.now();
         for job in self.core.store.due(now).await? {
             self.admit(&job, now).await?;
@@ -148,12 +197,81 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         if let Err(e) = self.recover().await {
             eprintln!("scheduler recovery: {e}");
         }
+        if let Err(e) = self.ensure_heartbeat().await {
+            eprintln!("scheduler heartbeat: {e}");
+        }
         loop {
             if let Err(e) = self.tick().await {
                 eprintln!("scheduler tick: {e}");
             }
             tokio::time::sleep(TICK).await;
         }
+    }
+
+    /// Работник срабатывания наблюдателя: итог — сразу в ящик.
+    fn wake(&self, w: crate::hooks::Wake) {
+        let run_id = format!("hook:{}:{}", w.def.id, w.inv.invocation_id);
+        let provider = self.provider.clone();
+        let tools = self.tools.clone();
+        let system = crate::hooks::worker_system(&self.system);
+        let spill = self.spill_dir.clone();
+        let inbox = self.inbox.clone();
+        let id = run_id.clone();
+        let handle = tokio::spawn(async move {
+            let first = crate::hooks::execute_message(&w, &id);
+            let kind = worker::Kind::Hook { resolve: crate::hooks::resolve_message(&w, &id) };
+            let out = worker::run(&*provider, &system, &tools, &spill, first, None, kind, |_, _| {}).await;
+            match out.signal {
+                Some(Signal::Notify { message, .. }) => inbox.push(Message {
+                    role: Role::Developer,
+                    content: vec![Part::Text { text: crate::hooks::result_text(&message) }],
+                }),
+                Some(Signal::Quiet) => {}
+                None => eprintln!("hook run {id}: no terminal decision ({})", out.error.unwrap_or_default()),
+            }
+        });
+        self.core.running.lock().unwrap().insert(run_id, handle);
+    }
+
+    /// Пульс: системное задание `heartbeat` раз в 30 минут и шаблон
+    /// `~/HEARTBEAT.md`, если их нет — `seed_default_heartbeat_schedule_if_missing`
+    /// muse (`strings-all.txt`, «30mRun the heartbeat checklist from
+    /// HEARTBEAT.md»); фронтматтер — как у `heartbeat__interval@30m.md` muse.
+    pub async fn ensure_heartbeat(&self) -> Result<(), String> {
+        let file = self.core.home.join("HEARTBEAT.md");
+        if !file.exists() {
+            tokio::fs::write(&file, HEARTBEAT_TEMPLATE).await.map_err(|e| format!("HEARTBEAT.md: {e}"))?;
+        }
+        if self.core.store.job(HEARTBEAT_ID).await?.is_some() {
+            return Ok(());
+        }
+        let now = self.core.now();
+        let d = crate::store::Definition {
+            id: HEARTBEAT_ID.into(),
+            title: None,
+            enabled: true,
+            mode: "heartbeat".into(),
+            owner: None,
+            delivery: vec![],
+            timeout_secs: None,
+            retry: Default::default(),
+            schedule: crate::schedule::Schedule::from_input(
+                &json!({"kind": "interval", "every": "30m", "at": "2026-01-01T00:00:00", "timezone": "UTC"}),
+                None,
+                None,
+                HEARTBEAT_ID,
+            )?,
+            metadata: crate::store::Metadata { created_by: "system".into(), notification_requested: None, created_at_ms: now },
+            body: "Run the heartbeat checklist from HEARTBEAT.md.".into(),
+        };
+        let next = d.schedule.next_after(now, now, None)?.unwrap_or(0);
+        let text = d.render();
+        self.core.store.save(&d, &crate::tools::fingerprint(&text), next, now).await?;
+        let path = self.core.home.join(d.source_path());
+        if let Some(dir) = path.parent() {
+            tokio::fs::create_dir_all(dir).await.map_err(|e| e.to_string())?;
+        }
+        tokio::fs::write(path, text).await.map_err(|e| e.to_string())
     }
 
     /// Созревшее задание: прогон в очередь, следующий срок. Повторяющееся
@@ -189,6 +307,18 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             return Ok(());
         }
         let (timeout, _) = self.core.effective_timeout(&job.definition, now);
+        // Пульс без инструкций модель не зовёт — «skipping heartbeat
+        // inference because HEARTBEAT.md has no instructions» (`strings-all.txt:84815`).
+        let heartbeat = if job.definition.mode == "heartbeat" {
+            let text = tokio::fs::read_to_string(self.core.home.join("HEARTBEAT.md")).await.unwrap_or_default();
+            if !has_instructions(&text) {
+                self.core.store.finish_run(&run_id, "succeeded", Some("heartbeat_no_instructions"), None, now).await?;
+                return Ok(());
+            }
+            Some(truncate_heartbeat(&text))
+        } else {
+            None
+        };
         let core = self.core.clone();
         let provider = self.provider.clone();
         let tools = self.tools.clone();
@@ -197,7 +327,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         let id = run_id.clone();
         let handle = tokio::spawn(async move {
             let d = &job.definition;
-            let first = worker::worker_message(&d.id, &d.mode, d.title.as_deref(), &d.body);
+            let first = worker::worker_message(&d.id, &d.mode, d.title.as_deref(), &d.body, heartbeat.as_deref());
             let store = core.store.clone();
             let phase_run = id.clone();
             let on_phase = move |p: &'static str, timed_out: bool| {
@@ -207,7 +337,8 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                     let _ = store.set_phase(&run, p, timed_out).await;
                 });
             };
-            let out = worker::run(&*provider, &system, &tools, &spill, first, timeout, on_phase).await;
+            let kind = worker::Kind::Cron { mode: d.mode.clone() };
+            let out = worker::run(&*provider, &system, &tools, &spill, first, Some(timeout), kind, on_phase).await;
             if let Err(e) = settle_run(&core, &job, &id, attempt, timeout, out).await {
                 eprintln!("scheduler run {id}: {e}");
             }
@@ -276,7 +407,7 @@ async fn settle_run(core: &Core, job: &Job, run_id: &str, attempt: i32, timeout:
     }
     if let Some(text) = report {
         let payload = json!({
-            "job_id": d.id, "run_id": run_id, "title": d.title, "body": d.body,
+            "job_id": d.id, "run_id": run_id, "title": d.title, "body": d.body, "mode": d.mode,
             "status": status, "message": text,
         });
         store.outbox_put(&d.id, run_id, &payload.to_string(), now).await?;
@@ -292,7 +423,9 @@ pub fn handoff(v: &Value) -> Message {
     let s = |k: &str| v.get(k).and_then(Value::as_str).unwrap_or_default();
     let title = if s("title").is_empty() { String::new() } else { format!("title: {}\n", s("title")) };
     let text = format!(
-        "[SCHEDULED TASK HANDOFF]\n{}\n\n<task_context>\njob_id: {}\n{title}run_id: {}\nstatus: {}\n\n{}\n</task_context>\n\n<job_result>\n{}\n</job_result>",
+        "{}\n{}\n\n<task_context>\njob_id: {}\n{title}run_id: {}\nstatus: {}\n\n{}\n</task_context>\n\n<job_result>\n{}\n</job_result>",
+        // Метки ядра: `[SCHEDULED TASK HANDOFF]`, `[HEARTBEAT HANDOFF]` (`strings-all.txt:85472`).
+        if s("mode") == "heartbeat" { "[HEARTBEAT HANDOFF]" } else { "[SCHEDULED TASK HANDOFF]" },
         agent_loop::personal(HANDOFF_INTRO).trim_end(),
         s("job_id"),
         s("run_id"),

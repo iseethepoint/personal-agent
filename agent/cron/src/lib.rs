@@ -4,6 +4,7 @@
 //! прогона — скрытой заметкой в ящик главного агента.
 
 pub mod clock;
+pub mod hooks;
 pub mod schedule;
 pub mod service;
 pub mod store;
@@ -12,7 +13,8 @@ pub mod worker;
 
 pub use clock::{Clock, FakeClock, SystemClock};
 pub use schedule::Schedule;
-pub use service::{handoff, Background, Core, Scheduler, TICK};
+pub use hooks::{tools as hook_tools, HookTool};
+pub use service::{handoff, has_instructions, Background, Core, Scheduler, HEARTBEAT_ID, HEARTBEAT_TEMPLATE, TICK};
 pub use store::{Definition, Job, Run, Store};
 pub use tools::{tools, CronTool};
-pub use worker::{resolution_specs, worker_message, Outcome, Signal, NOTHING_TO_REPORT, NOTIFY_MAIN_AGENT};
+pub use worker::{resolution_specs, worker_message, Kind, Outcome, Signal, NOTHING_TO_REPORT, NOTIFY_MAIN_AGENT};

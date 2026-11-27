@@ -24,11 +24,16 @@ use serde_json::{json, Value};
 const WORKER_INSTRUCTION: &str = include_str!("../../../prompts/cron/worker_instruction.md");
 const PHASE_FENCE: &str = include_str!("../../../prompts/cron/worker_phase_fence.md");
 const CHANGE_RULES_USER: &str = include_str!("../../../prompts/cron/worker_schedule_change_rules_user.md");
+const CHANGE_RULES_SYSTEM: &str = include_str!("../../../prompts/cron/worker_schedule_change_rules_system.md");
 const RESOLUTION_CONTRACT: &str = include_str!("../../../prompts/cron/cron_resolution_contract.md");
 const UNRESOLVED: &str = include_str!("../../../prompts/cron/cron_unresolved_execution.md");
 const INCOMPLETE: &str = include_str!("../../../prompts/cron/cron_incomplete_execution.md");
 
 pub const NOTHING_TO_REPORT: &str = "hamlet.nothing_to_report";
+pub const NOTHING_TO_DO: &str = "hamlet.nothing_to_do";
+
+/// Описание `nothing_to_do` — `P/hatch-agent/prompts/tools/nothing_to_do_without_reaction_description.md`.
+const NOTHING_TO_DO_DESCRIPTION: &str = include_str!("../../../prompts/hooks/nothing_to_do_description.md");
 pub const NOTIFY_MAIN_AGENT: &str = "hamlet.notify_main_agent";
 
 /// Описание `nothing_to_report` — `strings-all.txt:85281-85282`; потерянное
@@ -60,15 +65,19 @@ fn stream_error_notice(failure: &str) -> String {
     )
 }
 
-/// Первое сообщение работнику.
-pub fn worker_message(job_id: &str, mode: &str, title: Option<&str>, body: &str) -> String {
+/// Первое сообщение работнику. У пульса (`mode = heartbeat`) — правила
+/// `worker_schedule_change_rules_system.md` и блок `[HEARTBEAT]` с
+/// `~/HEARTBEAT.md` (`heartbeat`).
+pub fn worker_message(job_id: &str, mode: &str, title: Option<&str>, body: &str, heartbeat: Option<&str>) -> String {
+    let rules = if mode == "heartbeat" { CHANGE_RULES_SYSTEM } else { CHANGE_RULES_USER };
     let instruction = personal(WORKER_INSTRUCTION)
         .replace("{job_id}", job_id)
         .replace("{mode}", mode)
-        .replace("{schedule_change_rules}", personal(CHANGE_RULES_USER).trim_end());
+        .replace("{schedule_change_rules}", personal(rules).trim_end());
     let title = title.map(|t| format!("\ntitle: {t}")).unwrap_or_default();
+    let heartbeat = heartbeat.map(|h| format!("\n\n[HEARTBEAT]\n{}", h.trim_end())).unwrap_or_default();
     format!(
-        "{}\n\n[SCHEDULED TASK CONTEXT]\n<scheduled_job id=\"{job_id}\">{title}\n</scheduled_job>\n\n[BODY]\n{}\n\n{}",
+        "{}\n\n[SCHEDULED TASK CONTEXT]\n<scheduled_job id=\"{job_id}\">{title}\n</scheduled_job>{heartbeat}\n\n[BODY]\n{}\n\n{}",
         instruction.trim_end(),
         body.trim_end(),
         personal(PHASE_FENCE).trim_end()
@@ -142,10 +151,31 @@ fn collect(history: &[Message]) -> (Vec<String>, Vec<String>) {
 struct Resolution {
     evidence: Arc<Evidence>,
     signal: Arc<Mutex<Option<Signal>>>,
+    /// Итог работника наблюдателя: `nothing_to_do` и `notify_main_agent`
+    /// с одним `message`, без проверок свидетельств (они — у расписаний).
+    hook: bool,
 }
 
 struct NothingToReport(Resolution);
+struct NothingToDo(Resolution);
 struct NotifyMainAgent(Resolution);
+
+impl Tool for NothingToDo {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: NOTHING_TO_DO.into(),
+            description: personal(NOTHING_TO_DO_DESCRIPTION).trim_end().into(),
+            input_schema: json!({"type": "object", "properties": {}, "additionalProperties": false}),
+        }
+    }
+
+    fn call(&self, _args: Value) -> ToolFuture<'_> {
+        Box::pin(async move {
+            *self.0.signal.lock().unwrap() = Some(Signal::Quiet);
+            Ok(vec![ToolResultPart::Text { text: "ok".into() }])
+        })
+    }
+}
 
 impl Tool for NothingToReport {
     fn spec(&self) -> ToolSpec {
@@ -170,6 +200,18 @@ impl Tool for NothingToReport {
 
 impl Tool for NotifyMainAgent {
     fn spec(&self) -> ToolSpec {
+        if self.0.hook {
+            return ToolSpec {
+                name: NOTIFY_MAIN_AGENT.into(),
+                description: NOTIFY_DESCRIPTION.into(),
+                input_schema: json!({
+                    "type": "object",
+                    "properties": {"message": {"type": "string", "description": NOTIFY_MESSAGE_DESCRIPTION}},
+                    "required": ["message"],
+                    "additionalProperties": false,
+                }),
+            };
+        }
         // Описаний `outcome` и `blocked_*` в разборе нет — свои; значения и
         // правила — из проверок ядра (`strings-all.txt:84932`).
         ToolSpec {
@@ -195,6 +237,11 @@ impl Tool for NotifyMainAgent {
             let message = s("message").unwrap_or_default();
             if message.trim().is_empty() {
                 return Err(ToolError::InvalidArguments("message cannot be empty".into()));
+            }
+            if self.0.hook {
+                *self.0.signal.lock().unwrap() =
+                    Some(Signal::Notify { outcome: "succeeded".into(), message, blocked_reason: None, blocked_dependency: None });
+                return Ok(vec![ToolResultPart::Text { text: "ok".into() }]);
             }
             let outcome = s("outcome").unwrap_or_default();
             if !["succeeded", "failed", "blocked"].contains(&outcome.as_str()) {
@@ -227,8 +274,16 @@ impl Tool for NotifyMainAgent {
 
 /// Описания завершающих инструментов (для проверок того, что уходит модели).
 pub fn resolution_specs() -> Vec<ToolSpec> {
-    let r = Resolution { evidence: Arc::new(Evidence::default()), signal: Arc::new(Mutex::new(None)) };
-    vec![NothingToReport(r.clone()).spec(), NotifyMainAgent(r).spec()]
+    let r = Resolution { evidence: Arc::new(Evidence::default()), signal: Arc::new(Mutex::new(None)), hook: false };
+    let h = Resolution { hook: true, ..r.clone() };
+    vec![NothingToReport(r.clone()).spec(), NotifyMainAgent(r).spec(), NothingToDo(h.clone()).spec(), NotifyMainAgent(h).spec()]
+}
+
+/// Чей работник: расписания (`mode` — `task` или `heartbeat`) или
+/// наблюдателя (`resolve` — сообщение фазы итога).
+pub enum Kind {
+    Cron { mode: String },
+    Hook { resolve: String },
 }
 
 /// Итог прогона.
@@ -240,21 +295,28 @@ pub struct Outcome {
     pub error: Option<String>,
 }
 
-/// Прогнать задание: `system` и `tools` — работника; `on_phase` узнаёт о
+/// Прогнать задание: `system` и `tools` — работника; `timeout_secs` —
+/// срок фазы исполнения (у наблюдателя срока нет); `on_phase` узнаёт о
 /// переходе к итогу и о том, был ли срок.
+#[allow(clippy::too_many_arguments)]
 pub async fn run<P: Provider>(
     provider: &P,
     system: &str,
     tools: &Tools,
     spill_dir: &std::path::Path,
     first: String,
-    timeout_secs: i64,
+    timeout_secs: Option<i64>,
+    kind: Kind,
     on_phase: impl Fn(&'static str, bool),
 ) -> Outcome {
     let mut history = vec![Message { role: Role::User, content: vec![Part::Text { text: first }] }];
     let mut quiet = |_: &str| {};
     let turn = Turn::new(provider, tools, system, spill_dir);
-    let executed = tokio::time::timeout(Duration::from_secs(timeout_secs.max(1) as u64), turn.run(&mut history, &mut quiet)).await;
+    let executed = match timeout_secs {
+        Some(t) => tokio::time::timeout(Duration::from_secs(t.max(1) as u64), turn.run(&mut history, &mut quiet)).await,
+        None => Ok(turn.run(&mut history, &mut quiet).await),
+    };
+    let timeout_secs = timeout_secs.unwrap_or_default();
     let mut timed_out = false;
     let mut evidence = Evidence::default();
     let mut notice = None;
@@ -284,15 +346,25 @@ pub async fn run<P: Provider>(
         text.push_str(&n);
         text.push_str("\n\n");
     }
-    text.push_str(personal(RESOLUTION_CONTRACT).replace("{mode}", "task").trim_end());
+    let hook = matches!(kind, Kind::Hook { .. });
+    match &kind {
+        Kind::Cron { mode } => text.push_str(personal(RESOLUTION_CONTRACT).replace("{mode}", mode).trim_end()),
+        Kind::Hook { resolve } => text.push_str(resolve.trim_end()),
+    }
     history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
 
-    let resolution = Resolution { evidence: Arc::new(evidence), signal: Arc::new(Mutex::new(None)) };
+    let resolution = Resolution { evidence: Arc::new(evidence), signal: Arc::new(Mutex::new(None)), hook };
     let mut terminal = Tools::new();
-    terminal.add(NothingToReport(resolution.clone()));
+    let quiet_name = if hook {
+        terminal.add(NothingToDo(resolution.clone()));
+        NOTHING_TO_DO
+    } else {
+        terminal.add(NothingToReport(resolution.clone()));
+        NOTHING_TO_REPORT
+    };
     terminal.add(NotifyMainAgent(resolution.clone()));
     let mut turn = Turn::new(provider, &terminal, system, spill_dir);
-    turn.terminal = vec![NOTHING_TO_REPORT.into(), NOTIFY_MAIN_AGENT.into()];
+    turn.terminal = vec![quiet_name.into(), NOTIFY_MAIN_AGENT.into()];
     let error = turn.run(&mut history, &mut quiet).await.err().map(|e| e.to_string());
     let signal = resolution.signal.lock().unwrap().clone();
     Outcome { signal, timed_out, error }

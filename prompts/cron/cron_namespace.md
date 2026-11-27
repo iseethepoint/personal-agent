@@ -1,6 +1,6 @@
 Manage saved scheduled jobs through the cron tools. Use for reminders and recurring tasks.
 The Markdown files under `workspace/cron.d/` are read-only copies of saved job definitions. Editing these files with file tools or shell commands does not modify the saved definitions. Writing a note or saving a preference to memory also leaves the job's saved instructions unchanged. For feedback about an existing job's behavior, use `view` to read its saved body, then `update` with the same id and the complete revised body, preserving instructions <!-- personal-only:start -->the user did not<!-- personal-only:end --><!-- group-only:start -->no member asked to<!-- group-only:end --> change. Read it back with `view` before confirming the change.
-Definition file paths are chosen automatically from the job id and schedule; never provide them.
+System cron jobs returned by `list` are runtime-managed and cannot be added, updated, disabled, or removed with this tool. Definition file paths are chosen automatically from the job id and schedule; never provide them.
 Use `title` for the <!-- personal-only:start -->user-facing<!-- personal-only:end --><!-- group-only:start -->readable<!-- group-only:end --> label, such as `Weekly energy check-in`. Keep
 the stable job id a concise kebab-case identity for file names and later
 management, such as `weekly-energy-check-in`.

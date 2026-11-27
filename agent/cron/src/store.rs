@@ -18,7 +18,7 @@ use sqlx::Row;
 
 use crate::schedule::Schedule;
 
-const MIGRATION: &str = include_str!("../migrations/0001_scheduler.sql");
+const MIGRATIONS: [&str; 2] = [include_str!("../migrations/0001_scheduler.sql"), include_str!("../migrations/0002_runtime_hooks.sql")];
 
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -139,7 +139,9 @@ pub struct Store {
 impl Store {
     pub async fn connect(url: &str) -> Result<Self> {
         let pool = PgPoolOptions::new().max_connections(4).connect(url).await.map_err(db)?;
-        sqlx::raw_sql(MIGRATION).execute(&pool).await.map_err(db)?;
+        for m in MIGRATIONS {
+            sqlx::raw_sql(m).execute(&pool).await.map_err(db)?;
+        }
         Ok(Store { pool })
     }
 
@@ -172,10 +174,11 @@ impl Store {
           retry_on_failure, max_retries,
           delivery_targets_json,
           next_run_at, next_run_at_utc, updated_at_utc, updated_at)
-         values ($1, false, $2, $3, $4, $5, $6, $7, $8, $9, '[]',
+         values ($1, $12, $2, $3, $4, $5, $6, $7, $8, $9, '[]',
                  case when $10 > 0 then to_timestamp($10::double precision / 1000) end, $10, $11,
                  to_timestamp($11::double precision / 1000))
          on conflict (job_id) do update set
+           is_heartbeat = excluded.is_heartbeat,
            source_path = excluded.source_path,
            source_hash = excluded.source_hash,
            schedule_kind = excluded.schedule_kind,
@@ -200,6 +203,7 @@ impl Store {
         .bind(d.retry.max_retries)
         .bind(next_run_at_utc)
         .bind(now_ms)
+        .bind(d.mode == "heartbeat")
         .execute(&mut *tx)
         .await
         .map_err(db)?;
