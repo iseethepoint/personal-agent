@@ -83,3 +83,38 @@ async fn history_is_written_as_it_grows_and_compaction_moves_the_floor() {
     let total: i64 = sqlx::query_scalar("select count(*) from agent.context_items where agent_id = 'root'").fetch_one(store.pool()).await.unwrap();
     assert_eq!(total, 9, "старая история остаётся в базе");
 }
+
+/// П3е-2: состояния ящика — accepted → attached → completed/aborted;
+/// непринятые после перезапуска возвращаются в очередь.
+#[tokio::test]
+async fn mailbox_states_follow_the_core() {
+    use agent_history::AgentMailbox;
+    use agent_loop::Inbox;
+    let store = Store::connect(&pg::database()).await.unwrap();
+    AgentHistory::open(&store, "root", "root", "fake/main", Arc::new(|| 0)).await.unwrap();
+    let inbox = Inbox::persistent(Arc::new(AgentMailbox::new(&store, "root"))).await.unwrap();
+    inbox.push(msg(Role::Developer, "a")).await;
+    inbox.push_user(msg(Role::User, "b")).await;
+    let kinds: Vec<String> = sqlx::query_scalar("select submission_kind from agent.message_mailbox order by accepted_ordinal").fetch_all(store.pool()).await.unwrap();
+    assert_eq!(kinds, ["notice", "user"]);
+    let state = || async {
+        let rows: Vec<(String, i64, String, Option<String>)> =
+            sqlx::query_as("select submission_id, accepted_ordinal, state, stream_owner_message_id from agent.message_mailbox order by accepted_ordinal").fetch_all(store.pool()).await.unwrap();
+        rows
+    };
+    assert_eq!(state().await, [("root:mailbox:1".into(), 1, "accepted".into(), None), ("root:mailbox:2".into(), 2, "accepted".into(), None)]);
+    // Перезапуск: непринятые — снова в очереди, по порядку.
+    let again = Inbox::persistent(Arc::new(AgentMailbox::new(&store, "root"))).await.unwrap();
+    let (ids, msgs) = again.take();
+    assert_eq!(ids, ["root:mailbox:1", "root:mailbox:2"]);
+    assert_eq!(msgs, [msg(Role::Developer, "a"), msg(Role::User, "b")]);
+    again.attach(&ids[..1], "t1").await.unwrap();
+    again.attach(&ids[1..], "t2").await.unwrap();
+    again.complete("t1", true).await.unwrap();
+    again.complete("t2", false).await.unwrap();
+    let rows = state().await;
+    assert_eq!((rows[0].2.as_str(), rows[0].3.as_deref()), ("completed", Some("t1")));
+    assert_eq!((rows[1].2.as_str(), rows[1].3.as_deref()), ("aborted", Some("t2")));
+    let third = Inbox::persistent(Arc::new(AgentMailbox::new(&store, "root"))).await.unwrap();
+    assert!(third.drain().is_empty());
+}

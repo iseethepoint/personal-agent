@@ -83,11 +83,33 @@ impl Hamlet {
         if self.compactor().compact_if_needed(conv).await.map_err(|e| e.to_string())? {
             self.history.replace(&conv.history, conv.last_volatile()).await?;
         }
+        // Поданное в ящик до хода: строка владельца — с заметкой изменчивого
+        // за ней, весть службы — как есть; записывается историей и
+        // отмечается за ходом.
+        static TURNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let turn_id = format!("{}:turn:{}:{}", crate::ROOT_AGENT, self.clock.now_ms(), TURNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst));
+        let (ids, taken) = self.inbox.take();
+        for m in taken {
+            if m.role == Role::User {
+                conv.push_user(m.content, &self.volatile());
+            } else {
+                conv.history.push(m);
+            }
+        }
+        self.history.sync(&conv.history, conv.last_volatile()).await?;
+        self.inbox.attach(&ids, &turn_id).await?;
         let mut t = Turn::from_prefix(&*self.main, &self.tools, &conv.prefix, self.spill_dir.clone());
         t.inbox = Some(self.inbox.clone());
         t.transcript = Some(self.transcript.clone());
         t.record = Some(self.history.clone());
-        let resp = t.run(&mut conv.history, &mut |_| {}).await.map_err(|e| e.to_string())?;
+        // Имя хода для ящика (`stream_owner_message_id`). Своё: `root:turn:<мс>:<n>`.
+        t.turn_id = Some(turn_id.clone());
+        let result = t.run(&mut conv.history, &mut |_| {}).await;
+        // Вести, взятые ходом, закрываются по его итогу.
+        if let Err(e) = self.inbox.complete(&turn_id, result.is_ok()).await {
+            eprintln!("mailbox complete: {e}");
+        }
+        let resp = result.map_err(|e| e.to_string())?;
         conv.record_usage(&resp.usage);
         Ok(resp.text())
     }
@@ -102,22 +124,36 @@ impl Hamlet {
                 return;
             }
         };
+        // Строка владельца сразу подаётся в ящик (`submission_kind = 'user'`)
+        // — и во время хода: ход берёт её между шагами, а после остановки она
+        // ждёт в базе.
+        let inbox = self.inbox.clone();
+        let (done_tx, mut done) = tokio::sync::oneshot::channel::<()>();
+        let reader = tokio::spawn(async move {
+            while let Some(line) = lines.recv().await {
+                inbox.push_user(Message { role: Role::User, content: vec![Part::Text { text: line }] }).await;
+            }
+            let _ = done_tx.send(());
+        });
+        let mut closed = false;
         // После перезапуска: история кончается не ответом модели — ход
         // продолжается сразу.
         let mut resume = conv.history.last().is_some_and(|m| m.role != Role::Assistant);
         loop {
             if !resume {
-                let inbox = self.inbox.clone();
-                tokio::select! {
-                    biased;
-                    line = lines.recv() => {
-                        let Some(line) = line else { break };
-                        conv.push_user(vec![Part::Text { text: line }], &self.volatile());
-                        if let Err(e) = self.history.sync(&conv.history, conv.last_volatile()).await {
-                            let _ = out.send(format!("[ошибка истории] {e}"));
+                if closed {
+                    if self.inbox.is_empty() {
+                        break;
+                    }
+                } else {
+                    tokio::select! {
+                        biased;
+                        _ = self.inbox.wait() => {}
+                        _ = &mut done => {
+                            closed = true;
+                            continue;
                         }
                     }
-                    _ = inbox.wait() => {}
                 }
             }
             resume = false;
@@ -138,6 +174,7 @@ impl Hamlet {
                 }
             }
         }
+        reader.abort();
     }
 
     /// Записка хода-продолжения, если в списке дел осталась работа и нет

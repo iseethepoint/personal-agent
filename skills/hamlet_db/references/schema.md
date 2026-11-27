@@ -52,6 +52,31 @@ Rows holding model reasoning (thinking and redacted-thinking items) are withheld
 - UNIQUE `seq` (`context_items_agent_id_seq_key`)
 - PRIMARY KEY `context_item_id` (`context_items_pkey`)
 
+## `agent.message_mailbox`
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `submission_id` | text | no |  |
+| `accepted_ordinal` | bigint | no |  |
+| `agent_id` | text | no |  |
+| `conversation_epoch` | bigint | no |  |
+| `submission_kind` | text | no |  |
+| `routing_scope` | text | no |  |
+| `state` | text | no |  |
+| `stream_owner_message_id` | text | yes |  |
+| `submission_json` | text | no |  |
+| `transcript_event_seq` | bigint | yes |  |
+| `accepted_at` | timestamp with time zone | no | `now()` |
+| `attached_at` | timestamp with time zone | yes |  |
+| `terminalized_at` | timestamp with time zone | yes |  |
+| `checkpoint_custody` | text | yes |  |
+
+- UNIQUE `agent_id` (`message_mailbox_agent_id_conversation_epoch_accepted_ordina_key`)
+- UNIQUE `conversation_epoch` (`message_mailbox_agent_id_conversation_epoch_accepted_ordina_key`)
+- UNIQUE `accepted_ordinal` (`message_mailbox_agent_id_conversation_epoch_accepted_ordina_key`)
+- FOREIGN KEY `agent_id` → `agent.agents.agent_id`
+- PRIMARY KEY `submission_id` (`message_mailbox_pkey`)
+
 ## `agent.volatile_context_pins`
 
 | column | type | nullable | default |

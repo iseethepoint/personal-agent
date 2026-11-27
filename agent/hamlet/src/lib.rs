@@ -167,7 +167,12 @@ impl Hamlet {
         let goal_plan = GoalPlan::from_registry(&reg, sel).map_err(|e| e.to_string())?;
         let goal_models = GoalModels::from_plan(&goal_plan, provider)?;
         let goals = Goals::new(goals_store, home_dir.clone(), Some(goal_models), Some(core.clone() as Arc<dyn OwnedCleanup>));
-        let inbox = Inbox::new();
+        // История и ящик главного агента в базе: агент `root` (своё имя; у
+        // muse — id сессии); непринятые до перезапуска вести — снова в ящике.
+        let history_store = agent_history::Store::connect(&url).await?;
+        let history_clock = clock.clone();
+        let history = Arc::new(agent_history::AgentHistory::open(&history_store, ROOT_AGENT, "root", &main_model, Arc::new(move || history_clock.now_ms())).await?);
+        let inbox = Inbox::persistent(Arc::new(agent_history::AgentMailbox::new(&history_store, ROOT_AGENT))).await?;
         let transcript = Transcript::new();
         let parts = Parts {
             home: home.clone(),
@@ -315,13 +320,6 @@ impl Hamlet {
                 Ok(next.map(|d| d.timestamp_millis()))
             })
         }));
-
-        // История главного агента: агент `root` (своё имя; у muse — id сессии).
-        let history_clock = clock.clone();
-        let history = Arc::new(
-            agent_history::AgentHistory::open(&agent_history::Store::connect(&url).await?, ROOT_AGENT, "root", &main_model, Arc::new(move || history_clock.now_ms()))
-                .await?,
-        );
 
         Ok(Hamlet {
             dir: dir.clone(),

@@ -231,3 +231,14 @@
 Не в этом срезе:
 - ящик (П3е-2);
 - вызовы, оставшиеся без результата при остановке посреди исполнения инструментов (П3е-5, точки перезапуска muse).
+
+## Ящик главного агента в Postgres (П3е-2)
+
+Текстов для модели нет. Таблица `agent.message_mailbox` — `agent/history/migrations/0002_mailbox.sql` по каталогу ядра. Запросы — форма ядра: вставка `accepted`; `attached` с `checkpoint_custody = 'executing'` и `stream_owner_message_id`; закрытие `completed`/`aborted`; выборка `accepted` по `accepted_ordinal`. Таблица добавлена в каталог `hamlet.db` (23 таблицы).
+
+Своё — в `agent/history/src/lib.rs` (`AgentMailbox`):
+- вид `submission_id`; `conversation_epoch` 0; `routing_scope` `root`;
+- строка владельца — подача `user`, как в запросах ядра (`submission_kind = 'user'`): она идёт в ящик сразу, и во время хода тоже. Ход берёт её между шагами, а пришедшая во время остановки ждёт в базе;
+- весть службы — `notice` (у ядра внутренние подачи — варианты `SavedSubmissionKind`, значений в столбце не видно);
+- перед ходом hamlet забирает поданное: за строкой владельца — заметка изменчивого;
+- имя хода `root:turn:<мс>:<n>`.

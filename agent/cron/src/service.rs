@@ -351,7 +351,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         }
         for g in goals.due_escalations(after, now).await? {
             match escalation_note(&g) {
-                Some(m) => self.inbox.push(m),
+                Some(m) => self.inbox.push(m).await,
                 None => eprintln!("goal {}: goal has escalation_due_at without an escalation payload", g.goal_id),
             }
         }
@@ -450,7 +450,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                 Some(Signal::Notify { message, .. }) => inbox.push(Message {
                     role: Role::Developer,
                     content: vec![Part::Text { text: crate::hooks::result_text(&message) }],
-                }),
+                }).await,
                 Some(Signal::Quiet) => {}
                 None => eprintln!("hook run {id}: no terminal decision ({})", out.error.unwrap_or_default()),
             }
@@ -583,7 +583,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         let now = self.core.now();
         for (key, payload) in self.core.store.outbox_pending(now).await? {
             let v: Value = serde_json::from_str(&payload).unwrap_or(Value::Null);
-            self.inbox.push(handoff(&v));
+            self.inbox.push(handoff(&v)).await;
             self.core.store.outbox_delivered(&key, now).await?;
         }
         Ok(())

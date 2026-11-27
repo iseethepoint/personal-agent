@@ -446,7 +446,7 @@ impl<P: Provider + Send + Sync + 'static> Workflows<P> {
 
     async fn handoff(&self, run_id: &str) {
         if let Ok(Some(run)) = self.store.deliver(run_id).await {
-            self.inbox.push(Message { role: Role::Developer, content: vec![Part::Text { text: handoff_text(&run) }] });
+            self.inbox.push(Message { role: Role::Developer, content: vec![Part::Text { text: handoff_text(&run) }] }).await;
         }
     }
 

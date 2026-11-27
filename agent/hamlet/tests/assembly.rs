@@ -463,3 +463,71 @@ async fn conversation_survives_restart() {
         h2.browsers.shutdown().await;
     }
 }
+
+/// П3е-2: ящик в базе — весть, пришедшая, когда хода нет, и не взятая до
+/// остановки, после перезапуска доходит новым ходом и закрывается.
+#[tokio::test]
+async fn mailbox_survives_restart() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s1, _p) = model(wire, vec![], true);
+        let dir = agent_dir("mailbox", wire, &s1);
+        let h1 = build(&dir, FakeClock::at(t0())).await;
+        let note = |t: &str| agent_model::Message { role: agent_model::Role::Developer, content: vec![agent_model::Part::Text { text: t.into() }] };
+        h1.inbox.push(note("[Subagent Result] the report is ready.")).await;
+        h1.browsers.shutdown().await;
+        drop(h1);
+
+        let (s2, _p) = model(wire, vec![Step::Text("The report is ready.")], true);
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(one_run(&h2, None).await, "The report is ready.", "{wire:?}");
+        assert!(s2.requests()[0].to_string().contains("[Subagent Result] the report is ready."), "{wire:?}: весть дошла");
+        // Весть взята ходом и закрыта; в истории она есть.
+        assert!(h2.inbox.drain().is_empty());
+        let saved = h2.history.load().await.unwrap().unwrap();
+        assert!(saved.history.iter().any(|m| m.text().contains("the report is ready")), "{wire:?}");
+        let h3 = build(&dir, FakeClock::at(t0())).await;
+        assert!(h3.inbox.drain().is_empty(), "{wire:?}: закрытая весть не возвращается");
+        h2.browsers.shutdown().await;
+        h3.browsers.shutdown().await;
+    }
+}
+
+/// П3е-2: строка владельца — подача в ящик (`user`): пришедшая во время хода
+/// берётся ходом между шагами, пришедшая во время остановки — после
+/// перезапуска; всё по порядку.
+#[tokio::test]
+async fn owner_lines_go_through_the_mailbox_in_order() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s1, _p) = model(wire, vec![Step::Calls(vec![("e1", "hamlet.exec", json!({"command": "sleep 1"}))]), Step::Text("A.")], true);
+        let dir = agent_dir("lines", wire, &s1);
+        let h1 = build(&dir, FakeClock::at(t0())).await;
+        let (tx, rx) = mpsc::channel(4);
+        let (otx, mut orx) = mpsc::unbounded_channel();
+        let runner = {
+            let h = h1.clone();
+            tokio::spawn(async move { h.run(rx, otx).await })
+        };
+        tx.send("first".into()).await.unwrap();
+        // Пока идёт команда, приходит вторая строка.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        tx.send("second".into()).await.unwrap();
+        assert_eq!(tokio::time::timeout(Duration::from_secs(30), orx.recv()).await.unwrap().unwrap(), "A.", "{wire:?}");
+        let mid = s1.requests()[1].to_string();
+        assert!(mid.contains("second"), "{wire:?}: строка посреди хода взята между шагами");
+        runner.abort();
+        // Программа стоит — третья строка ждёт в базе.
+        h1.inbox.push_user(agent_model::Message { role: agent_model::Role::User, content: vec![agent_model::Part::Text { text: "third".into() }] }).await;
+        h1.browsers.shutdown().await;
+        drop(h1);
+
+        let (s2, _p) = model(wire, vec![Step::Text("B.")], true);
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(one_run(&h2, None).await, "B.", "{wire:?}");
+        let body = s2.requests()[0].to_string();
+        let at = |w: &str| body.find(w).unwrap_or_else(|| panic!("{wire:?}: нет {w}"));
+        assert!(at("first") < at("second") && at("second") < at("third"), "{wire:?}: по порядку");
+        h2.browsers.shutdown().await;
+    }
+}

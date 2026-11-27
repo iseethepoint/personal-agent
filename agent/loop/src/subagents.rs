@@ -88,10 +88,32 @@ impl Status {
 }
 
 /// Ящик родителя: итоги подагентов ждут здесь следующего вызова модели.
+/// С хранилищем (`Mailbox`) весть сначала записывается (`accepted`), потом
+/// встаёт в очередь — как `agent.message_mailbox` muse.
 #[derive(Clone, Default)]
 pub struct Inbox {
-    queue: Arc<Mutex<VecDeque<Message>>>,
+    queue: Arc<Mutex<VecDeque<Queued>>>,
     notify: Arc<Notify>,
+    store: Option<Arc<dyn Mailbox>>,
+}
+
+/// Весть в очереди и её `submission_id`, если она записана.
+type Queued = (Option<String>, Message);
+
+type MailboxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + 'a>>;
+
+/// Хранилище ящика: принять весть, отметить взятые ходом, закрыть по
+/// итогу хода, поднять непринятые после перезапуска.
+pub trait Mailbox: Send + Sync {
+    /// Записать подачу вида `kind` (`user` — строка владельца, `notice` —
+    /// весть службы); вернуть её `submission_id`.
+    fn accept<'a>(&'a self, m: &'a Message, kind: &'a str) -> MailboxFuture<'a, String>;
+    /// Вести взяты ходом `owner` и уже лежат в его истории.
+    fn attach<'a>(&'a self, ids: &'a [String], owner: &'a str) -> MailboxFuture<'a, ()>;
+    /// Ход `owner` кончился: его вести — `completed` (или `aborted`).
+    fn complete<'a>(&'a self, owner: &'a str, ok: bool) -> MailboxFuture<'a, ()>;
+    /// Принятые и не взятые вести по порядку.
+    fn pending<'a>(&'a self) -> MailboxFuture<'a, Vec<(String, Message)>>;
 }
 
 impl Inbox {
@@ -99,15 +121,69 @@ impl Inbox {
         Self::default()
     }
 
+    /// Ящик с хранилищем; непринятые до перезапуска вести — снова в очереди.
+    pub async fn persistent(store: Arc<dyn Mailbox>) -> Result<Self, String> {
+        let pending = store.pending().await?;
+        let inbox = Inbox { store: Some(store), ..Default::default() };
+        inbox.queue.lock().unwrap().extend(pending.into_iter().map(|(id, m)| (Some(id), m)));
+        Ok(inbox)
+    }
+
     /// Положить заметку для родителя (итог подагента, итог фоновой команды).
-    pub fn push(&self, m: Message) {
-        self.queue.lock().unwrap().push_back(m);
+    /// Не записалась в хранилище — всё равно встаёт в очередь (ошибка — в журнал).
+    pub async fn push(&self, m: Message) {
+        self.submit(m, "notice").await
+    }
+
+    /// Подать строку владельца (`submission_kind = 'user'`).
+    pub async fn push_user(&self, m: Message) {
+        self.submit(m, "user").await
+    }
+
+    async fn submit(&self, m: Message, kind: &str) {
+        let id = match &self.store {
+            Some(s) => match s.accept(&m, kind).await {
+                Ok(id) => Some(id),
+                Err(e) => {
+                    eprintln!("mailbox accept: {e}");
+                    None
+                }
+            },
+            None => None,
+        };
+        self.queue.lock().unwrap().push_back((id, m));
         self.notify.notify_one();
     }
 
     /// Забрать всё дошедшее.
     pub fn drain(&self) -> Vec<Message> {
-        self.queue.lock().unwrap().drain(..).collect()
+        self.take().1
+    }
+
+    /// Забрать всё дошедшее вместе с `submission_id` записанных вестей.
+    pub fn take(&self) -> (Vec<String>, Vec<Message>) {
+        let (ids, msgs): (Vec<Option<String>>, Vec<Message>) = self.queue.lock().unwrap().drain(..).unzip();
+        (ids.into_iter().flatten().collect(), msgs)
+    }
+
+    /// Взятые вести легли в историю хода `owner`.
+    pub async fn attach(&self, ids: &[String], owner: &str) -> Result<(), String> {
+        match &self.store {
+            Some(s) if !ids.is_empty() => s.attach(ids, owner).await,
+            _ => Ok(()),
+        }
+    }
+
+    /// Ход `owner` кончился.
+    pub async fn complete(&self, owner: &str, ok: bool) -> Result<(), String> {
+        match &self.store {
+            Some(s) => s.complete(owner, ok).await,
+            None => Ok(()),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.lock().unwrap().is_empty()
     }
 
     /// Дождаться, пока что-нибудь дойдёт (для начала нового хода родителя,
@@ -410,7 +486,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                     None => text,
                 };
                 Self::set(&inner, &agent_id, status, Some(text.clone()));
-                inner.inbox.push(handoff(&agent_id, status, &text));
+                inner.inbox.push(handoff(&agent_id, status, &text)).await;
             }
         });
         agents.push(Agent { id: id.clone(), task: task.to_string(), status: Status::Running, result: None, tx, interrupt, handle, finish: None });
@@ -469,7 +545,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 };
                 let note = (kind.finish)(status, text.clone()).await;
                 Self::set(&inner, &agent_id, status, Some(text));
-                inner.inbox.push(note);
+                inner.inbox.push(note).await;
                 if status != Status::Interrupted {
                     break;
                 }
@@ -518,7 +594,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         };
         if let Some(f) = finish {
             let note = f(Status::Closed, "stopped by subagent.close".into()).await;
-            self.inner.inbox.push(note);
+            self.inner.inbox.push(note).await;
         }
         match tokio::time::timeout(CONTROL_TIMEOUT, handle).await {
             Ok(_) => Ok(()),
