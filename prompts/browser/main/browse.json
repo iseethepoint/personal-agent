@@ -1,0 +1,41 @@
+{
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "minLength": 1,
+      "description": "New work: a self-contained assignment. An existing window: only what changed or comes next, since it already holds its assignment and history. With answer_to: the answer."
+    },
+    "task_id": {
+      "type": "string",
+      "description": "new for new work, or an existing window's task_id to continue its work."
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Only with new, to use a named profile: its ID from `browser.windows`. Omit it for the default profile."
+    },
+    "tab": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Only with an existing window: a tab ID from `browser.windows` to work in."
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "format": "uri",
+      "pattern": "^https?://",
+      "description": "Only an address <!-- personal-only:start -->the user<!-- personal-only:end --><!-- group-only:start -->a member<!-- group-only:end --> gave, one from a tool result such as a search result, or a well-known site whose address you are sure of. Never build one from a business or product name; omit it and name the business and its location in task."
+    },
+    "answer_to": {
+      "type": "string",
+      "pattern": "^question_[0-9a-f]{16}$",
+      "description": "Only to answer a browser question of an existing window: the question_id from that question. A call without answer_to is an update for the browser planner."
+    }
+  },
+  "required": [
+    "task_id",
+    "task"
+  ],
+  "additionalProperties": false
+}

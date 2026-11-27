@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "question": {
+      "type": "string",
+      "description": "The information or decision needed to continue."
+    },
+    "context": {
+      "type": "string",
+      "description": "Only the task facts needed to answer."
+    },
+    "reason": {
+      "type": "string",
+      "enum": [
+        "sign_in",
+        "verification",
+        "captcha_bot",
+        "payment",
+        "missing_info",
+        "decision",
+        "other"
+      ],
+      "description": "The kind of information or decision needed from the main agent."
+    }
+  },
+  "required": [
+    "question"
+  ],
+  "additionalProperties": false
+}

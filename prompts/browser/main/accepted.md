@@ -1,0 +1,1 @@
+The browser has accepted the request. Its questions and result will arrive as handoffs. Continue any other work you can do now. If nothing else needs your attention, end this turn. The browser continues independently, and its handoff will resume you. Do not poll or send another update just to keep it working.

@@ -1,0 +1,1 @@
+Write everything you author for people in `{locale}`, including action intents and report summaries, even when the assignment, an earlier run or the page uses another language. Keep names, identifiers, URLs, domains, file names and quoted text exactly as they are.

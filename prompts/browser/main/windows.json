@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [
+        "list",
+        "open",
+        "close"
+      ]
+    },
+    "task_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A window's task_id from list or browser.browse."
+    },
+    "tab": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A tab ID from list, to close that tab."
+    },
+    "profile": {
+      "type": "string",
+      "minLength": 1,
+      "description": "For a new window: default, or a profile ID from list."
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "format": "uri",
+      "pattern": "^https?://"
+    }
+  },
+  "required": [
+    "action"
+  ],
+  "additionalProperties": false
+}

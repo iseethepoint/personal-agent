@@ -61,3 +61,49 @@
 Тексты, встроенные в код (описания инструментов, задания подагентам, заметки), записаны в комментарии рядом с константой: строка ядра и правки. Тест `agent/tools/tests/names.rs` проверяет, что в текстах, которые уходят модели, нет имён `muse`, `Muse` и `Meta`.
 
 П4ж-2б: поле `escalation` из `extra.update.escalation` взято в схему `user_goal.update` и `tracking.update`. Своё (в разборе нет): описание инструмента `set_tracking_goal_lifecycle_copy` и его полей; вид улик (`transition`, `goal`, `recent_activity` рядом с именами ядра `status_before_transition`, `lifecycle_reason`, `current_state_hint`); событие создания дела для решения о внимании (`{"kind": "goal_created", …}`); вид вести будильника `[GOAL ESCALATION DUE]` (действия — по словам ядра «… should let the user know» / «… should ask the user what to do») и отметка разобранного срока в памяти службы расписаний.
+
+## Браузер (П4к-1а)
+
+Исходник — `P/hatch-agent/prompts/browser/`. Общие правки всех файлов: метки `*-muse-only` → `*-only`; «Muse» → «Hamlet»; блоки `browser-code-only` убраны (`browser.run` нет), у `no-browser-code-only` сняты только метки; блок `cookie-consent-only` убран (флаг не включён).
+
+| Файл | Исходник | Правки |
+|---|---|---|
+| `browser/system.md` | `system.md` | убраны абзац о трёх специалистах (вход, оплата, проверки ботов) и «and the specialists», строки инструментов `browser.files`, `browser.cooldown`, `browser.bot_challenge`/`login`/`pay`, `browser.specialists`/`steer_specialist`/`kill_specialist`, шаг 3 о специалистах (шаг 4 стал 3) — П4к-2…4 |
+| `browser/pages.md` | `pages.md` | убрано «Observe again after another agent returns…» (специалистов нет) |
+| `browser/presentation_language.md` | `presentation_language.md` | без правок; `{locale}` подставляет код |
+| `browser/completion_gate/report_required.md` | `completion_gate/report_required.md` | без правок |
+| `browser/instructions/assignment.md` | `instructions/assignment.md` | убрано предложение о передаче работы специалистам |
+| `browser/instructions/browsing.md` | `instructions/browsing.md` | убраны «a route in the site's guide» и абзац о гайдах сайтов (П4к-3) |
+| `browser/instructions/obstacles.md` | `instructions/obstacles.md` | убрано «Sign-in, checkout and bot checks belong to the specialists.» |
+| `browser/instructions/asking.md` | `instructions/asking.md` | убраны обзор корзины и карта из кошелька (покупки — П4к-4) |
+| `browser/instructions/reporting.md` | `instructions/reporting.md` | убраны находки специалистов и абзац о результате покупки |
+| `browser/instructions/privacy.md` | `instructions/privacy.md` | убраны служба входа и абзац о файлах (`browser.files` нет) |
+| `browser/instructions/{conduct,facts,commitments}.md` | те же | без правок, кроме общих |
+| `browser/tools/observe.{json,md}` | `tools/observe.*` | убраны поля `image` (осмотр и разметка снимков) и `listen` (звук) и их абзацы; «inspections of saved images» и `look` в последнем абзаце убраны |
+| `browser/tools/act.{json,md}` | `tools/act.*` | виды действий — без `drag`, `hold`, `mouse_*`, `program`; поля `look`, `within`, `from_*`, `to_*`, `duration_ms`, `dx`, `dy`, `source` и их абзацы убраны (наведение по описанию и модель наведения — позже); описание `ref` и `timeout_ms` сокращено под это; из кодов отказа убраны `page_busy`, `site_in_use`, `entry_unsupported`, `picker_unavailable`, `pointer_*`; пример `needs_reference` — «choosing an option, ticking a box or scrolling inside an area»; модификатор `Meta` оставлен как у muse — имя клавиши, а не компании; в тесте П10 разрешён белым списком ровно здесь и в `window.rs` (слово ревизора, П4к-1б) |
+| `browser/tools/tabs.{json,md}` | `tools/tabs.*` | без правок |
+| `browser/tools/report.{json,md}` | `tools/report.*` | убраны поле `artifacts`, абзацы о специалистах и о результате покупки, «preserve useful findings … from agents you called» |
+| `browser/tools/request_input.{json,md}` | `tools/request_input.*` | убраны обзор корзины, оплата, абзац об одноразовых кодах и `login.advance` (П4к-2) |
+
+Своё в коде (`agent/browser/src/window.rs`, `planner.rs`; разметки вида у muse в разборе нет — её собирает отдельный «browser broker»): строки вида `- роль "имя" @eN [состояния]` из дерева доступности Chromium; предел текста вида 30 000 знаков; снимок JPEG; склейка фраз результата действий из строк ядра; ответ на `browser.request_input` («The main agent answered:»); порядок блоков системного текста. Модель исполнителя — назначение `BrowserAgent`.
+
+Прослойка `openai_compat` (П4к-1а): картинки из результата инструмента уходят следом сообщением `user` с пометкой `[картинки результата инструмента <id>]` — роль `tool` в Chat Completions несёт только текст; у muse для Chat Completions свой модуль медиа (`kimi_chat_completions/prompt/media.rs`, `source-files.txt:5303`), вид пометки — своё.
+
+## Окна главного агента (П4к-1б)
+
+Исходник — строки ядра (`strings-all.txt`); общие правки — метки `*-muse-only` → `*-only`, «Muse» → «Hamlet», `muse.nothing_to_do` → `hamlet.nothing_to_do`.
+
+| Файл | Исходник | Правки |
+|---|---|---|
+| `browser/main/browse.md` | описание `browser.browse` (смещения `75b11b`, `75b314`, `75bc83`, `75be00`), `{{START_ADDRESS}}` — `75ae17` | убраны: предложения о специалистах в первом абзаце, абзац о кодах входа (`75b314`, П4к-2), `files` (загрузка файлов), «A new task is not a way to retry an unresolved purchase.», абзацы о покупках, кошельке и входе (`75c0a0`–`75caf0`, П4к-2/П4к-4) |
+| `browser/main/browse.json` | схема `browser.browse` (`tool-schemas.txt:2-23`, смещения `7598ac`–`75adf5`) | поля `task`, `task_id`, `profile`, `tab`, `url`, `answer_to`; не взяты `files`, `verification_code`, `user_code`, `account_hint`, `wallet`, `browser`, `sites`, `environment` (вход, коды, файлы, кошелёк, браузер устройства — П4к-2…4) |
+| `browser/main/windows.md` | описание `browser.windows` (`75dd3a`–`75ea7c`) | «one sign-in covers every chat and scheduled job» → «every window»; убраны строка о сайтах с cookies профиля, окна расписаний (`owner`) и `activity`, отмена сохранённой оплаты, остановка запуска расписания, «the user can stop a window or take it over» |
+| `browser/main/windows.json` | схема `browser.windows` (`75eca4`–`75f02c`) | без `cursor` (листания нет); описание `task_id` — без окон расписаний |
+| `browser/main/accepted.md` | `a46f6b` | без правок |
+| `browser/main/handoff.md` | «## Browser Task Handoff» (`1929e51`–`192acb2`) | убраны пункты о покупках и о Secure Vault, «plus anything you verified with your own wallet or credential tools», `{{SUBAGENT_HANDOFF_GUIDANCE}}` |
+| `browser/main/outcome_completed.md` | `1923566`, `1923a5e` | убраны абзац о поиске номеров в почте владельца и предложение о слежении за покупкой |
+| `browser/main/outcome_needs_input.md` | `browser_task_ask_for_information.md` (`19247fc`, `1924aa9`) | убраны абзац о поиске номеров в почте и «or purchase summary» |
+| `browser/main/outcome_blocked.md` | `1922b15` | без правок |
+| `browser/main/question.md` | `71f6a0`, `71fb14` | убраны «No user can answer during this run.» (фоновые запуски) и часть об обзоре корзины; `{question}` — блок полей вопроса (своё) |
+
+Своё в коде (`agent/browser/src/browsers.rs`): вид списка окон, метаданных итога и блока вопроса; закрытие простаивающих окон — при обращении к окнам; один Chromium на профиль, профиль — папка `profiles/<id>`; новую вкладку от страницы забирает окно, чьё действие идёт. Не взяты в П4к-1б: сводка `<browser_status>` в каждом ходе, `browser.profiles`, окна расписаний.

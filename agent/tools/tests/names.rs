@@ -49,6 +49,13 @@ fn snippet(text: &str, i: usize) -> String {
     text[start..end].replace('\n', "\\n")
 }
 
+/// Белый список: `Meta` — имя клавиши-модификатора, а не компании. Так
+/// её зовут CDP и схема `browser.act` muse (`tools/act.json`: перечень
+/// `modifiers` и описание `key`), и так её разбирает `window.rs`. Слово
+/// разрешено ровно в этих местах; остальные проверки на `Meta` остаются.
+const META_KEY_ACT_JSON: [&str; 2] = ["\"Meta\"", "Control or Meta with C, V or X"];
+const META_KEY_CODE: (&str, &str) = ("agent/browser/src/window.rs", "Meta");
+
 fn assert_clean(place: &str, text: &str, bad: &mut Vec<String>) {
     if let Some(s) = forbidden(text) {
         bad.push(format!("{place}: …{s}…"));
@@ -96,6 +103,12 @@ async fn all_tools() -> Tools {
     for t in agent_goals::tools(&goals) {
         tools.add(t);
     }
+    // Окна главного агента; Chromium до первого вызова не запускается.
+    let (_s, browser_model) = model(Wire::OpenaiCompat, vec![], false);
+    let browsers = agent_browser::browsers::Browsers::new(home_dir.join("no-chromium"), home_dir.join("browser"), true, Arc::new(browser_model), "en-US".into(), temp_dir("names-browser-spill"), Inbox::new());
+    let (browse, windows) = browsers.tools();
+    tools.add(browse);
+    tools.add(windows);
     tools
 }
 
@@ -105,7 +118,7 @@ async fn tool_descriptions_have_no_muse_or_meta() {
     let mut specs = tools.specs();
     specs.extend(agent_cron::resolution_specs());
     let names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
-    for want in ["hamlet.read", "hamlet.write", "hamlet.edit", "hamlet.exec", "hamlet.skill_search", "hamlet.connector_search", "hamlet.memory_search", "subagent.spawn", "browser.search", "todo.write", "forget.plan", "forget.confirm", "cron.add", "cron.stop", "hooks.add", "hooks.dry_run", "hamlet.notify_main_agent", "hamlet.nothing_to_report", "hamlet.nothing_to_do", "user_goal.create", "user_goal.delete_briefing", "tracking.create", "tracking.set_status"] {
+    for want in ["hamlet.read", "hamlet.write", "hamlet.edit", "hamlet.exec", "hamlet.skill_search", "hamlet.connector_search", "hamlet.memory_search", "subagent.spawn", "browser.search", "todo.write", "forget.plan", "forget.confirm", "cron.add", "cron.stop", "hooks.add", "hooks.dry_run", "hamlet.notify_main_agent", "hamlet.nothing_to_report", "hamlet.nothing_to_do", "user_goal.create", "user_goal.delete_briefing", "tracking.create", "tracking.set_status", "browser.browse", "browser.windows"] {
         assert!(names.contains(&want), "нет {want} в {names:?}");
     }
     let mut bad = Vec::new();
@@ -139,7 +152,13 @@ fn prompts_have_no_muse_or_meta() {
             continue;
         }
         seen += 1;
-        assert_clean(&f.display().to_string(), &personal(&std::fs::read_to_string(&f).unwrap()), &mut bad);
+        let mut text = personal(&std::fs::read_to_string(&f).unwrap());
+        if f.ends_with("prompts/browser/tools/act.json") {
+            for allowed in META_KEY_ACT_JSON {
+                text = text.replace(allowed, "");
+            }
+        }
+        assert_clean(&f.display().to_string(), &text, &mut bad);
     }
     assert!(seen >= 8, "тексты prompts/ не найдены");
     assert_clean("summarization_prompt", &summarization_prompt(), &mut bad);
@@ -210,6 +229,9 @@ fn code_strings_have_no_muse_or_meta() {
     assert!(files.len() > 20, "исходники не найдены");
     for f in &files {
         for (n, lit) in literals(&std::fs::read_to_string(f).unwrap()) {
+            if f.ends_with(META_KEY_CODE.0) && lit == META_KEY_CODE.1 {
+                continue;
+            }
             assert_clean(&format!("{}:{n}", f.strip_prefix(root()).unwrap_or(f).display()), &lit, &mut bad);
         }
     }
@@ -222,5 +244,7 @@ fn forbidden_names_are_caught() {
     assert!(forbidden("Muse cannot erase").is_some());
     assert!(forbidden("Meta AI chats").is_some());
     assert!(forbidden("metadata and Metadata are fine").is_none());
+    // Белый список клавиши не глушит слово рядом.
+    assert!(forbidden(&"Control or Meta with C, V or X; Meta AI".replace(META_KEY_ACT_JSON[1], "")).is_some());
     assert!(literals("let a = \"x\"; // \"muse\"\nlet b = r#\"y \"z\"\"#;").iter().map(|(_, s)| s.as_str()).eq(["x", "y \"z\""]));
 }

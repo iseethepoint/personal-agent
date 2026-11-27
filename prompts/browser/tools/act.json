@@ -1,0 +1,160 @@
+{
+  "type": "object",
+  "properties": {
+    "tab": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z][A-Za-z0-9:_-]*$"
+    },
+    "intent": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What these actions do, in a few words the user sees on the browser card, such as \"Opening the cart\" or \"Choosing a delivery time\"."
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "navigate",
+              "back",
+              "forward",
+              "reload",
+              "click",
+              "fill",
+              "set_checked",
+              "select",
+              "press",
+              "scroll",
+              "hover",
+              "wait"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1,
+            "format": "uri",
+            "pattern": "^https?://",
+            "description": "With navigate: the page to load in this tab."
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9:_-]*$",
+            "description": "The target's element reference from the current view. set_checked, select, press and wait take only ref. A press without a target goes to whatever has focus, and a scroll without a target scrolls the page."
+          },
+          "button": {
+            "type": "string",
+            "enum": [
+              "left",
+              "middle",
+              "right"
+            ],
+            "description": "With click."
+          },
+          "count": {
+            "type": "integer",
+            "enum": [
+              1,
+              2
+            ],
+            "description": "With click: 2 for a double click."
+          },
+          "text": {
+            "type": "string",
+            "description": "With fill: the text to type. With wait: the text to wait for, anywhere on the page, instead of ref."
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "replace",
+              "append"
+            ],
+            "description": "With fill: replace the field's text or append to it."
+          },
+          "entry": {
+            "type": "string",
+            "enum": [
+              "typing",
+              "paste"
+            ],
+            "description": "With fill on a field's reference: typing presses a key for each character, and paste pastes the whole text at once. Leave it out to let the browser enter the text its usual way."
+          },
+          "checked": {
+            "type": "boolean",
+            "description": "With set_checked."
+          },
+          "key": {
+            "type": "string",
+            "description": "With press: one non-control character (such as A, 7 or ?), or Enter, Tab, Escape, Backspace, Delete, Space, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Home, End, PageUp or PageDown. Put held keys in modifiers: key \"A\" with modifiers [\"Control\"] selects all. Control or Meta with C, V or X is unavailable, in either case and with any additional modifiers, and so is Shift with Delete. Do not put a chord such as Control+A in key."
+          },
+          "modifiers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "Shift",
+                "Control",
+                "Alt",
+                "Meta"
+              ]
+            },
+            "minItems": 0,
+            "uniqueItems": true,
+            "description": "With press: the keys held down during the press."
+          },
+          "direction": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "left",
+              "right"
+            ],
+            "description": "With scroll."
+          },
+          "pages": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "With scroll: how far, in screens."
+          },
+          "condition": {
+            "type": "string",
+            "enum": [
+              "visible",
+              "hidden"
+            ],
+            "description": "Required with wait: visible or hidden waits for exactly one of ref (an element) or text (page text) to appear or disappear."
+          },
+          "timeout_ms": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "With wait: how long to wait, up to 60000 ms; 5000 when left out."
+          },
+          "value": {
+            "type": "string",
+            "description": "With select: the value of the option to choose."
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "type": "object"
+      },
+      "minItems": 1
+    },
+    "listen": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 600
+    }
+  },
+  "required": [
+    "tab",
+    "intent",
+    "actions"
+  ],
+  "additionalProperties": false
+}
