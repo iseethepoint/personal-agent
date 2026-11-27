@@ -551,3 +551,77 @@ async fn service_sleeps_until_due_and_wakes_on_change_anthropic() {
 async fn service_sleeps_until_due_and_wakes_on_change_openai_compat() {
     service_sleeps_until_due_and_wakes_on_change(Wire::OpenaiCompat).await
 }
+
+/// П3ж-2: успешный отчёт расписания проверяется перед итогом. Покупка —
+/// исправленный отчёт уходит главному агенту и в итог прогона; сбой
+/// проверки — отчёт с пометкой `unverified_handoff`; `none` — отчёт как
+/// есть, проверяющий не зовётся. Без проверки в `launch` — красный.
+#[tokio::test]
+async fn cron_report_is_verified_before_handoff() {
+    use agent_cron::verification::{CronVerification, Verifier};
+    for wire in WIRES {
+        let cases: [(&str, Vec<Step>, &str); 3] = [
+            (
+                "purchases",
+                vec![
+                    Step::Calls(vec![("v1", "hamlet.submit_cron_verification", json!({"category": "purchases"}))]),
+                    Step::Text("Цена на сайте продавца — 129 €, скидки нет."),
+                    notify("v2", "succeeded", "Наушники стоят 129 €, скидка закончилась."),
+                ],
+                "<job_result>\nНаушники стоят 129 €, скидка закончилась.\n</job_result>",
+            ),
+            (
+                "unfinished",
+                vec![Step::Calls(vec![("v1", "hamlet.submit_cron_verification", json!({"category": "purchases"}))]), Step::Status(400), Step::Status(400)],
+                "<job_result>\nНаушники подешевели до 99 €.\n\nVerification did not finish. Present consequential factual claims in this\nreport as unverified.\n</job_result>",
+            ),
+            (
+                "none",
+                vec![Step::Calls(vec![("v1", "hamlet.submit_cron_verification", json!({"category": "none"}))])],
+                "<job_result>\nНаушники подешевели до 99 €.\n</job_result>",
+            ),
+        ];
+        for (name, steps, expected) in cases {
+            let mut c = ctx(&format!("verify-{name}"), wire, vec![Step::Text("Смотрю цену."), notify("n1", "succeeded", "Наушники подешевели до 99 €.")], None).await;
+            let (vserver, vp) = model(wire, steps, true);
+            let vp = Arc::new(vp);
+            let clock = c.clock.clone();
+            c.sched.verification(CronVerification {
+                classifier: vp.clone(),
+                verifier: Verifier {
+                    store: c.core.store.clone(),
+                    provider: vp,
+                    tools: Arc::new(Tools::new),
+                    system: "verifier system".into(),
+                    spill_dir: c.home.join("spill"),
+                    now: Arc::new(move || agent_cron::Clock::now_ms(&clock)),
+                },
+            });
+            let job = json!({"id": "price", "enabled": true, "mode": "task", "title": "Price", "body": "Check the headphone price.", "schedule": {"kind": "interval", "every": "1h", "timezone": "UTC"}});
+            c.call("cron.add", job).await.unwrap();
+            c.clock.advance_secs(3600);
+            c.sched.tick().await.unwrap();
+            c.sched.settle().await.unwrap();
+            c.sched.tick().await.unwrap();
+
+            let h = c.handoffs();
+            assert_eq!(h.len(), 1, "{wire:?} {name}: {h:?}");
+            assert!(h[0].contains(expected), "{wire:?} {name}: {}", h[0]);
+            let reqs = vserver.requests();
+            let first = reqs[0].to_string();
+            assert!(first.contains("Classify the cron report by calling hamlet.submit_cron_verification once."), "{first}");
+            assert!(first.contains("<task>\\nCheck the headphone price.\\n</task>") && first.contains("<report>\\nНаушники подешевели до 99 €.\\n</report>"), "{first}");
+            assert_eq!(tool_names(&reqs[0]), ["hamlet.submit_cron_verification"]);
+            match name {
+                "purchases" => {
+                    assert_eq!(reqs.len(), 3);
+                    let exec = reqs[1].to_string();
+                    assert!(exec.contains("<verification-draft>\\nНаушники подешевели до 99 €.") && exec.contains("Verify claims that affect the purchase decision"), "{exec}");
+                    assert_eq!(c.runs("price").await[0]["result_summary"], "Наушники стоят 129 €, скидка закончилась.");
+                }
+                "unfinished" => assert_eq!(reqs.len(), 3),
+                _ => assert_eq!(reqs.len(), 1),
+            }
+        }
+    }
+}

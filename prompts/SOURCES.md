@@ -460,6 +460,23 @@
 - проверяется только ход со строкой владельца; проверка идёт внутри хода, а не фоновым прогоном с продолжением хода;
 - id прогона — `verification:<мс>:<n>`, работника — `verifier:<run_id>`;
 - прогон проверки, оборванный перезапуском, не продолжается (черновик не отдан, ход не возобновляется: история кончается ответом модели);
-- проверка отчётов расписаний (`cron_classifier.md`, `unverified_handoff.md`, категория `purchases`) — следующий срез П3ж.
+
+## Проверка отчётов расписаний (П3ж-2)
+
+Тексты muse как есть: `cron_classifier.md` (`muse.*` → `hamlet.*`), `purchases.md` из `hatch-server/prompts/verification/`; `unverified_handoff.md` — из ядра (`verification/unverified_handoff.md`, около `0x2adc791`).
+
+Устройство — как у muse (`hatch-db-scheduler/src/scheduler/cron_verification.rs`):
+- классификатор — место `cron_verification_classifier` на модели `main_chat` (у нас — модель главного разговора), инструмент `submit_cron_verification` с описаниями ядра, категории `health` / `bookings` / `purchases` / `none`;
+- проверяется только успешный отчёт («cron report is not successful»);
+- проверяющий — тот же, что у ответа; у `purchases` — `purchases.md` в `{category_guidance}`;
+- сбой проверки — к отчёту дописывается `unverified_handoff.md`;
+- включается тем же `[verification] enabled`.
+
+Своё:
+- вход классификатора — `<task>` (тело задания) и `<report>`;
+- путь проверяющего — вызовы работника (как у ответа);
+- исправленный отчёт заменяет исходный в итоге прогона (`result_summary`) и в заметке главному агенту;
+- пометка о сбое — после отчёта через пустую строку;
+- категория не сохраняется в прогоне: у muse — `retain_cron_verification_category` в `scheduler.job_runs.pending_terminal_result_json`, у нас ступени отложенного итога нет; проверка, оборванная перезапуском, не продолжается.
 
 Ворота завершения окна браузера (`browser/completion_gate/report_required.md`) уже были (П4к). Ворота артефактов, Spaces и Ideas — со своими строками (П17, П22).

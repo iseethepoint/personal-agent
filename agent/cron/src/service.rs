@@ -255,6 +255,8 @@ pub struct Scheduler<P> {
     /// Владельцы восстановления и история работников; без них прогон,
     /// оборванный перезапуском, закрывается как неудачный.
     workers: Option<Arc<dyn agent_loop::WorkerStore>>,
+    /// Проверка успешных отчётов перед итогом (`cron_verification`).
+    verification: Option<Arc<crate::verification::CronVerification<P>>>,
 }
 
 fn new_run_id(job_id: &str, scheduled_for: i64, attempt: i32) -> String {
@@ -275,6 +277,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             background_due: Mutex::new(Vec::new()),
             watchers: Vec::new(),
             workers: None,
+            verification: None,
         }
     }
 
@@ -289,6 +292,12 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
     /// восстановления (`agent.recovery_owners`).
     pub fn workers(&mut self, w: Arc<dyn agent_loop::WorkerStore>) -> &mut Self {
         self.workers = Some(w);
+        self
+    }
+
+    /// Успешный отчёт проверяется перед итогом.
+    pub fn verification(&mut self, v: crate::verification::CronVerification<P>) -> &mut Self {
+        self.verification = Some(Arc::new(v));
         self
     }
 
@@ -666,6 +675,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         let tools = self.tools.clone();
         let spill = self.spill_dir.clone();
         let workers = self.workers.clone();
+        let verification = self.verification.clone();
         let id = run_id.clone();
         let handle = tokio::spawn(async move {
             let store = core.store.clone();
@@ -678,7 +688,12 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                 });
             };
             let kind = worker::Kind::Cron { mode: job.definition.mode.clone() };
-            let out = worker::run(&*provider, &*resolver, &prefix, &tools, &spill, begin, left, kind, on_phase, recording).await;
+            let mut out = worker::run(&*provider, &*resolver, &prefix, &tools, &spill, begin, left, kind, on_phase, recording).await;
+            if let (Some(v), Some(Signal::Notify { outcome, message, .. })) = (&verification, &mut out.signal) {
+                if outcome == "succeeded" {
+                    *message = v.check(&job.definition.body, message, out.history.get(1..).unwrap_or_default(), &spill).await;
+                }
+            }
             if let Err(e) = settle_run(&core, &job, &id, attempt, timeout, out, workers.as_deref()).await {
                 eprintln!("scheduler run {id}: {e}");
             }
