@@ -348,6 +348,20 @@ pub struct Kind {
     /// Срок всей работы.
     pub deadline: Option<std::time::Duration>,
     pub finish: Finish,
+    /// История для продолжения после перезапуска: работа идёт с неё
+    /// (`Input::Resume`), а не с первого сообщения.
+    pub resume: Option<Vec<Message>>,
+    /// Запись истории и точек перезапуска (владелец восстановления службы).
+    pub record: Option<KindRecord>,
+}
+
+/// Запись особого подагента: история и точки с `recovery_class` и
+/// `recovery_owner_id` его владельца восстановления.
+#[derive(Clone)]
+pub struct KindRecord {
+    pub record: Arc<dyn ChildRecord>,
+    pub class: &'static str,
+    pub owner: String,
 }
 
 struct Agent {
@@ -710,23 +724,35 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         let mut agents = self.inner.agents.lock().unwrap();
         let (tx, mut rx) = mpsc::unbounded_channel();
         let interrupt = Arc::new(Notify::new());
-        let _ = tx.send(Input::Message(kind.first.clone()));
+        let _ = tx.send(if kind.resume.is_some() { Input::Resume } else { Input::Message(kind.first.clone()) });
         let inner = self.inner.clone();
         let stop = interrupt.clone();
         let agent_id = id.clone();
         let finish = kind.finish.clone();
         let started = tokio::time::Instant::now();
         let again = tx.clone();
+        let mut kind = kind;
+        let start_history = kind.resume.take().unwrap_or_default();
         let handle = tokio::spawn(async move {
-            let mut history: Vec<Message> = Vec::new();
+            let mut history: Vec<Message> = start_history;
             let mut nudged = false;
+            let mut turns = 0u64;
+            let rec = kind.record.clone();
             while let Some(input) = rx.recv().await {
                 if let Input::Message(text) = input {
                     history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
                 }
                 Self::set(&inner, &agent_id, Status::Running, None);
+                turns += 1;
+                if let Some(r) = &rec {
+                    // Имя хода. Своё: `<владелец>:turn:<n>`.
+                    if let Err(e) = r.record.checkpoint(Some(r.class), Some(&r.owner), Some(&format!("{}:turn:{turns}", r.owner))).await {
+                        eprintln!("subagent checkpoint: {e}");
+                    }
+                }
                 let mut turn = Turn::from_prefix(&*inner.provider, &kind.tools, &kind.prefix, inner.spill_dir.clone());
                 turn.terminal = kind.terminal.clone();
+                turn.record = rec.as_ref().map(|r| r.record.clone() as Arc<dyn crate::turn::Record>);
                 let mut quiet = |_: &str| {};
                 let left = kind.deadline.map(|d| d.saturating_sub(started.elapsed()));
                 let outcome = tokio::select! {
@@ -753,6 +779,11 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                     Some(Err(TurnError::Model(e))) if e.retryable => (Status::Interrupted, e.to_string()),
                     Some(Err(e)) => (Status::Failed, e.to_string()),
                 };
+                if let Some(r) = &rec {
+                    if let Err(e) = r.record.checkpoint(Some(r.class), Some(&r.owner), None).await {
+                        eprintln!("subagent checkpoint: {e}");
+                    }
+                }
                 let note = (kind.finish)(status, text.clone()).await;
                 Self::set(&inner, &agent_id, status, Some(text));
                 inner.inbox.push(note).await;

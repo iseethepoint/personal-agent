@@ -306,6 +306,8 @@ impl<P: Provider + Send + Sync + 'static> DeepResearch<P> {
             nudge: Some(t("run.nudge")),
             deadline: Some(left),
             finish,
+            resume: None,
+            record: None,
         })
     }
 

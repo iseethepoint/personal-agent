@@ -333,6 +333,12 @@ impl Store {
         Ok(rows.iter().map(call).collect())
     }
 
+    /// Идущие вызовы запуска (`running`).
+    pub async fn running_calls(&self, run_id: &str) -> Result<Vec<Call>, String> {
+        let rows = sqlx::query("select * from runtime.workflow_agent_calls where run_id = $1 and status = 'running' order by call_ordinal, call_id").bind(run_id).fetch_all(&self.pool).await.map_err(db)?;
+        Ok(rows.iter().map(call).collect())
+    }
+
     pub async fn call(&self, run_id: &str, replay_key: &str) -> Result<Option<Call>, String> {
         let r = sqlx::query("select * from runtime.workflow_agent_calls where run_id = $1 and replay_key = $2").bind(run_id).bind(replay_key).fetch_optional(&self.pool).await.map_err(db)?;
         Ok(r.as_ref().map(call))

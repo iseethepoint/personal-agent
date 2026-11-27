@@ -218,6 +218,10 @@ impl Hamlet {
             spill_dir.clone(),
             inbox.clone(),
         );
+        // Подагенты шагов — в базе: вызов, оборванный перезапуском,
+        // продолжается при повторе сценария (`recovery_owners` muse).
+        let wf_clock = clock.clone();
+        workflows.set_workers(Arc::new(agent_history::AgentWorkers::new(&history_store, &main_model, Arc::new(move || wf_clock.now_ms()))));
         let with_workflows = |mut t: Tools| {
             for x in workflows.tools() {
                 t.add(x);
