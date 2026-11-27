@@ -52,6 +52,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "agent-hamlet"
+version = "0.1.0"
+dependencies = [
+ "agent-browser",
+ "agent-cron",
+ "agent-goals",
+ "agent-loop",
+ "agent-memory",
+ "agent-model",
+ "agent-tools",
+ "chrono",
+ "libc",
+ "serde",
+ "serde_json",
+ "tokio",
+ "toml",
+]
+
+[[package]]
 name = "agent-loop"
 version = "0.1.0"
 dependencies = [

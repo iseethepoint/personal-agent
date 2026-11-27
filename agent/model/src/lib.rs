@@ -3,11 +3,13 @@
 //! один вход и один выход для всех поставщиков.
 
 pub mod anthropic;
+pub mod any;
 pub mod http;
 pub mod openai_compat;
 pub mod registry;
 pub mod types;
 
+pub use any::AnyProvider;
 pub use registry::{
     AnthropicFacts, Defaults, ImageFormat, ImageResolution, ModelOption, OpenaiCompatFacts,
     OutputEffort, ProviderKind, Purpose, PurposeOverride, Registry, RegistryError, Resolved,

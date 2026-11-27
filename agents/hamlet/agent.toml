@@ -1,0 +1,31 @@
+# Папка агента Hamlet — пример шаблона: новая папка с этим файлом — новый
+# агент, без копирования кода. Запуск: `hamlet --agent agents/hamlet`.
+# Ключи и адрес базы — только в переменных окружения; здесь лишь их имена.
+
+[agent]
+# Выбранная модель — id из [[models]] реестра; не задана — [defaults].model.
+# model = "local/qwen3-8b"
+# Язык, на котором исполнитель браузера пишет людям.
+locale = "ru-RU"
+# Пояс владельца (IANA).
+# timezone = "Europe/Berlin"
+
+[paths]
+# Пути — от этой папки.
+home = "home"
+system = "system.md"
+# Реестр моделей и сеть — общие файлы репозитория; своему агенту можно дать свои.
+models = "../../config/models.toml"
+web = "../../config/web.toml"
+# Системные навыки и коннекторы (тексты muse — П5).
+skills = "../../skills"
+connectors = "../../connectors"
+
+[database]
+# Имя переменной окружения с адресом Postgres (pgvector).
+url_env = "HAMLET_DATABASE_URL"
+
+[browser]
+# Путь к Chromium; не задан — HAMLET_CHROMIUM или известные места установки.
+# chromium = "/usr/bin/chromium"
+headless = true
