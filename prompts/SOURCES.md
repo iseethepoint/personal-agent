@@ -147,6 +147,12 @@
 ## Разборы ядра без перенесённых текстов
 
 - Нижний предел частоты расписаний («Please choose a cron interval of at least … interval is too frequent. Nothing was saved.», шаблон `0x437836`): функция `0xfdfd850` (машина async, вызывается из `0xfe014d7`, `0xfe05afc`). Предел `r13` = clamp(значение политики `r14`, 60, 3600) (`0xfdfe4c8`–`0xfdfe4e1`); запрошенное (`0x40(%rbx)`) ≥ max(предел, 300) — принято (`0xfdfe4f4`–`0xfdfe50e`); отказ — только когда флаг политики (`0x50(%rbx)`, итог вызова `0xfd597f0`) и запрошенное < предела (`0xfdfe514`–`0xfdfe51f`). Без политики `r13` = 60 и отказа нет. У Hamlet политики нет — отказа нет, как у muse без неё (решение ревизора, П4л-2).
+- Запрет по адресам (`mase_all_urls_fingerprints.bin`, П4л-9) — не восстановлен, своего нет. Что известно:
+  - формат файла: `MUFP`, u32 версия 1, u32 1 (`key_schema_version`), u32 0, u64 число записей (7 497 435), дальше отсортированные u64 LE;
+  - ключ — нормализованный адрес из `mase_all_urls_normalized.fst` (`manifest.json`); этого файла (300 МБ) в снимке нет;
+  - ядро файл не читает: в нём нет ни имён файлов чёрного списка, ни магии `MUFP`, ни крейтов `fst` и быстрых хэшей (`crates.txt`: только `sha2`, `sha1_smol`, `ahash`, `foldhash`). Проверка адресов у muse — внешняя: `url_blocklist_guard/lookup.rs` пишет `refusal_kind`, `reply_variant`, `expected_count`/`actual_count` (около `0x88e158`), рядом `BrowserCentralBlackholeBlocklist` (`0x4b29a0`) и «Poppy page blocklist check … answer … timed out» (`0x8bd058`);
+  - ограниченная попытка: 20 000 доменов из `mase_all_domains.fst` × 9 форм записи (`d`, `d/`, `http(s)://d[/]`, `www.d[/]`, `https://www.d/`) × 19 хэшей (xxh3/xxh64/xxh32, murmur3, sha256, sha1, md5, blake3, blake2b, siphash, fnv1/1a, wyhash, city, farm; первые 8 байт LE и BE) — ни одного попадания.
+- Повтор дозаполнения векторов памяти (замечание к П4л-8): срока повтора у muse не найдено (`memory_reindex_embedding` — только назначение модели, `maintenance_reindex trigger=` — без чисел). Своего срока нет: службу и так будит пульс (`heartbeat`, раз в 30 минут), на его такте сверка повторится.
 - Предел вызовов workflow («workflow agent call limit exceeded: max {} calls per run», шаблон `0x3d426a`): сравнение в `0x277a4dfa` (и у ссылок `0x277a6c6d`, `0x277ada15`) — счётчик (`xadd 0x84`, минус `0x80`, +1) против поля `0x88` состояния, взятого через thread-local; где поле заполняется — не найдено (П4л-2).
 
 ## Продолжение по списку дел (П4л-5)
