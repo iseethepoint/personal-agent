@@ -107,7 +107,7 @@ async fn below_trigger(wire: Wire) {
     let (small, ps) = model(wire, vec![], false);
     let mut conv = conversation(&t);
     let before = conv.history.clone();
-    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1_000_000, spill_dir: temp_dir("spill"), today: None, flush_covered: false };
+    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1_000_000, spill_dir: temp_dir("spill"), today: None, flush_covered: false, segmented: false, window: None };
     assert!(c.compact_if_needed(&mut conv).await.unwrap().is_none());
     assert_eq!(conv.history, before);
 
@@ -134,7 +134,7 @@ async fn flush_then_summary(wire: Wire) {
     let mut conv = conversation(&t);
     let before = conv.history.clone();
     let prefix = conv.prefix.clone();
-    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: None, flush_covered: false };
+    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: None, flush_covered: false, segmented: false, window: None };
     let done = c.compact_if_needed(&mut conv).await.unwrap().unwrap();
     assert!(done.first_kept > 0 && done.tokens_after < done.tokens_before, "{done:?}");
 
@@ -261,16 +261,117 @@ async fn covered_flush_is_skipped(wire: Wire) {
     let (main, pm) = model(wire, vec![], false);
     let (small, ps) = model(wire, vec![Step::Text("СВОДКА")], false);
     let mut conv = conversation(&t);
-    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: None, flush_covered: true };
+    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: None, flush_covered: true, segmented: false, window: None };
     assert!(c.compact_if_needed(&mut conv).await.unwrap().is_some());
     assert!(main.requests().is_empty(), "{wire:?}: сброса нет");
     assert_eq!(small.requests().len(), 1);
 
     let (main, pm) = model(wire, vec![Step::Text("записал")], false);
-    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: Some(("memory/2027-01-15.md".into(), "- Пьёт чай.\n".into())), flush_covered: false };
+    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: Some(("memory/2027-01-15.md".into(), "- Пьёт чай.\n".into())), flush_covered: false, segmented: false, window: None };
     c.flush(&conv).await.unwrap();
     let body = main.requests()[0]["messages"].to_string();
     let note = body.find("Today's memory log at ~/memory/2027-01-15.md already ends with the entries below.").expect("заметка о журнале");
     assert!(body.contains("- Пьёт чай.") && body.find("Pre-compaction memory flush.").unwrap() > note, "{body}");
 }
 both!(covered_flush_is_skipped);
+
+/// П3ж-5: пределы сжатия по частям — от окна модели, без окна — числа ядра.
+#[test]
+fn segmented_limits_follow_the_core() {
+    use agent_loop::segmented::Limits;
+    let l = |w| Limits::for_window(w);
+    assert_eq!(l(None), Limits { block: 27_200, state_target: 10_880, segment_target: 2_720, state_limit: 21_760, segment_limit: 5_440 });
+    assert_eq!(l(Some(1_000_000)), Limits { block: 100_000, state_target: 40_000, segment_target: 3_000, state_limit: 80_000, segment_limit: 6_000 });
+    assert_eq!(agent_loop::segmented::tokens("1234567"), 2);
+}
+
+/// Старые части сверх бюджета удаляются, новейшая остаётся, на месте
+/// удалённых — пометка; повторное вырезание пометку не множит.
+#[test]
+fn oldest_segments_give_way_to_the_marker() {
+    use agent_loop::segmented::{Summary, OLDER_REMOVED};
+    let mut s = Summary { segments: vec!["a".repeat(700), "b".repeat(700), "c".repeat(700)], state: Some("st".into()) };
+    assert_eq!(s.trim(1_000_000), 0);
+    assert_eq!(s.trim(300), 2);
+    assert_eq!(s.segments, [OLDER_REMOVED.to_string(), "c".repeat(700)]);
+    assert_eq!(s.trim(1), 0, "новейшая остаётся");
+    let back = Summary::parse(&s.render());
+    assert_eq!(back, s);
+    assert_eq!(Summary::parse("просто текст").segments, ["просто текст"], "не разбирается — одна часть");
+}
+
+fn summarized(prior: &str) -> Conversation {
+    let t = tools();
+    let mut conv = conversation(&t);
+    conv.history.insert(0, Message { role: Role::User, content: text(&format!("{SUMMARY_HEADER}{prior}")) });
+    conv
+}
+
+/// Сжатие по частям: прошлые части остаются как есть, модель пишет новую
+/// часть и состояние; ответ не в двух разделах — замечание с целевыми
+/// длинами, второй ответ ложится в сводку.
+async fn segmented_keeps_old_segments(wire: Wire) {
+    let t = tools();
+    let (_main, pm) = model(wire, vec![], false);
+    let (small, ps) = model(
+        wire,
+        vec![Step::Text("посчитали файлы"), Step::Text("## New segment\n- Посчитали файлы: 1.\n\n## Current state\n- Nothing open.")],
+        false,
+    );
+    let prior = "<segment>\nЧАСТЬ-А\n</segment>\n\n<segment>\nЧАСТЬ-Б\n</segment>\n\n<current_state>\n- Старое состояние.\n</current_state>";
+    let mut conv = summarized(prior);
+    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: None, flush_covered: true, segmented: true, window: Some(272_000) };
+    let done = c.compact_if_needed(&mut conv).await.unwrap().unwrap();
+    let reqs = small.requests();
+    assert_eq!(reqs.len(), 2, "{wire:?}: ответ и ответ после замечания");
+    let first = reqs[0]["messages"].to_string();
+    assert!(first.contains("ЧАСТЬ-А") && first.contains("Rewrite the current state fresh and complete"), "{wire:?}");
+    assert!(first.contains("Keep this segment under about 2720 tokens") && first.contains("under about 10880 tokens"), "{wire:?}");
+    assert!(!first.contains("The previous current state is longer than this limit"), "{wire:?}");
+    let second = reqs[1]["messages"].to_string();
+    assert!(second.contains("Your previous reply was too long or not in the two-section form") && second.contains("the new segment under about 2720 tokens"), "{wire:?}");
+    let want = "<segment>\nЧАСТЬ-А\n</segment>\n\n<segment>\nЧАСТЬ-Б\n</segment>\n\n<segment>\n- Посчитали файлы: 1.\n</segment>\n\n<current_state>\n- Nothing open.\n</current_state>";
+    assert_eq!(done.summary, want);
+    assert_eq!(conv.history[0].text(), format!("{SUMMARY_HEADER}{want}"));
+}
+both!(segmented_keeps_old_segments);
+
+/// Маленькое окно: прошлое состояние длиннее цели — указание
+/// `segmented_state_over_cap`; ответ длиннее жёстких пределов и после
+/// замечания — обрезка; старые части сверх бюджета — пометка.
+async fn segmented_reply_is_cut_to_fit(wire: Wire) {
+    use agent_loop::segmented::{tokens, Limits, OLDER_REMOVED};
+    let t = tools();
+    let (_main, pm) = model(wire, vec![], false);
+    let long_seg = "сегмент ".repeat(40);
+    let long_state = "состояние ".repeat(40);
+    let reply: &'static str = Box::leak(format!("## New segment\n{long_seg}\n## Current state\n{long_state}").into_boxed_str());
+    let (small, ps) = model(wire, vec![Step::Text(reply), Step::Text(reply)], false);
+    let prior = format!("<segment>\n{}\n</segment>\n\n<current_state>\n{}\n</current_state>", "старое ".repeat(40), "s".repeat(200));
+    let mut conv = summarized(&prior);
+    let window = 500;
+    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: None, flush_covered: true, segmented: true, window: Some(window) };
+    let done = c.compact_if_needed(&mut conv).await.unwrap().unwrap();
+    assert!(small.requests()[0]["messages"].to_string().contains("The previous current state is longer than this limit"), "{wire:?}");
+    let s = agent_loop::segmented::Summary::parse(&done.summary);
+    let l = Limits::for_window(Some(window));
+    assert_eq!(s.segments.len(), 2, "{wire:?}: {s:?}");
+    assert_eq!(s.segments[0], OLDER_REMOVED);
+    assert!(tokens(&s.segments[1]) <= l.segment_limit && tokens(s.state.as_deref().unwrap()) <= l.state_limit, "{wire:?}: {s:?}");
+}
+both!(segmented_reply_is_cut_to_fit);
+
+/// Обычное сжатие упёрлось в предел ответа — одно замечание
+/// `output_cap_feedback.md`, сводка — из второго ответа.
+async fn output_cap_feedback_retries_summary(wire: Wire) {
+    let t = tools();
+    let (_main, pm) = model(wire, vec![], false);
+    let (small, ps) = model(wire, vec![Step::MaxTokensInCall("x1", "echo"), Step::Text("СВОДКА короче")], false);
+    let mut conv = conversation(&t);
+    let c = Compactor { flush: &pm, compaction: &ps, tools: &t, trigger: 1, spill_dir: temp_dir("spill"), today: None, flush_covered: true, segmented: false, window: None };
+    let done = c.compact_if_needed(&mut conv).await.unwrap().unwrap();
+    assert_eq!(done.summary, "СВОДКА короче", "{wire:?}");
+    let second = small.requests()[1]["messages"].to_string();
+    assert!(second.contains("Your previous summary exceeded the output limit."), "{wire:?}");
+}
+both!(output_cap_feedback_retries_summary);

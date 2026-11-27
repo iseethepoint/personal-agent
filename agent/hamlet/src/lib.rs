@@ -71,7 +71,8 @@ pub struct Hamlet {
     /// Список дел главного агента и продолжение по нему.
     pub todo: Todo,
     pub continuation: agent_tools::Continuation,
-    pub compaction: (Arc<AnyProvider>, Arc<AnyProvider>, u64),
+    /// Сжатие: модели сброса и сводки, порог, окно главной модели, по частям ли.
+    pub compaction: (Arc<AnyProvider>, Arc<AnyProvider>, u64, u64, bool),
     /// История главного агента в базе (`agent.context_items`).
     pub history: Arc<agent_history::AgentHistory>,
     /// Проверка ответа (`[verification] enabled`): классификатор и
@@ -337,7 +338,7 @@ impl Hamlet {
 
         // Сжатие: модели `MemoryFlush` / `Compaction`, порог главной.
         let cp = CompactionPlan::from_registry(&reg, sel).map_err(|e| e.to_string())?;
-        let compaction = (Arc::new(provider(&cp.flush)?), Arc::new(provider(&cp.compaction)?), cp.trigger);
+        let compaction = (Arc::new(provider(&cp.flush)?), Arc::new(provider(&cp.compaction)?), cp.trigger, cp.window, t.compaction.segmented);
 
         // Службы: работник расписаний (`CronWorker` / `CronResolve`, срок
         // первого куска потока — 30 мин, как у расписаний muse) и сверка
@@ -433,6 +434,8 @@ impl Hamlet {
             compaction: &self.compaction.1,
             tools: &self.tools,
             trigger: self.compaction.2,
+            segmented: self.compaction.4,
+            window: Some(self.compaction.3),
             spill_dir: self.spill_dir.clone(),
             today: self.today_log(),
             flush_covered,

@@ -23,6 +23,8 @@ pub struct AgentToml {
     pub browser: BrowserSection,
     #[serde(default)]
     pub verification: VerificationSection,
+    #[serde(default)]
+    pub compaction: CompactionSection,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -86,6 +88,20 @@ pub struct VerificationSection {
 impl Default for VerificationSection {
     fn default() -> Self {
         VerificationSection { enabled: true }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CompactionSection {
+    /// Сжатие по частям (у muse — флаг `hatch_segmented_compaction`).
+    #[serde(default = "yes")]
+    pub segmented: bool,
+}
+
+impl Default for CompactionSection {
+    fn default() -> Self {
+        CompactionSection { segmented: true }
     }
 }
 
