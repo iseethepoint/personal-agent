@@ -401,3 +401,34 @@
 - сведения окна (`spawn_metadata_json`) — профиль и задание. В `WorkerStore` для этого добавлены `metadata` и `list_active`;
 - имя хода — `<task_id>:turn:<длина истории>`;
 - вопросы главному агенту, ждавшие ответа до перезапуска, не переносятся: вызов вопроса закрыт текстом ядра, исполнитель спросит снова, если нужно.
+
+## «Past conversations» в `hamlet.memory_search` и `chat.read_messages` (П3е-6)
+
+Тексты — строки ядра как есть, `muse.memory_get` → `hamlet.memory_get`, `muse.memory_search` → `hamlet.memory_search`:
+- описание `memory_search` с разделом «Past conversations» (личный и групповой варианты, около `0x8facc2`);
+- описания `maxResults` и `minScore` для этого варианта (около `0x8fa116`);
+- тексты сбоя половины поиска (около `0x6da6ff`);
+- описание и схема `chat.read_messages` в режиме окна (`chat_read_messages.md`, около `0x8fa116`);
+- тексты ошибок читалки (около `0x6da6ff`).
+
+Без агента главного чата (`with_conversations`) инструмент остаётся прежним вариантом без раздела.
+
+Поиск — форма ядра (около `0x175c52f`, `0x35da36`):
+- `runtime.search_documents`, `websearch_to_tsquery('simple', q)` или префиксный `to_tsquery('simple', …)`;
+- только реплики пользователя и ассистента главного чата, новые сверху;
+- выдержка — `ts_headline(… 'StartSel="", StopSel="", MaxWords=24, MinWords=8')`;
+- по умолчанию 6, не больше 100 совпадений; `minScore` разговоры не фильтрует.
+
+Реплика пишется в индекс при записи истории (`AgentHistory::insert`): часть `message_text`, роль `user` или `assistant`, не заметка изменчивого. После сжатия старые реплики остаются в `context_items` и в поиске.
+
+Своё:
+- `owner_table` — `agent.context_items` (у muse — `runtime.events`, событий у Hamlet нет), `owner_key` — `<agent_id>:<seq>`;
+- `runtime.search_documents` заводится и миграцией истории (та же схема, что у памяти) — на случай базы без памяти;
+- старая история, записанная до П3е-6, в индекс не попадает;
+- префиксный запрос — каждое слово из букв и цифр как `слово:*` через `&`;
+- поля совпадения — `chat_id` (`main`: чат один), `message_id`, `timestamp`, `speaker`, `excerpt`; совпадения разных запросов сливаются по `message_id`;
+- при сбое половины — `status: partial` и `warning` с текстом ядра;
+- ответ читалки — `messages` (`matched` у найденного) и `more_before` / `more_after`;
+- окно читалки — сообщения целиком, части текста сообщения склеиваются переводом строки;
+- текст незнакомого `message_id` и чужого `chat_id`;
+- режим истории чата (`chat_id` без `message_id`, `cursor`, `limit`) не взят: чат один, а `chat.list` у Hamlet нет.
