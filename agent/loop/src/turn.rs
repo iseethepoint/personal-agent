@@ -14,6 +14,7 @@ use agent_model::Provider;
 use futures_util::future::join_all;
 use serde_json::{json, Value};
 
+use crate::prompt::Prefix;
 use crate::spill;
 use crate::tool::{ToolError, Tools};
 
@@ -67,6 +68,8 @@ pub struct Turn<'a, P> {
     pub provider: &'a P,
     pub tools: &'a Tools,
     pub system: String,
+    /// Описания инструментов, которые уходят модели.
+    pub tool_specs: Vec<ToolSpec>,
     pub settings: Settings,
     /// Куда уходит большой вывод инструментов.
     pub spill_dir: PathBuf,
@@ -80,6 +83,7 @@ impl<'a, P: Provider> Turn<'a, P> {
             provider,
             tools,
             system: system.into(),
+            tool_specs: tools.specs(),
             settings: Settings::default(),
             spill_dir: spill_dir.into(),
             tool_timeout: TOOL_TIMEOUT,
@@ -87,10 +91,18 @@ impl<'a, P: Provider> Turn<'a, P> {
         }
     }
 
+    /// Ход на неизменном начале разговора: системный текст и описания
+    /// инструментов — из `prefix`, байт в байт одни и те же на каждом ходе.
+    pub fn from_prefix(provider: &'a P, tools: &'a Tools, prefix: &Prefix, spill_dir: impl Into<PathBuf>) -> Self {
+        let mut turn = Self::new(provider, tools, prefix.system.clone(), spill_dir);
+        turn.tool_specs = prefix.tools.clone();
+        turn
+    }
+
     /// Ход до ответа без вызовов. Видимый текст по мере потока уходит в
     /// `on_text`; история пополняется ответами модели и результатами.
     pub async fn run(&self, history: &mut Vec<Message>, on_text: &mut OnText<'_>) -> Result<Response, TurnError> {
-        self.steps(history, on_text, &self.tools.specs(), &self.settings, None).await
+        self.steps(history, on_text, &self.tool_specs, &self.settings, None).await
     }
 
     /// Ход, ответ которого — значение по JSON Schema. У весов с
@@ -108,7 +120,7 @@ impl<'a, P: Provider> Turn<'a, P> {
         if let Some(o) = result.as_object_mut() {
             o.insert("description".into(), RESULT_DESCRIPTION.into());
         }
-        let mut tools = self.tools.specs();
+        let mut tools = self.tool_specs.clone();
         tools.push(ToolSpec {
             name: SUBMIT_RESULT.into(),
             description: SUBMIT_RESULT_DESCRIPTION.into(),
