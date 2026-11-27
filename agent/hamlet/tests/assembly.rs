@@ -535,6 +535,80 @@ async fn interrupted_tool_call_resumes_after_restart() {
     }
 }
 
+/// П3е-5: подагенты в базе. Подагент, оборванный перезапуском посреди
+/// команды (свой рантайм гасится целиком), после старта продолжает ход:
+/// вызов без результата закрыт текстом ядра, итог — родителю, в базе —
+/// `completed`. Незаконченный без точки `before_inference` — `errored`, итог
+/// родителю с текстом ядра. Номера новых подагентов не повторяют старые.
+#[tokio::test]
+async fn subagents_survive_restart() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s1, _p) = model(wire, vec![Step::Calls(vec![("x1", "hamlet.exec", json!({"command": "sleep 30"}))])], true);
+        let s1 = Arc::new(s1);
+        let dir = agent_dir("subagents", wire, &s1);
+        let (d, server) = (dir.clone(), s1.clone());
+        let id = std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let id = rt.block_on(async {
+                let h1 = build(&d, FakeClock::at(t0())).await;
+                let id = h1.subagents.spawn("count the files in the workspace");
+                while server.requests().is_empty() {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                id
+            });
+            // Перезапуск: все задачи рантайма гибнут посреди команды.
+            drop(rt);
+            id
+        })
+        .join()
+        .unwrap();
+        assert_eq!(id, "agent-1");
+
+        let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
+        let (kind, parent): (String, Option<String>) = sqlx::query_as("select kind, parent_agent_id from agent.agents where id = $1").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!((kind.as_str(), parent.as_deref()), ("subagent", Some("root")), "{wire:?}");
+        let mode: String = sqlx::query_scalar("select mode from agent.runtime_restart_checkpoints where agent_id = $1").bind(&id).fetch_one(&pool).await.unwrap();
+        assert_eq!(mode, "before_inference", "{wire:?}");
+        // Незаконченный подагент без точки — его ход продолжить нельзя.
+        sqlx::query("insert into agent.agents (agent_id, id, kind, parent_id, parent_agent_id, depth, model, status) values ('agent-7', 'agent-7', 'subagent', 'root', 'root', 1, 'm', 'running')").execute(&pool).await.unwrap();
+        sqlx::query("insert into agent.subagent_spawns (parent_agent_id, child_agent_id, child_depth, status, prompt) values ('root', 'agent-7', 1, 'running', 'old work')").execute(&pool).await.unwrap();
+
+        let (s2, _p) = model(wire, vec![Step::Text("There are 3 files.")], true);
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        let mut notes = Vec::new();
+        for _ in 0..300 {
+            notes.extend(h2.inbox.drain().into_iter().map(|m| m.text()));
+            if notes.len() >= 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let body = s2.requests()[0].to_string();
+        assert!(body.contains("count the files in the workspace"), "{wire:?}: история подагента из базы");
+        assert!(body.contains(&serde_json::to_string(agent_loop::INTERRUPTED_TOOL_CALL).unwrap()[1..60]), "{wire:?}: {body}");
+        assert!(notes.iter().any(|n| n.contains("agent_id: agent-1, status: done") && n.contains("There are 3 files.")), "{wire:?}: {notes:?}");
+        assert!(notes.iter().any(|n| n.contains("agent_id: agent-7, status: failed") && n.contains(agent_loop::WORK_NOT_RESUMABLE)), "{wire:?}: {notes:?}");
+        let spawn = |id: &'static str| {
+            let pool = pool.clone();
+            async move { sqlx::query_as::<_, (Option<String>, Option<i64>)>("select status, completed_at from agent.subagent_spawns where child_agent_id = $1").bind(id).fetch_one(&pool).await.unwrap() }
+        };
+        let (st, done) = spawn("agent-1").await;
+        assert_eq!(st.as_deref(), Some("completed"), "{wire:?}");
+        assert!(done.is_some());
+        assert_eq!(spawn("agent-7").await.0.as_deref(), Some("errored"), "{wire:?}");
+        let list = h2.subagents.list(20).to_string();
+        assert!(list.contains("agent-1") && list.contains("agent-7"), "{wire:?}: {list}");
+        h2.browsers.shutdown().await;
+        // Новый номер — после старых.
+        let h3 = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(h3.subagents.spawn("more work"), "agent-8", "{wire:?}");
+        h3.browsers.shutdown().await;
+    }
+}
+
 /// П3е-2: ящик в базе — весть, пришедшая, когда хода нет, и не взятая до
 /// остановки, после перезапуска доходит новым ходом и закрывается.
 #[tokio::test]

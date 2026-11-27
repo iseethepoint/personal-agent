@@ -94,7 +94,7 @@ impl Hamlet {
             return Ok(Some(id));
         }
         self.inbox.complete(&id, true).await?;
-        self.history.checkpoint(crate::ROOT_RECOVERY_CLASS, None).await?;
+        self.history.checkpoint(Some(crate::ROOT_RECOVERY_CLASS), None).await?;
         Ok(None)
     }
 
@@ -120,7 +120,7 @@ impl Hamlet {
         self.history.sync(&conv.history, conv.last_volatile()).await?;
         self.inbox.attach(&ids, &turn_id).await?;
         // Точка перезапуска: ход идёт.
-        self.history.checkpoint(crate::ROOT_RECOVERY_CLASS, Some(&turn_id)).await?;
+        self.history.checkpoint(Some(crate::ROOT_RECOVERY_CLASS), Some(&turn_id)).await?;
         let mut t = Turn::from_prefix(&*self.main, &self.tools, &conv.prefix, self.spill_dir.clone());
         t.inbox = Some(self.inbox.clone());
         t.transcript = Some(self.transcript.clone());
@@ -133,7 +133,7 @@ impl Hamlet {
             eprintln!("mailbox complete: {e}");
         }
         // Точка перезапуска: между ходами.
-        if let Err(e) = self.history.checkpoint(crate::ROOT_RECOVERY_CLASS, None).await {
+        if let Err(e) = self.history.checkpoint(Some(crate::ROOT_RECOVERY_CLASS), None).await {
             eprintln!("restart checkpoint: {e}");
         }
         let resp = result.map_err(|e| e.to_string())?;

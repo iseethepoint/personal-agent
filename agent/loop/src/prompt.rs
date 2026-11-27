@@ -27,6 +27,39 @@ use crate::tool::Tools;
 /// `0x8ada56`, рядом с разбором точки перезапуска при старте).
 pub const INTERRUPTED_TOOL_CALL: &str = include_str!("../../../prompts/restart/interrupted_tool_call.md");
 
+/// Вызовы последнего ответа модели, у которых нет результата (ход оборвал
+/// перезапуск во время исполнения), получают результат с текстом ядра.
+/// Своё: такой результат — с `is_error = true` (признак в разборе не виден).
+/// Возвращает, сколько вызовов закрыто.
+pub fn close_interrupted(history: &mut Vec<Message>) -> usize {
+    let Some(i) = history.iter().rposition(|m| m.role == Role::Assistant) else { return 0 };
+    let answered: std::collections::HashSet<&str> = history[i + 1..]
+        .iter()
+        .flat_map(|m| &m.content)
+        .filter_map(|p| match p {
+            Part::ToolResult { call_id, .. } => Some(call_id.as_str()),
+            _ => None,
+        })
+        .collect();
+    let results: Vec<Part> = history[i]
+        .content
+        .iter()
+        .filter_map(|p| match p {
+            Part::ToolCall { id, .. } if !answered.contains(id.as_str()) => Some(Part::ToolResult {
+                call_id: id.clone(),
+                content: vec![ToolResultPart::Text { text: INTERRUPTED_TOOL_CALL.to_string() }],
+                is_error: true,
+            }),
+            _ => None,
+        })
+        .collect();
+    let n = results.len();
+    if n > 0 {
+        history.push(Message { role: Role::User, content: results });
+    }
+    n
+}
+
 pub const HOME_FILES: [&str; 5] = ["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"];
 
 /// Неизменное начало подсказки разговора.
@@ -112,37 +145,9 @@ impl Conversation {
         }
     }
 
-    /// Вызовы последнего ответа модели, у которых нет результата (ход
-    /// оборвал перезапуск во время исполнения), получают результат с текстом
-    /// ядра. Своё: такой результат — с `is_error = true` (признак в разборе не
-    /// виден). Возвращает, сколько вызовов закрыто.
+    /// Вызовы без результата закрываются (`close_interrupted`).
     pub fn close_interrupted(&mut self) -> usize {
-        let Some(i) = self.history.iter().rposition(|m| m.role == Role::Assistant) else { return 0 };
-        let answered: std::collections::HashSet<&str> = self.history[i + 1..]
-            .iter()
-            .flat_map(|m| &m.content)
-            .filter_map(|p| match p {
-                Part::ToolResult { call_id, .. } => Some(call_id.as_str()),
-                _ => None,
-            })
-            .collect();
-        let results: Vec<Part> = self.history[i]
-            .content
-            .iter()
-            .filter_map(|p| match p {
-                Part::ToolCall { id, .. } if !answered.contains(id.as_str()) => Some(Part::ToolResult {
-                    call_id: id.clone(),
-                    content: vec![ToolResultPart::Text { text: INTERRUPTED_TOOL_CALL.to_string() }],
-                    is_error: true,
-                }),
-                _ => None,
-            })
-            .collect();
-        let n = results.len();
-        if n > 0 {
-            self.history.push(Message { role: Role::User, content: results });
-        }
-        n
+        close_interrupted(&mut self.history)
     }
 
     /// Заменить историю сжатой. Опора счёта поставщика снимается: до

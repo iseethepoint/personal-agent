@@ -857,6 +857,227 @@
       "columns": [
         {
           "comment": null,
+          "default": "nextval('subagent_spawns_spawn_id_seq'::regclass)",
+          "name": "spawn_id",
+          "nullable": false,
+          "position": 1,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "parent_agent_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "child_agent_id",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "parent_message_id",
+          "nullable": true,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "parent_request_id",
+          "nullable": true,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "root_request_id",
+          "nullable": true,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "root_message_execution_id",
+          "nullable": true,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "request_id",
+          "nullable": true,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "(EXTRACT(epoch FROM now()))::bigint",
+          "name": "created_at",
+          "nullable": false,
+          "position": 9,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "status",
+          "nullable": true,
+          "position": 10,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "deferred_terminal_status",
+          "nullable": true,
+          "position": 11,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "final_response",
+          "nullable": true,
+          "position": 12,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "completed_at",
+          "nullable": true,
+          "position": 13,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "prompt",
+          "nullable": true,
+          "position": 14,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "requester_source",
+          "nullable": true,
+          "position": 15,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "requester_chat_context_json",
+          "nullable": true,
+          "position": 16,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "seen_at",
+          "nullable": true,
+          "position": 17,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "child_depth",
+          "nullable": false,
+          "position": 18,
+          "type": "integer"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "agent_type",
+          "nullable": true,
+          "position": 19,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "metadata_json",
+          "nullable": true,
+          "position": 20,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "spawn_call_id",
+          "nullable": true,
+          "position": 21,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "handoff_state_json",
+          "nullable": true,
+          "position": 22,
+          "type": "jsonb"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "public_forget_confirmed_at",
+          "nullable": true,
+          "position": 23,
+          "type": "bigint"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "child_agent_id",
+          "name": "subagent_spawns_child_agent_id_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "parent_agent_id",
+          "name": "subagent_spawns_parent_agent_id_child_agent_id_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "child_agent_id",
+          "name": "subagent_spawns_parent_agent_id_child_agent_id_key",
+          "position": 2,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "spawn_id",
+          "name": "subagent_spawns_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "subagent_spawns",
+      "schema": "agent"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
           "default": null,
           "name": "agent_id",
           "nullable": false,
