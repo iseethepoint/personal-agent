@@ -40,7 +40,8 @@ use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-const MIGRATIONS: [&str; 2] = [include_str!("../migrations/0001_history.sql"), include_str!("../migrations/0002_mailbox.sql")];
+const MIGRATIONS: [&str; 3] =
+    [include_str!("../migrations/0001_history.sql"), include_str!("../migrations/0002_mailbox.sql"), include_str!("../migrations/0003_todo.sql")];
 const PREFIX_PIN: &str = "prompt_prefix";
 const VOLATILE: &str = "volatile";
 
@@ -379,6 +380,94 @@ impl Mailbox for AgentMailbox {
             rows.into_iter()
                 .map(|(id, json)| serde_json::from_str(&json).map(|m| (id, m)).map_err(|e| format!("history: submission_json: {e}")))
                 .collect()
+        })
+    }
+}
+
+/// Список дел агента в `runtime.agent_todo_snapshots` — запросы ядра
+/// (около `0x16f9853`): чтение снимка со сторожем, замена с
+/// `revision + 1` и новым поколением при новом ключе, запись напоминания
+/// условным `UPDATE`.
+///
+/// Своё: `conversation_id` и `agent_identity` — id агента (`root`);
+/// `items_json` — `[{"text", "status"}]`.
+pub struct AgentTodo {
+    pool: PgPool,
+    agent_id: String,
+}
+
+impl AgentTodo {
+    pub fn new(store: &Store, agent_id: &str) -> AgentTodo {
+        AgentTodo { pool: store.pool.clone(), agent_id: agent_id.into() }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+struct ItemJson {
+    text: String,
+    status: String,
+}
+
+impl agent_tools::TodoStore for AgentTodo {
+    fn load<'a>(&'a self) -> Fut<'a, Option<agent_tools::Snapshot>> {
+        Box::pin(async move {
+            let row: Option<(String, Option<String>, i64, i16)> = sqlx::query_as(
+                "SELECT items_json, continuation_key, continuation_generation, continuation_reminders FROM runtime.agent_todo_snapshots WHERE conversation_id = $1 AND agent_identity = $2",
+            )
+            .bind(&self.agent_id)
+            .bind(&self.agent_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(db)?;
+            let Some((items, key, generation, reminders)) = row else { return Ok(None) };
+            let items: Vec<ItemJson> = serde_json::from_str(&items).map_err(|e| format!("history: items_json: {e}"))?;
+            Ok(Some(agent_tools::Snapshot {
+                items: items.into_iter().map(|i| agent_tools::TodoItem { text: i.text, status: i.status }).collect(),
+                continuation_key: key,
+                continuation_generation: generation,
+                continuation_reminders: reminders,
+            }))
+        })
+    }
+
+    fn replace<'a>(&'a self, items: &'a [agent_tools::TodoItem], continuation_key: Option<&'a str>) -> Fut<'a, ()> {
+        Box::pin(async move {
+            let json = serde_json::to_string(&items.iter().map(|i| ItemJson { text: i.text.clone(), status: i.status.clone() }).collect::<Vec<_>>()).map_err(|e| e.to_string())?;
+            sqlx::query(
+                "INSERT INTO runtime.agent_todo_snapshots (conversation_id, agent_identity, items_json, revision, updated_at_ms, continuation_key, continuation_generation, continuation_reminders) \
+                 VALUES ($1, $2, $3, 1, (extract(epoch from now()) * 1000)::bigint, $4, 1, 0) \
+                 ON CONFLICT (conversation_id, agent_identity) DO UPDATE SET items_json = excluded.items_json, revision = agent_todo_snapshots.revision + 1, \
+                 updated_at_ms = excluded.updated_at_ms, continuation_key = excluded.continuation_key, \
+                 continuation_generation = CASE WHEN agent_todo_snapshots.continuation_key = excluded.continuation_key THEN agent_todo_snapshots.continuation_generation ELSE agent_todo_snapshots.continuation_generation + 1 END, \
+                 continuation_reminders = CASE WHEN agent_todo_snapshots.continuation_key = excluded.continuation_key THEN agent_todo_snapshots.continuation_reminders ELSE 0 END",
+            )
+            .bind(&self.agent_id)
+            .bind(&self.agent_id)
+            .bind(json)
+            .bind(continuation_key)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+            Ok(())
+        })
+    }
+
+    fn record_reminder<'a>(&'a self, key: &'a str, generation: i64, reminders: i16) -> Fut<'a, bool> {
+        Box::pin(async move {
+            let n = sqlx::query(
+                "UPDATE runtime.agent_todo_snapshots SET continuation_reminders = $5 WHERE conversation_id = $1 AND agent_identity = $2 \
+                 AND continuation_key = $3 AND continuation_generation = $4 AND continuation_reminders < $5",
+            )
+            .bind(&self.agent_id)
+            .bind(&self.agent_id)
+            .bind(key)
+            .bind(generation)
+            .bind(reminders)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?
+            .rows_affected();
+            Ok(n == 1)
         })
     }
 }

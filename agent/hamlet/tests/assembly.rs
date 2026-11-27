@@ -333,7 +333,7 @@ async fn unfinished_todo_continues_the_turn() {
         assert!(handoff.contains("Send the plan") && !handoff.contains("has not changed since the last reminder"), "{wire:?}");
         // Список пуст — нового хода нет.
         assert!(tokio::time::timeout(Duration::from_millis(300), orx.recv()).await.is_err(), "{wire:?}");
-        assert!(h.todo_continuation().is_none());
+        assert!(h.todo_continuation().await.is_none());
         drop(tx);
         runner.await.unwrap();
         h.browsers.shutdown().await;

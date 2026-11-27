@@ -242,3 +242,16 @@
 - весть службы — `notice` (у ядра внутренние подачи — варианты `SavedSubmissionKind`, значений в столбце не видно);
 - перед ходом hamlet забирает поданное: за строкой владельца — заметка изменчивого;
 - имя хода `root:turn:<мс>:<n>`.
+
+## Список дел и сторож продолжения в Postgres (П3е-3)
+
+Текстов для модели нет. Таблица `runtime.agent_todo_snapshots` — `agent/history/migrations/0003_todo.sql` по каталогу ядра. Запросы — форма ядра (около `0x16f9853`):
+- замена с `revision + 1` и новым поколением при новом `continuation_key`;
+- напоминание — условный `UPDATE … continuation_reminders < $5`.
+
+Сообщения «todo continuation skipped: snapshot unavailable / guard unavailable» — ядра. Таблица добавлена в каталог `hamlet.db` (24 таблицы).
+
+Своё (код `agent/tools/src/todo.rs`, `agent/history/src/lib.rs`):
+- вид `continuation_key` — незакрытые пункты (текст, статус) без порядка, JSON;
+- `conversation_id` и `agent_identity` — `root`;
+- без хранилища (подагенты, тесты) сторож живёт в памяти, как раньше.

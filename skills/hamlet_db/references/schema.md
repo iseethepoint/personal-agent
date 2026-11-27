@@ -274,6 +274,22 @@ Rows holding model reasoning (thinking and redacted-thinking items) are withheld
 
 - PRIMARY KEY `key` (`metadata_pkey`)
 
+## `runtime.agent_todo_snapshots`
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `conversation_id` | text | no |  |
+| `agent_identity` | text | no |  |
+| `items_json` | text | no | `'[]'::text` |
+| `revision` | bigint | no | `1` |
+| `updated_at_ms` | bigint | no | `((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint` |
+| `continuation_key` | text | yes |  |
+| `continuation_generation` | bigint | no | `0` |
+| `continuation_reminders` | smallint | no | `0` |
+
+- PRIMARY KEY `conversation_id` (`agent_todo_snapshots_pkey`)
+- PRIMARY KEY `agent_identity` (`agent_todo_snapshots_pkey`)
+
 ## `runtime.search_documents`
 
 | column | type | nullable | default |
