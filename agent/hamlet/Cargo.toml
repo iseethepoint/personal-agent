@@ -1,0 +1,26 @@
+[package]
+name = "agent-hamlet"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "hamlet"
+path = "src/main.rs"
+
+[dependencies]
+agent-model = { path = "../model" }
+agent-loop = { path = "../loop" }
+agent-tools = { path = "../tools" }
+agent-memory = { path = "../memory" }
+agent-cron = { path = "../cron" }
+agent-goals = { path = "../goals" }
+agent-browser = { path = "../browser" }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "io-std"] }
+
+[dev-dependencies]
+serde_json = "1"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+libc = "0.2"
