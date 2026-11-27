@@ -171,3 +171,18 @@
 - каталог — форма вшитого JSON muse (`format_version` 3, около `0x18a9a6a`), функции и приведения — его `query_capabilities` как есть.
 
 Своё (код `agent/db`): в каталоге — наши таблицы, которые есть и в каталоге muse (`READABLE`, 19; `runtime.event_hook_admissions` в каталоге muse нет); без `migrations_sha256` и `redaction` (скрытых столбцов нет); каталог вшит файлом `agent/db/catalog.json`, сверку с миграциями держит тест; ответ модели — строки JSON по одной на строку, из 201 — 200 и строка «`{n} rows shown; more rows matched. Narrow the query to see the rest.`», пусто — «`0 rows`» (вид ответа в разборе не найден); `hamlet.db` — в общем наборе (главный, подагент, работник расписаний, шаг работы), как поиск навыков: профили muse с этим инструментом в разборе не видны.
+
+## Время дня расписаний `timing` / `window` (П4л-7)
+
+`cron/tools.json` и `cron/cron_namespace.md` переведены на вариант с ключом схемы `cron_runtime_timing` (`gk.hatch_cron_runtime_timing`; ключ стоит в `schema_gates` профилей, `strings-all.txt:69993`, `:70435`, `:70582`):
+- поле `schedule` — описание `0xbe39a4` (вместо `0xbe222a`);
+- поле `schedule.flexible_time` убрано (при этом варианте ядро отвечает «schedule.flexible_time is not available; use schedule.timing»); добавлены `schedule.timing` (`0xbe3c7b`) и `schedule.window` (`0xbe3ed1`); в `timing` «this VM» → «this machine»: агент живёт не в ВМ;
+- в `notification_requested` и в пространстве `cron` («Choosing the schedule time») ядро и в этом варианте говорит о `flexible_time`. Своё: `schedule.flexible_time` → `schedule.timing`, `flexible_time: false` → `timing: exact`, `flexible_time: true` → `timing: window` — по определениям `exact`/`window` из `0xbe3c7b`.
+
+Код `agent/cron/src/schedule.rs`. Ошибки — тексты ядра: `strings-all.txt:84943` и соседние; шаблон «schedule.timing required for kind={kind}: exact, window, or anytime» — `0x332554`/`0x332579`. Затравки — `cron-timing-window:` (`0x42d9bd`) и `cron:timing-anytime` (`0x491360`).
+
+Своё:
+- «машина» — путь дома агента (`Core::machine`), у muse — ВМ;
+- время внутри окна и дневное время берутся как FNV-1a от затравки с машиной, с точностью до минуты; дневное время `anytime` — любая минута суток;
+- у `interval` `timing` необязателен (как в описании) и, если дан, действует на `at`;
+- старт интервала без `at` не менялся: в разборе «the runtime picks the start» не прочитано.

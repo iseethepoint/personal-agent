@@ -162,7 +162,7 @@ async fn main_agent_registry_has_every_tool() {
 async fn conversation_writes_searches_schedules_and_wakes_on_handoff() {
     for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
         let job = json!({"id": "coffee", "enabled": true, "mode": "task", "title": "Coffee", "body": "Remind the owner about coffee.",
-            "schedule": {"kind": "runonce", "at": "2027-01-15T08:05", "timezone": "UTC"}});
+            "schedule": {"kind": "runonce", "at": "2027-01-15T08:05", "timezone": "UTC", "timing": "exact"}});
         let (server, _p) = model(
             wire,
             vec![

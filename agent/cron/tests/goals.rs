@@ -43,7 +43,7 @@ async fn goal_owned_schedule_gets_goal_context_and_dies_with_the_goal() {
 
         let goal = call(gt(), "user_goal.create", json!({"title": "Marathon", "description": "Run a marathon."})).await.unwrap();
         let job = |owner: &str| json!({"id": "long-run-check", "enabled": true, "mode": "task", "body": "Check this week's long run.", "owner": owner,
-            "schedule": {"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC"}});
+            "schedule": {"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC", "timing": "exact"}});
         let e = call(ct(), "cron.add", job("space:site")).await.unwrap_err();
         assert!(e.contains("owner must be a supported namespaced value"), "{e}");
         let e = call(ct(), "cron.add", job("goal:Marathon")).await.unwrap_err();

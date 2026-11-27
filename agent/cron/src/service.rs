@@ -84,6 +84,12 @@ pub struct Core {
 }
 
 impl Core {
+    /// Затравка времени машины для `timing=window|anytime` — путь дома
+    /// агента (у muse — ВМ; своё).
+    pub fn machine(&self) -> String {
+        self.home.display().to_string()
+    }
+
     pub fn new(store: Store, clock: Arc<dyn Clock>, home: impl Into<PathBuf>, user_tz: Option<String>) -> Arc<Core> {
         Self::build(store, clock, home, user_tz, Vec::new(), None)
     }
@@ -397,7 +403,8 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                 &json!({"kind": "interval", "every": "30m", "at": "2026-01-01T00:00:00", "timezone": "UTC"}),
                 None,
                 None,
-                HEARTBEAT_ID,
+                &self.core.machine(),
+                now,
             )?,
             metadata: crate::store::Metadata { created_by: "system".into(), notification_requested: None, created_at_ms: now },
             body: "Run the heartbeat checklist from HEARTBEAT.md.".into(),
