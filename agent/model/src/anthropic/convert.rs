@@ -81,10 +81,10 @@ fn part_to_block(p: &Part) -> Value {
     }
 }
 
-/// Сообщение до склейки ролей: обычное или заметка движка.
+/// Сообщение до склейки ролей: обычное или заметки движка подряд.
 enum Item {
     Normal(&'static str, Vec<Value>),
-    Developer(String),
+    Developer(Vec<String>),
 }
 
 fn push_merged(out: &mut Vec<Value>, role: &str, blocks: Vec<Value>) {
@@ -100,14 +100,19 @@ fn push_merged(out: &mut Vec<Value>, role: &str, blocks: Vec<Value>) {
     out.push(json!({"role": role, "content": blocks}));
 }
 
-/// Сообщения запроса. Заметка движка (`Role::Developer`) идёт сообщением
-/// `role: system` посреди разговора, только если у весов включено
-/// `mid_conversation_system_messages` и место допустимо: сразу после
-/// сообщения пользователя и перед ответом модели или в конце. Так проверяет
-/// и muse («system section must follow a user message», «system section must
-/// precede an assistant message or end the array», `strings-all.txt:235512`),
-/// и сам API. Иначе — текст в `<system-reminder>` внутри сообщения
-/// пользователя (форма уведомлений muse, `strings-all.txt:59333-59349`).
+/// Сообщения запроса. Заметки движка (`Role::Developer`) — встроенный
+/// системный элемент muse подвида 1: при `mid_conversation_system_messages`
+/// каждая заметка — отдельное сообщение `{"role":"system","content":
+/// [{"type":"text","text":…}]}` на своём месте (`convert_prompt.rs`,
+/// `0x20cd9f72`: строка `system` — `0x20cda00a`, массив `messages` —
+/// `0x20cda16f`). Место должно быть допустимым: заметки подряд — сразу после
+/// сообщения пользователя и перед ответом модели или в конце; так
+/// проверяет и muse («system section must follow a user message», «system
+/// section must precede an assistant message or end the array»,
+/// `strings-all.txt:235512`). Иначе, и у весов без умения, — заметки через
+/// перевод строки одним текстом в `<system-reminder>` внутри сообщения
+/// пользователя (своё: ветку muse для таких весов не нашли в П1б; форма
+/// обёртки — уведомления muse, `strings-all.txt:59333-59349`).
 fn messages(req: &Request, facts: &AnthropicFacts) -> Vec<Value> {
     let mut items: Vec<Item> = Vec::new();
     for m in &req.messages {
@@ -118,12 +123,10 @@ fn messages(req: &Request, facts: &AnthropicFacts) -> Vec<Value> {
             }
             Role::Developer => {
                 let text = m.text();
-                // Несколько заметок подряд — одна.
-                if let Some(Item::Developer(prev)) = items.last_mut() {
-                    prev.push('\n');
-                    prev.push_str(&text);
+                if let Some(Item::Developer(run)) = items.last_mut() {
+                    run.push(text);
                 } else {
-                    items.push(Item::Developer(text));
+                    items.push(Item::Developer(vec![text]));
                 }
             }
         }
@@ -132,7 +135,7 @@ fn messages(req: &Request, facts: &AnthropicFacts) -> Vec<Value> {
     for i in 0..items.len() {
         match &items[i] {
             Item::Normal(role, blocks) => push_merged(&mut out, role, blocks.clone()),
-            Item::Developer(text) => {
+            Item::Developer(run) => {
                 let after_user = out.last().is_some_and(|l| l["role"] == "user");
                 let before_ok = match items.get(i + 1) {
                     None => true,
@@ -140,9 +143,11 @@ fn messages(req: &Request, facts: &AnthropicFacts) -> Vec<Value> {
                     Some(Item::Developer(_)) => false,
                 };
                 if facts.mid_conversation_system_messages && after_user && before_ok {
-                    out.push(json!({"role": "system", "content": text}));
+                    for text in run {
+                        out.push(json!({"role": "system", "content": [{"type": "text", "text": text}]}));
+                    }
                 } else {
-                    let block = json!({"type": "text", "text": system_reminder(text)});
+                    let block = json!({"type": "text", "text": system_reminder(&run.join("\n"))});
                     push_merged(&mut out, "user", vec![block]);
                 }
             }

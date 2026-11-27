@@ -15,6 +15,10 @@
 //! `{locale}` (`0x8b1f920`). Своё: вид ответа на `browser.request_input` и
 //! подтверждение отчёта.
 //!
+//! За заданием или продолжением — составной текст хода (`turn_texts`):
+//! раздел `0x64` вариант 1 среза 1 профиля 1 (`instructions/*`), его выводит
+//! `0xcdb6660` без условий (П5-2 часть 5а, `prompts/SOURCES.md`).
+//!
 //! Не взяты в П4к-1а: вход на сайты, покупки, проверки ботов, перерывы,
 //! специалисты, файлы, программы (`browser.run`), `look`-цели с моделью
 //! наведения, звук страницы — их тексты сокращены (`prompts/SOURCES.md`).
@@ -34,6 +38,24 @@ const SYSTEM_MD: &str = include_str!("../../../prompts/browser/system.md");
 const PAGES_MD: &str = include_str!("../../../prompts/browser/pages.md");
 const LANGUAGE_MD: &str = include_str!("../../../prompts/browser/presentation_language.md");
 const GATE_MD: &str = include_str!("../../../prompts/browser/completion_gate/report_required.md");
+
+/// Раздел `0x64` вариант 1 (таблица `0x2906bd30`, записи `0x290503e0`–
+/// `0x290505a8`), записи по порядку. Не берутся целиком (правило блока):
+/// `instructions/specialists.md` и `instructions/bot_checks.md` — специалисты
+/// и проверки ботов (П4к-2…4). `tools/copyrighted_material.md` — текст ядра
+/// (вид 2, `0x7ebeea`).
+const INSTRUCTIONS: [&str; 10] = [
+    include_str!("../../../prompts/browser/instructions/assignment.md"),
+    include_str!("../../../prompts/browser/instructions/browsing.md"),
+    include_str!("../../../prompts/browser/instructions/obstacles.md"),
+    include_str!("../../../prompts/browser/instructions/asking.md"),
+    include_str!("../../../prompts/browser/instructions/commitments.md"),
+    include_str!("../../../prompts/browser/instructions/facts.md"),
+    include_str!("../../../prompts/browser/instructions/privacy.md"),
+    include_str!("../../../prompts/browser/instructions/conduct.md"),
+    include_str!("../../../prompts/browser/copyrighted_material.md"),
+    include_str!("../../../prompts/browser/instructions/reporting.md"),
+];
 
 macro_rules! tool_text {
     ($name:literal) => {
@@ -96,6 +118,16 @@ pub fn update_message(text: &str, locale: &str) -> String {
 /// (`prompts/SOURCES.md`, П5-2 часть 4).
 pub fn system() -> String {
     personal(&format!("{SYSTEM_MD}{PAGES_MD}")).trim_matches('\n').to_string()
+}
+
+/// Тексты хода исполнителя (`agent_loop::push_turn_texts`). Срез 2 профиля 1
+/// пуст — `turn_directives` нет. Составной текст `0xcdb6cb0`: раздела `0xcf`
+/// в срезе 1 нет; `0xcdb6660` выводит из среза 1 (`[0x164]`) раздел `0x64`
+/// вариант 1 — записи подряд, без разделителей; developer-текст хода у
+/// профиля по виду не собирается (`+0x8ecc`, `0xca97512`). Затем личный
+/// вариант меток и края без переводов строки (своё, как у системного текста).
+pub fn turn_texts() -> Vec<String> {
+    vec![personal(&INSTRUCTIONS.concat()).trim_matches('\n').to_string()]
 }
 
 fn spec(name: &str, (md, json): (&str, &str)) -> ToolSpec {
@@ -292,6 +324,7 @@ impl<P: Provider + Send + Sync + 'static> Planner<P> {
         turn.record = self.record.as_ref().map(|r| r.record.clone() as Arc<dyn agent_loop::Record>);
         if let Some(text) = message {
             history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
+            agent_loop::push_turn_texts(history, &turn_texts());
         }
         loop {
             if let Some(r) = &self.record {

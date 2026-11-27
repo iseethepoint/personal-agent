@@ -171,8 +171,13 @@ fn messages(req: &Request, facts: &OpenaiCompatFacts) -> Result<Vec<Value>, Prov
             }
             Role::Developer => {
                 let text = m.text();
+                // Роль встроенного системного элемента подвида 1 у muse в
+                // Chat Completions — `developer` (`kimi_chat_completions/
+                // prompt.rs`, таблица ролей `0x297732c0` по байту подвида,
+                // `0x20ad26da`). Без умения — `<system-reminder>` в сообщении
+                // пользователя (своё).
                 if facts.developer_role {
-                    out.push(json!({"role": "system", "content": text}));
+                    out.push(json!({"role": "developer", "content": text}));
                 } else {
                     push_user(&mut out, vec![json!({"type": "text", "text": system_reminder(&text)})]);
                 }

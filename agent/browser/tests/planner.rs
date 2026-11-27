@@ -63,6 +63,10 @@ async fn planner_completes_order_through_loop() {
         let reqs = server.requests();
         let first = reqs[0].to_string();
         assert!(first.contains("browser planner") && first.contains("Carry out this assignment end to end"), "{wire:?}");
+        // Составной текст хода (раздел `0x64` в.1) — за заданием, не в системном тексте.
+        let msgs = reqs[0]["messages"].to_string();
+        let (task, rules) = (msgs.find("Carry out this assignment").unwrap(), msgs.find("## Your Assignment").expect("instructions"));
+        assert!(task < rules, "{wire:?}");
         assert!(first.contains("browser.observe") && first.contains("browser.report") && !first.contains("browser.login"), "инструменты исполнителя");
         assert!(reqs[2].to_string().contains("Use the name Ann Lee and a blue mug."), "ответ главного агента");
         let after_order = reqs[3].to_string();

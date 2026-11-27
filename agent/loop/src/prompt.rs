@@ -60,6 +60,21 @@ pub fn close_interrupted(history: &mut Vec<Message>) -> usize {
     n
 }
 
+/// Тексты хода — за сообщением владельца этого хода, каждый отдельной
+/// заметкой (`Role::Developer`), по порядку: `turn_directives` (срез 2
+/// профиля), затем составной текст (`0xcdb6cb0`). У muse это элементы хода
+/// `+0x69d8` вида 2 и 4 (`0xcaaa2fb`, `0xcaafc95`), оба — встроенный
+/// системный элемент подвида 1 (`0xcaaa2f3`, `0xcaafc8d`). Текст ложится в
+/// историю вместе с ходом: после перезапуска он тот же (у muse —
+/// `turn_developer_context` по `seq` сообщения хода, `0x16f9283`), при
+/// сжатии уходит со своим ходом. Место — за сообщением владельца — вывод,
+/// а не адрес (`prompts/SOURCES.md`, П5-2 часть 5а). Пустые не кладутся.
+pub fn push_turn_texts(history: &mut Vec<Message>, texts: &[String]) {
+    for t in texts.iter().filter(|t| !t.is_empty()) {
+        history.push(Message { role: Role::Developer, content: vec![Part::Text { text: t.clone() }] });
+    }
+}
+
 pub const HOME_FILES: [&str; 5] = ["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"];
 
 /// Неизменное начало подсказки разговора.
@@ -140,6 +155,11 @@ impl Conversation {
             self.last_volatile = Some(volatile.to_string());
         }
         self.history.push(Message { role: Role::User, content });
+    }
+
+    /// Тексты хода за последним сообщением владельца (`push_turn_texts`).
+    pub fn push_turn_texts(&mut self, texts: &[String]) {
+        push_turn_texts(&mut self.history, texts);
     }
 
     /// Запомнить счёт поставщика после ответа, который последним лёг в

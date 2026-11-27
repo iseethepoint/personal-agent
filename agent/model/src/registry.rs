@@ -144,7 +144,8 @@ pub struct OpenaiCompatFacts {
     pub reasoning: bool,
     /// Несколько вызовов инструментов в одном ответе (`parallel_tool_calls`).
     pub parallel_tool_calls: bool,
-    /// Роль `developer`/`system` посреди разговора (`magi.developer_role`).
+    /// Роль `developer` посреди разговора (`magi.developer_role`; роль —
+    /// по таблице muse `0x297732c0`, П5-2 часть 5а).
     pub developer_role: bool,
     /// Предел ответа полем `max_completion_tokens` вместо `max_tokens`: так
     /// требуют нынешние модели OpenAI (GPT-5.x, рассуждающие), а локальные
