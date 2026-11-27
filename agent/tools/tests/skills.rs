@@ -217,3 +217,35 @@ async fn one_turn_anthropic() {
 async fn one_turn_openai_compat() {
     one_turn(Wire::OpenaiCompat).await
 }
+
+#[test]
+fn todo_continuation_guard() {
+    use agent_loop::Tool;
+    use agent_tools::Continuation;
+    let todo = Todo::new();
+    let set = |items: Value| {
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        rt.block_on(todo.call(json!({"todos": items}))).unwrap();
+    };
+    let c = Continuation::new();
+    assert!(c.next(&todo).is_none(), "пустой список");
+    set(json!([{"text": "a", "status": "in_progress"}, {"text": "b", "status": "pending"}]));
+    let first = c.next(&todo).unwrap();
+    assert!(first.starts_with("<system-reminder>\n\nThis runtime handoff follows"), "{first}");
+    assert!(first.contains("\"text\": \"b\"") && !first.contains("has not changed since the last reminder"));
+    assert!(first.ends_with("</system-reminder>"));
+    // Тот же список — с напоминанием; ещё раз — тишина.
+    let second = c.next(&todo).unwrap();
+    assert!(second.contains("The unfinished work in this list has not changed since the last reminder."), "{second}");
+    assert!(second.contains("hamlet.nothing_to_do"));
+    assert!(c.next(&todo).is_none());
+    // Перестановка и закрытые пункты сторожа не сбрасывают.
+    set(json!([{"text": "b", "status": "pending"}, {"text": "done", "status": "completed"}, {"text": "a", "status": "in_progress"}]));
+    assert!(c.next(&todo).is_none());
+    // Изменилась незакрытая работа — снова продолжение.
+    set(json!([{"text": "a", "status": "completed"}, {"text": "b", "status": "in_progress"}]));
+    assert!(c.next(&todo).is_some());
+    // Всё заблокировано — продолжения нет.
+    set(json!([{"text": "b", "status": "blocked"}]));
+    assert!(c.next(&todo).is_none());
+}

@@ -297,3 +297,68 @@ async fn research_handoff_wakes_main_agent() {
         h.browsers.shutdown().await;
     }
 }
+
+/// Продолжение по списку дел: ход кончился с незакрытыми пунктами — среда
+/// сама даёт новый ход с запиской; пустой список — продолжения нет.
+#[tokio::test]
+async fn unfinished_todo_continues_the_turn() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (server, _p) = model(
+            wire,
+            vec![
+                Step::Calls(vec![("t1", "todo.write", json!({"todos": [{"text": "Draft the plan", "status": "in_progress"}, {"text": "Send the plan", "status": "pending"}]}))]),
+                Step::Text("Started."),
+                Step::Calls(vec![("t2", "todo.write", json!({"todos": []}))]),
+                Step::Text("Plan drafted and sent."),
+            ],
+            true,
+        );
+        let dir = agent_dir("todo", wire, &server);
+        let h = build(&dir, FakeClock::at(t0())).await;
+        let (tx, rx) = mpsc::channel(4);
+        let (otx, mut orx) = mpsc::unbounded_channel();
+        let runner = {
+            let h = h.clone();
+            tokio::spawn(async move { h.run(rx, otx).await })
+        };
+        tx.send("Plan the week and send it to me.".into()).await.unwrap();
+        let first = tokio::time::timeout(Duration::from_secs(30), orx.recv()).await.unwrap().unwrap();
+        assert_eq!(first, "Started.", "{wire:?}");
+        let second = tokio::time::timeout(Duration::from_secs(30), orx.recv()).await.unwrap().unwrap();
+        assert_eq!(second, "Plan drafted and sent.", "{wire:?}");
+        let reqs = server.requests();
+        assert_eq!(reqs.len(), 4, "{wire:?}");
+        let handoff = reqs[2].to_string();
+        assert!(handoff.contains("This runtime handoff follows an assistant turn with work still `pending` or `in_progress`."), "{wire:?}");
+        assert!(handoff.contains("Send the plan") && !handoff.contains("has not changed since the last reminder"), "{wire:?}");
+        // Список пуст — нового хода нет.
+        assert!(tokio::time::timeout(Duration::from_millis(300), orx.recv()).await.is_err(), "{wire:?}");
+        assert!(h.todo_continuation().is_none());
+        drop(tx);
+        runner.await.unwrap();
+        h.browsers.shutdown().await;
+    }
+}
+
+/// Уборщик корзины — на такте службы: через 30 дней по часам службы запись
+/// истекает.
+#[tokio::test]
+async fn trash_reaper_runs_on_service_tick() {
+    let (server, _p) = model(Wire::OpenaiCompat, vec![], false);
+    let dir = agent_dir("reaper", Wire::OpenaiCompat, &server);
+    let clock = FakeClock::at(t0());
+    let h = build(&dir, clock.clone()).await;
+    std::fs::write(dir.join("home/old.txt"), "x").unwrap();
+    let put = h.tools.get("trash.put").unwrap().call(json!({"path": "old.txt"})).await.unwrap();
+    let agent_model::ToolResultPart::Text { text } = &put[0] else { panic!() };
+    let id = text.lines().find_map(|l| l.strip_prefix("- `trash_id`: ")).unwrap().to_string();
+    assert!(id.starts_with("20270115-080000-"), "корзина на часах службы: {id}");
+    let info = |d: &std::path::Path| -> serde_json::Value { serde_json::from_str(&std::fs::read_to_string(d.join(format!("home/.local/share/Trash/hamlet/{id}/.trashinfo"))).unwrap()).unwrap() };
+    h.scheduler.tick().await.unwrap();
+    assert_eq!(info(&dir)["status"], "active");
+    clock.advance_secs(30 * 86_400);
+    h.scheduler.tick().await.unwrap();
+    assert_eq!(info(&dir)["status"], "expired");
+    assert!(!dir.join(format!("home/.local/share/Trash/hamlet/{id}/files")).exists());
+    h.browsers.shutdown().await;
+}

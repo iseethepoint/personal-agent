@@ -54,6 +54,11 @@ pub struct Hamlet {
     pub research: Arc<agent_research::DeepResearch<AnyProvider>>,
     /// Сохранённые работы (`workflow.*`).
     pub workflows: Arc<agent_workflows::Workflows<AnyProvider>>,
+    /// Подагенты главного агента (и исследователь).
+    pub subagents: Subagents<AnyProvider>,
+    /// Список дел главного агента и продолжение по нему.
+    pub todo: Todo,
+    pub continuation: agent_tools::Continuation,
     pub compaction: (Arc<AnyProvider>, Arc<AnyProvider>, u64),
     pub timezone: Option<String>,
     pub clock: Arc<dyn Clock>,
@@ -80,6 +85,8 @@ struct Parts {
     embedder: Option<Arc<dyn Embedder>>,
     core: Arc<Core>,
     goals: Arc<Goals<AnyProvider>>,
+    /// Корзина — на часах службы: её уборщик идёт на такте.
+    trash: Trash,
 }
 
 impl Parts {
@@ -90,7 +97,7 @@ impl Parts {
         FileTools::new(self.home.clone()).add_to(&mut t);
         ExecTools::starting_in(self.home.clone(), self.secrets.clone(), Some(self.inbox.clone()), start.map(Path::to_path_buf)).add_to(&mut t);
         t.add(Todo::new());
-        Trash::new(self.home.clone()).add_to(&mut t);
+        self.trash.add_to(&mut t);
         let skills = Catalog::skills(self.skills_dir.clone(), &self.home);
         let connectors = Catalog::connectors(self.connectors_dir.clone(), &self.home);
         add_search(&mut t, &skills, &connectors);
@@ -165,6 +172,10 @@ impl Hamlet {
             embedder: embedder.clone(),
             core: core.clone(),
             goals,
+            trash: {
+                let c = clock.clone();
+                Trash::with_clock(home.clone(), Arc::new(move || chrono::DateTime::from_timestamp_millis(c.now_ms()).unwrap_or_default()))
+            },
         };
         let system = std::fs::read_to_string(dir.path(&t.paths.system)).unwrap_or_default();
         let parts = Arc::new(parts);
@@ -218,6 +229,9 @@ impl Hamlet {
 
         // Главный агент: общий набор + подагенты, забывание, окна браузера.
         let mut tools = with_workflows(parts.base(None)?);
+        // Свой список дел главного агента — по нему продолжение хода.
+        let todo = Todo::new();
+        tools.add(todo.clone());
         for x in subagents.tools() {
             tools.add(x);
         }
@@ -267,6 +281,12 @@ impl Hamlet {
             let (h, s, e) = (mhome.clone(), mstore.clone(), memb.clone());
             Box::pin(async move { agent_memory::reindex(&h, &s, e.as_deref()).await.map(|_| ()) })
         }));
+        // Уборщик корзины — фоновая работа службы (`recoverable_trash_reaper`).
+        let reaper = parts.trash.clone();
+        scheduler.background(Arc::new(move || {
+            let t = reaper.clone();
+            Box::pin(async move { tokio::task::spawn_blocking(move || t.reap()).await.map_err(|e| e.to_string())?.map(|_| ()) })
+        }));
 
         Ok(Hamlet {
             dir: dir.clone(),
@@ -281,6 +301,9 @@ impl Hamlet {
             browsers,
             research,
             workflows,
+            subagents,
+            todo,
+            continuation: agent_tools::Continuation::new(),
             compaction,
             timezone: t.agent.timezone.clone(),
             clock,

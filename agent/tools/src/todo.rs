@@ -108,3 +108,59 @@ impl Tool for Todo {
         })
     }
 }
+
+/// Продолжение по списку дел — `todo_continuation.rs` muse
+/// (`source-files.txt:1462-1463`): после хода, где в списке остались
+/// `pending` или `in_progress`, среда начинает новый ход с запиской
+/// `session/todo_continuation_handoff.md`; если тот же незакрытый список
+/// приходит снова — с напоминанием `session/todo_reconciliation.md`; если и
+/// после этого он не изменился — напоминаний нет, пока незакрытая работа не
+/// изменится («Another conversation turn, reordering items or removing old
+/// completed entries does not reset that guard»). Остановка напоминаний
+/// список не меняет.
+///
+/// Своё: ключ — незакрытые пункты (`pending`, `in_progress`, `blocked`) без
+/// порядка; снимок `{{TODO_SNAPSHOT}}` — JSON вида аргументов `todo.write`;
+/// сторож живёт в памяти, как и сам список (у muse — таблица
+/// `agent_todo_snapshots`, переживает рестарт).
+#[derive(Default)]
+pub struct Continuation {
+    /// (ключ незакрытой работы, сколько записок по нему ушло).
+    guard: Mutex<Option<(WorkKey, u32)>>,
+}
+
+/// Незакрытые пункты (текст, статус) без порядка.
+type WorkKey = Vec<(String, String)>;
+
+const HANDOFF_MD: &str = include_str!("../../../prompts/todo/todo_continuation_handoff.md");
+const RECONCILIATION_MD: &str = include_str!("../../../prompts/todo/todo_reconciliation.md");
+
+impl Continuation {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Записка для хода-продолжения или `None`, если продолжать не нужно.
+    pub fn next(&self, todo: &Todo) -> Option<String> {
+        let items = todo.current();
+        if !items.iter().any(|i| i.status == "pending" || i.status == "in_progress") {
+            return None;
+        }
+        let mut key: WorkKey =
+            items.iter().filter(|i| i.status != "completed" && i.status != "cancelled").map(|i| (i.text.clone(), i.status.clone())).collect();
+        key.sort();
+        let mut g = self.guard.lock().unwrap();
+        let reminders = match g.as_ref() {
+            Some((k, n)) if *k == key => *n,
+            _ => 0,
+        };
+        if reminders >= 2 {
+            return None;
+        }
+        *g = Some((key, reminders + 1));
+        let guidance = if reminders == 1 { personal(RECONCILIATION_MD).trim_end().to_string() } else { String::new() };
+        let snapshot = serde_json::to_string_pretty(&json!({"todos": items.iter().map(|i| json!({"text": i.text, "status": i.status})).collect::<Vec<_>>()})).unwrap_or_default();
+        let text = personal(HANDOFF_MD).replace("{{RECONCILIATION_GUIDANCE}}\n\n", &if guidance.is_empty() { String::new() } else { format!("{guidance}\n\n") }).replace("{{TODO_SNAPSHOT}}", &snapshot);
+        Some(text.trim_end().to_string())
+    }
+}

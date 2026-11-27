@@ -15,6 +15,6 @@ pub use files::FileTools;
 pub use paths::Home;
 pub use secrets::secret_envs;
 pub use skills::{add_search, Catalog};
-pub use todo::Todo;
+pub use todo::{Continuation, Todo};
 pub use trash::Trash;
 pub use web::{Blocklist, WebConfig, WebTools};

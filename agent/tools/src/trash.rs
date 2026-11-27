@@ -12,9 +12,10 @@
 //! 30 дней.
 //!
 //! Правки (П10): «Muse» → «Hamlet», папка `Trash/hatch` → `Trash/hamlet`.
-//! Своё: просроченные записи убираются при каждом обращении к корзине (у
-//! muse — служба обслуживания `recoverable_trash_reaper`; своей службы
-//! обслуживания у Hamlet нет); вид ответа `put`/`restore` — строки ядра
+//! Просроченные записи убирает фоновая работа службы (`Trash::reap` на
+//! такте расписаний), как `recoverable_trash_reaper` muse
+//! (`maintenance/handlers`, `source-files.txt:4273`).
+//! Своё: вид ответа `put`/`restore` — строки ядра
 //! «- `ключ`: значение» по полям описания; дата — RFC 3339 UTC; метаданные —
 //! JSON; ошибка, когда путь не существует или не переносится.
 
@@ -116,38 +117,48 @@ impl Trash {
         std::fs::write(dir.join(".trashinfo"), text).map_err(|e| e.to_string())
     }
 
-    /// Все записи, новые сверху; просроченные активные — в `expired`.
+    /// Все записи, новые сверху.
     fn entries(&self) -> Result<Vec<(PathBuf, TrashInfo)>, String> {
         let Ok(rd) = std::fs::read_dir(self.root()) else { return Ok(vec![]) };
-        let now = (self.now)();
         let mut out = vec![];
         for e in rd.flatten() {
             let dir = e.path();
             if !dir.is_dir() {
                 continue;
             }
-            let Ok(mut info) = Self::read_info(&dir) else { continue };
-            let due = DateTime::parse_from_rfc3339(&info.expiry_date).map(|t| t.with_timezone(&Utc) <= now).unwrap_or(false);
-            if info.status == "active" && due {
-                let files = dir.join("files");
-                if files.exists() {
-                    std::fs::remove_dir_all(&files).map_err(|e| format!("failed to remove expired payload entry '{}': {e}", files.display()))?;
-                }
-                info.status = "expired".into();
-                info.expired_at = Some(stamp(now));
-                Self::write_info(&dir, &info)?;
-            }
+            let Ok(info) = Self::read_info(&dir) else { continue };
             out.push((dir, info));
         }
         out.sort_by(|a, b| b.1.trash_id.cmp(&a.1.trash_id));
         Ok(out)
     }
 
+    /// Уборщик: активные записи с наступившим сроком — в `expired`,
+    /// содержимое удаляется, метаданные остаются. Число убранных.
+    pub fn reap(&self) -> Result<usize, String> {
+        let now = (self.now)();
+        let mut n = 0;
+        for (dir, mut info) in self.entries()? {
+            let due = DateTime::parse_from_rfc3339(&info.expiry_date).map(|t| t.with_timezone(&Utc) <= now).unwrap_or(false);
+            if info.status != "active" || !due {
+                continue;
+            }
+            let files = dir.join("files");
+            if files.exists() {
+                std::fs::remove_dir_all(&files).map_err(|e| format!("failed to remove expired payload entry '{}': {e}", files.display()))?;
+            }
+            info.status = "expired".into();
+            info.expired_at = Some(stamp(now));
+            Self::write_info(&dir, &info)?;
+            n += 1;
+        }
+        Ok(n)
+    }
+
     pub fn put(&self, raw: &str) -> Result<String, String> {
         if raw.trim().is_empty() {
             return Err("path is required for trash action `put`".into());
         }
-        self.entries()?;
         let path = self.home.resolve(raw)?;
         std::fs::symlink_metadata(&path).map_err(|e| format!("failed to inspect trash entry '{}': {e}", path.display()))?;
         let root = self.root();
@@ -203,7 +214,6 @@ impl Trash {
         if id.trim().is_empty() {
             return Err("trash_id is required for trash action `restore`".into());
         }
-        self.entries()?;
         let dir = self.entry(id.trim())?;
         if !dir.is_dir() {
             return Err(format!("failed to resolve trash entry '{id}'\n{}", inspect_hint()));

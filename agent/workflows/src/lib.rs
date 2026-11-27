@@ -223,6 +223,11 @@ impl<P: Provider + Send + Sync + 'static> Workflows<P> {
         Arc::new(Workflows { store, children, child_tools, system, home, workspace, inbox, active: Mutex::new(HashMap::new()), kids: Arc::new(Mutex::new(HashMap::new())), changed: Notify::new() })
     }
 
+    /// Сколько запусков сейчас исполняется.
+    pub fn running(&self) -> usize {
+        self.active.lock().unwrap().len()
+    }
+
     pub fn workspace(&self) -> &Path {
         &self.workspace
     }

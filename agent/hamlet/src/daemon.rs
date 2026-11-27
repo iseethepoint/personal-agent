@@ -13,7 +13,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use agent_loop::{Conversation, Turn};
-use agent_model::Part;
+use agent_model::{Message, Part, Role};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
@@ -107,24 +107,44 @@ impl Hamlet {
     /// ответ — в `out`. Кончается, когда вход закрыт.
     pub async fn run(self: &Arc<Self>, mut lines: mpsc::Receiver<String>, out: mpsc::UnboundedSender<String>) {
         let mut conv = self.conversation();
+        let mut resume = false;
         loop {
-            let inbox = self.inbox.clone();
-            tokio::select! {
-                biased;
-                line = lines.recv() => {
-                    let Some(line) = line else { break };
-                    conv.push_user(vec![Part::Text { text: line }], &self.volatile());
+            if !resume {
+                let inbox = self.inbox.clone();
+                tokio::select! {
+                    biased;
+                    line = lines.recv() => {
+                        let Some(line) = line else { break };
+                        conv.push_user(vec![Part::Text { text: line }], &self.volatile());
+                    }
+                    _ = inbox.wait() => {}
                 }
-                _ = inbox.wait() => {}
             }
+            resume = false;
             match self.turn(&mut conv).await {
                 Ok(text) => {
                     let _ = out.send(text);
+                    // Продолжение по списку дел (`todo_continuation`).
+                    if let Some(note) = self.todo_continuation() {
+                        conv.history.push(Message { role: Role::Developer, content: vec![Part::Text { text: note }] });
+                        resume = true;
+                    }
                 }
                 Err(e) => {
                     let _ = out.send(format!("[ошибка хода] {e}"));
                 }
             }
         }
+    }
+
+    /// Записка хода-продолжения, если в списке дел осталась работа и нет
+    /// делегированной работы в пути («todo continuation skipped: delegated
+    /// work in flight»). Своё: делегированная работа — подагенты (и
+    /// исследователь) и исполняемые запуски `workflow`.
+    pub fn todo_continuation(&self) -> Option<String> {
+        if self.subagents.running() > 0 || self.workflows.running() > 0 {
+            return None;
+        }
+        self.continuation.next(&self.todo)
     }
 }
