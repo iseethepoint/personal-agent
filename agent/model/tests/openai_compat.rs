@@ -36,7 +36,7 @@ fn request() -> Request {
         system: "Ты — личный агент.".into(),
         messages: vec![user("Привет")],
         tools: vec![ToolSpec {
-            name: "muse.read".into(),
+            name: "hamlet.read".into(),
             description: "Прочитать файл".into(),
             input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
         }],
@@ -74,7 +74,7 @@ async fn text_answer_and_request_shape() {
     assert_eq!(b["messages"][0], json!({"role": "system", "content": "Ты — личный агент."}));
     assert_eq!(b["messages"][1], json!({"role": "user", "content": "Привет"}));
     assert_eq!(b["tools"][0]["type"], "function");
-    assert_eq!(b["tools"][0]["function"]["name"], "muse.read");
+    assert_eq!(b["tools"][0]["function"]["name"], "hamlet.read");
     assert_eq!(b["tools"][0]["function"]["parameters"]["required"], json!(["path"]));
 }
 
@@ -95,8 +95,8 @@ async fn two_tool_calls_in_order() {
     assert_eq!(
         calls,
         vec![
-            Part::ToolCall { id: "toolu_01".into(), name: "muse.read".into(), arguments: json!({"path": "~/a.txt"}) },
-            Part::ToolCall { id: "toolu_02".into(), name: "muse.read".into(), arguments: json!({"path": "~/b.txt"}) },
+            Part::ToolCall { id: "toolu_01".into(), name: "hamlet.read".into(), arguments: json!({"path": "~/a.txt"}) },
+            Part::ToolCall { id: "toolu_02".into(), name: "hamlet.read".into(), arguments: json!({"path": "~/b.txt"}) },
         ]
     );
 }
@@ -225,7 +225,7 @@ fn tool_results_images_developer() {
         Message { role: Role::User, content: vec![Part::Text { text: "смотри".into() }, Part::Image(png.clone())] },
         Message {
             role: Role::Assistant,
-            content: vec![Part::ToolCall { id: "c1".into(), name: "muse.read".into(), arguments: json!({"path": "~/a"}) }],
+            content: vec![Part::ToolCall { id: "c1".into(), name: "hamlet.read".into(), arguments: json!({"path": "~/a"}) }],
         },
         Message {
             role: Role::User,
@@ -237,14 +237,14 @@ fn tool_results_images_developer() {
         },
         Message { role: Role::Developer, content: vec![Part::Text { text: "[время 10:00]".into() }] },
     ];
-    req.settings.tool_choice = ToolChoice::Tool { name: "muse.read".into() };
+    req.settings.tool_choice = ToolChoice::Tool { name: "hamlet.read".into() };
     let b = request_body("m", &req, &full_facts()).unwrap();
     let m = &b["messages"];
     assert_eq!(m[1]["content"][1], json!({"type": "image_url", "image_url": {"url": "data:image/png;base64,iVBO"}}));
-    assert_eq!(m[2]["tool_calls"][0]["function"], json!({"name": "muse.read", "arguments": "{\"path\":\"~/a\"}"}));
+    assert_eq!(m[2]["tool_calls"][0]["function"], json!({"name": "hamlet.read", "arguments": "{\"path\":\"~/a\"}"}));
     assert_eq!(m[3], json!({"role": "tool", "tool_call_id": "c1", "content": format!("{TOOL_ERROR_PREFIX}нет файла")}));
     assert_eq!(m[4], json!({"role": "system", "content": "[время 10:00]"}));
-    assert_eq!(b["tool_choice"], json!({"type": "function", "function": {"name": "muse.read"}}));
+    assert_eq!(b["tool_choice"], json!({"type": "function", "function": {"name": "hamlet.read"}}));
 
     // Без developer_role — обёртка в сообщении пользователя.
     let facts = OpenaiCompatFacts { developer_role: false, ..full_facts() };

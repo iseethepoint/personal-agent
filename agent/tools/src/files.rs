@@ -3,6 +3,7 @@
 //!
 //! Описания и параметры — строки ядра muse, полные варианты, личный вариант:
 //! `muse.write` и `muse.read` — 0x878143–0x878950, `muse.edit` — 0xa3ee6c–0xa3f121.
+//! Правки (П10): имена и ссылки `muse.*` → `hamlet.*`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -20,12 +21,12 @@ const READ_PATH: &str = "File or directory path: relative to your working direct
 const READ_OFFSET: &str = "Optional 1-indexed starting line for text files. Defaults to 1.";
 const READ_LIMIT: &str = "The maximum number of lines to return for a text file. Optional.";
 
-const WRITE_DESCRIPTION: &str = "Write content to a file. For a small change to an existing file, use `muse.edit`. Creates the file if it does not exist. Default mode overwrites the full file; for long or incremental outputs, split content across multiple calls and use mode=\"append\" so you add chunks instead of replacing prior content. Overwriting a file that already has content fails unless the file was successfully read earlier in the conversation.";
+const WRITE_DESCRIPTION: &str = "Write content to a file. For a small change to an existing file, use `hamlet.edit`. Creates the file if it does not exist. Default mode overwrites the full file; for long or incremental outputs, split content across multiple calls and use mode=\"append\" so you add chunks instead of replacing prior content. Overwriting a file that already has content fails unless the file was successfully read earlier in the conversation.";
 const WRITE_PATH: &str = "File path: relative to your working directory, or any absolute path.";
 const WRITE_CONTENT: &str = "Content to write.";
 const WRITE_MODE: &str = "Write mode. 'overwrite' (default): replace file contents. 'append': add to end of file, creating it if needed; prefer this for second-and-later chunks of long outputs.";
 
-const EDIT_DESCRIPTION: &str = "Edit a file by replacing exact text. `old_text` must match exactly, including whitespace. Use this for precise, surgical edits. For a new file or a full rewrite, use `muse.write`.";
+const EDIT_DESCRIPTION: &str = "Edit a file by replacing exact text. `old_text` must match exactly, including whitespace. Use this for precise, surgical edits. For a new file or a full rewrite, use `hamlet.write`.";
 const EDIT_PATH: &str = "File path: relative to your working directory, or absolute under /tmp.";
 const EDIT_OLD: &str = "Exact text to find (first occurrence is replaced; a multi-match result lists the other locations). Must not be empty.";
 const EDIT_NEW: &str = "Replacement text. Can be empty to delete old_text.";
@@ -86,7 +87,7 @@ struct Edit(FileTools);
 impl Tool for Read {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
-            name: "muse.read".into(),
+            name: "hamlet.read".into(),
             description: personal(READ_DESCRIPTION),
             input_schema: json!({
                 "type": "object",
@@ -218,7 +219,7 @@ fn list_dir(path: &Path) -> String {
 impl Tool for Write {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
-            name: "muse.write".into(),
+            name: "hamlet.write".into(),
             description: personal(WRITE_DESCRIPTION),
             input_schema: json!({
                 "type": "object",
@@ -263,7 +264,7 @@ impl Tool for Write {
                 let has_content = tokio::fs::metadata(&path).await.map(|m| m.len() > 0).unwrap_or(false);
                 if has_content && !self.0.read.lock().unwrap().contains(&key(&path)) {
                     return Err(ToolError::Failed(format!(
-                        "{} already has content and was not read in this conversation: read it with `muse.read` before overwriting, or use `muse.edit` or mode=\"append\"",
+                        "{} already has content and was not read in this conversation: read it with `hamlet.read` before overwriting, or use `hamlet.edit` or mode=\"append\"",
                         path.display()
                     )));
                 }
@@ -279,7 +280,7 @@ impl Tool for Write {
 impl Tool for Edit {
     fn spec(&self) -> ToolSpec {
         ToolSpec {
-            name: "muse.edit".into(),
+            name: "hamlet.edit".into(),
             description: personal(EDIT_DESCRIPTION),
             input_schema: json!({
                 "type": "object",

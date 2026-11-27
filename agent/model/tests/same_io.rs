@@ -21,7 +21,7 @@ fn request() -> Request {
             content: vec![Part::Text { text: "Прочитай a.txt и b.txt".into() }],
         }],
         tools: vec![ToolSpec {
-            name: "muse.read".into(),
+            name: "hamlet.read".into(),
             description: "Прочитать файл".into(),
             input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}}),
         }],
@@ -99,7 +99,7 @@ async fn call_cut_by_output_limit_is_dropped() {
     let req = request();
     let a_body = [
         r#"{"type":"message_start","message":{"id":"m","type":"message","role":"assistant","content":[],"model":"m","stop_reason":null,"usage":{"input_tokens":10,"output_tokens":1}}}"#,
-        r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"muse.read","input":{}}}"#,
+        r#"{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"t1","name":"hamlet.read","input":{}}}"#,
         r#"{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"path\": \"~/a"}}"#,
         r#"{"type":"content_block_stop","index":0}"#,
         r#"{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"output_tokens":5}}"#,
@@ -109,7 +109,7 @@ async fn call_cut_by_output_limit_is_dropped() {
     .map(|e| format!("data: {e}\n\n"))
     .collect::<String>();
     let o_body = [
-        r#"{"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"muse.read","arguments":"{\"path\": \"~/a"}}]},"finish_reason":null}]}"#,
+        r#"{"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"t1","type":"function","function":{"name":"hamlet.read","arguments":"{\"path\": \"~/a"}}]},"finish_reason":null}]}"#,
         r#"{"id":"c","object":"chat.completion.chunk","created":1,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"length"}]}"#,
         "[DONE]",
     ]

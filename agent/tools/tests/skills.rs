@@ -80,36 +80,36 @@ fn names(v: &Value, q: usize) -> Vec<String> {
 #[tokio::test]
 async fn search_finds_system_and_custom() {
     let f = setup("find");
-    let r = call(&f.tools, "muse.skill_search", json!({"queries": ["book a flight", "groceries for the week"]})).await.unwrap();
+    let r = call(&f.tools, "hamlet.skill_search", json!({"queries": ["book a flight", "groceries for the week"]})).await.unwrap();
     assert_eq!(names(&r, 0)[0], "flight_booking");
     assert_eq!(names(&r, 1), vec!["grocery_shopping"]);
     let hit = &r["results"][1]["hits"][0];
     assert!(hit["path"].as_str().unwrap().ends_with("workspace/custom-skills/groceries/SKILL.md"), "{hit}");
     assert!(r["note"].as_str().unwrap().starts_with("Read useful skills and their listed local amendments."));
     // Вложенный навык тоже в каталоге.
-    let r = call(&f.tools, "muse.skill_search", json!({"queries": ["artifacts browser"]})).await.unwrap();
+    let r = call(&f.tools, "hamlet.skill_search", json!({"queries": ["artifacts browser"]})).await.unwrap();
     assert_eq!(names(&r, 0)[0], "artifact_testing");
     // Промах — заметка muse.
-    let r = call(&f.tools, "muse.skill_search", json!({"queries": ["quantum chromodynamics"]})).await.unwrap();
+    let r = call(&f.tools, "hamlet.skill_search", json!({"queries": ["quantum chromodynamics"]})).await.unwrap();
     assert!(names(&r, 0).is_empty());
     assert!(r["note"].as_str().unwrap().starts_with("No matching skill was found."));
     // regex — по имени, описанию и тексту SKILL.md.
-    let r = call(&f.tools, "muse.skill_search", json!({"queries": ["AIRLINES"], "mode": "regex"})).await.unwrap();
+    let r = call(&f.tools, "hamlet.skill_search", json!({"queries": ["AIRLINES"], "mode": "regex"})).await.unwrap();
     assert_eq!(names(&r, 0), vec!["flight_booking"]);
     // Ошибки — тексты muse.
-    assert!(call(&f.tools, "muse.skill_search", json!({"queries": []})).await.unwrap_err().contains("queries cannot be empty"));
-    assert!(call(&f.tools, "muse.skill_search", json!({"queries": ["x"], "mode": "fuzzy"}))
+    assert!(call(&f.tools, "hamlet.skill_search", json!({"queries": []})).await.unwrap_err().contains("queries cannot be empty"));
+    assert!(call(&f.tools, "hamlet.skill_search", json!({"queries": ["x"], "mode": "fuzzy"}))
         .await
         .unwrap_err()
         .contains("unknown mode 'fuzzy'; expected 'bm25' or 'regex'"));
-    assert!(call(&f.tools, "muse.skill_search", json!({"queries": ["x"], "maxResults": 0})).await.is_err());
+    assert!(call(&f.tools, "hamlet.skill_search", json!({"queries": ["x"], "maxResults": 0})).await.is_err());
 }
 
 #[tokio::test]
 async fn custom_amends_system_skill() {
     let f = setup("amend");
     let own = skill(&f.home.join("workspace/custom-skills"), "trip-planning", "trip_planning", "Plan a trip my way, with trains.", false, "Prefer trains.\n");
-    let r = call(&f.tools, "muse.skill_search", json!({"queries": ["plan a trip"]})).await.unwrap();
+    let r = call(&f.tools, "hamlet.skill_search", json!({"queries": ["plan a trip"]})).await.unwrap();
     let hits = r["results"][0]["hits"].as_array().unwrap();
     assert_eq!(hits.iter().filter(|h| h["name"] == "trip_planning").count(), 1, "один навык, не два");
     let h = hits.iter().find(|h| h["name"] == "trip_planning").unwrap();
@@ -137,25 +137,25 @@ async fn include_in_prompt_goes_to_prefix() {
 #[tokio::test]
 async fn edited_skill_is_reread() {
     let f = setup("edit");
-    let r = call(&f.tools, "muse.skill_search", json!({"queries": ["sailing"]})).await.unwrap();
+    let r = call(&f.tools, "hamlet.skill_search", json!({"queries": ["sailing"]})).await.unwrap();
     assert!(names(&r, 0).is_empty());
     std::fs::write(
         f.system_skills.join("trip-planning/skill.yaml"),
         "name: trip_planning\ndescription: \"Plan a sailing trip.\"\ninclude_in_prompt: false\n",
     )
     .unwrap();
-    let r = call(&f.tools, "muse.skill_search", json!({"queries": ["sailing"]})).await.unwrap();
+    let r = call(&f.tools, "hamlet.skill_search", json!({"queries": ["sailing"]})).await.unwrap();
     assert_eq!(names(&r, 0), vec!["trip_planning"]);
     // Правка только SKILL.md тоже видна (regex по тексту).
     std::fs::write(f.system_skills.join("trip-planning/SKILL.md"), "Check the tides.\n").unwrap();
-    let r = call(&f.tools, "muse.skill_search", json!({"queries": ["tides"], "mode": "regex"})).await.unwrap();
+    let r = call(&f.tools, "hamlet.skill_search", json!({"queries": ["tides"], "mode": "regex"})).await.unwrap();
     assert_eq!(names(&r, 0), vec!["trip_planning"]);
 }
 
 #[tokio::test]
 async fn connector_search_by_name_alias_description() {
     let f = setup("conn");
-    let r = call(&f.tools, "muse.connector_search", json!({"queries": ["google mail", "restaurant", "smart home"]})).await.unwrap();
+    let r = call(&f.tools, "hamlet.connector_search", json!({"queries": ["google mail", "restaurant", "smart home"]})).await.unwrap();
     assert_eq!(names(&r, 0)[0], "gmail");
     assert_eq!(names(&r, 1)[0], "opentable");
     assert_eq!(names(&r, 2)[0], "homeassistant");
@@ -188,7 +188,7 @@ async fn one_turn(wire: Wire) {
     let f = setup("turn");
     let steps = vec![
         Step::Calls(vec![
-            ("c1", "muse.skill_search", json!({"queries": ["book a flight"]})),
+            ("c1", "hamlet.skill_search", json!({"queries": ["book a flight"]})),
             ("c2", "todo.write", json!({"todos": [{"text": "Прочитать навык", "status": "in_progress"}]})),
         ]),
         Step::Text("Нашёл навык."),
@@ -200,7 +200,7 @@ async fn one_turn(wire: Wire) {
     let body = server.requests()[1]["messages"].to_string();
     assert!(body.contains("flight_booking"), "{body}");
     let tools_json = server.requests()[0]["tools"].to_string();
-    for n in ["muse.skill_search", "muse.connector_search", "todo.write"] {
+    for n in ["hamlet.skill_search", "hamlet.connector_search", "todo.write"] {
         assert!(tools_json.contains(&format!("\"{n}\"")), "{n}");
     }
 }

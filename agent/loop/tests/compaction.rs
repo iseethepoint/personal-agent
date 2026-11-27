@@ -183,7 +183,7 @@ async fn flush_then_summary(wire: Wire) {
 both!(flush_then_summary);
 
 #[test]
-fn personal_variant_of_muse_texts() {
+fn personal_variant_of_source_texts() {
     let s = summarization_prompt();
     assert!(!s.contains("<!--") && !s.contains("{summary_rules}") && !s.contains("member"), "{s}");
     assert!(s.contains("- Current progress and key decisions made\n- Important context, constraints, or user preferences\n- What remains to be done"));

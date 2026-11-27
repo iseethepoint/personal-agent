@@ -41,7 +41,7 @@ fn request() -> Request {
         system: "Ты — личный агент.".into(),
         messages: vec![user("Привет")],
         tools: vec![ToolSpec {
-            name: "muse.read".into(),
+            name: "hamlet.read".into(),
             description: "Прочитать файл".into(),
             input_schema: json!({"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}),
         }],
@@ -95,7 +95,7 @@ async fn two_tool_calls_in_order() {
             Part::ToolCall { id: a, name: na, arguments: aa },
             Part::ToolCall { id: b, arguments: ab, .. },
         ) => {
-            assert_eq!((a.as_str(), na.as_str()), ("toolu_01", "muse.read"));
+            assert_eq!((a.as_str(), na.as_str()), ("toolu_01", "hamlet.read"));
             assert_eq!(aa, &json!({"path": "~/a.txt"}));
             assert_eq!(b, "toolu_02");
             assert_eq!(ab, &json!({"path": "~/b.txt"}));
@@ -279,7 +279,7 @@ fn developer_without_flag_is_reminder() {
 #[test]
 fn forced_tool_choice_by_flag() {
     let mut req = request();
-    req.settings.tool_choice = ToolChoice::Tool { name: "muse.read".into() };
+    req.settings.tool_choice = ToolChoice::Tool { name: "hamlet.read".into() };
     let e = request_body("m", &req, &bare_facts()).unwrap_err();
     assert_eq!(e.kind, ProviderErrorKind::Config);
     assert!(!e.retryable);
@@ -290,7 +290,7 @@ fn forced_tool_choice_by_flag() {
         ..bare_facts()
     };
     let b = request_body("m", &req, &facts).unwrap();
-    assert_eq!(b["tool_choice"], json!({"type": "tool", "name": "muse.read"}));
+    assert_eq!(b["tool_choice"], json!({"type": "tool", "name": "hamlet.read"}));
 }
 
 #[tokio::test]
@@ -318,7 +318,7 @@ fn tool_results_and_choice() {
         role: Role::Assistant,
         content: vec![Part::ToolCall {
             id: "toolu_01".into(),
-            name: "muse.read".into(),
+            name: "hamlet.read".into(),
             arguments: json!({"path": "~/a.txt"}),
         }],
     });

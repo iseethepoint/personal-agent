@@ -34,21 +34,21 @@ async fn call(tools: &Tools, name: &str, args: Value) -> Result<Value, String> {
 #[tokio::test]
 async fn short_command() {
     let (home, tools, inbox) = setup("short", vec![]);
-    let r = call(&tools, "muse.exec", json!({"command": "echo привет; pwd"})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "echo привет; pwd"})).await.unwrap();
     assert_eq!(r["status"], "completed");
     assert_eq!(r["exit_code"], 0);
     assert_eq!(r["backgrounded"], false);
     let real = home.canonicalize().unwrap();
     assert_eq!(r["output"], format!("привет\n{}\n", real.display()));
 
-    let r = call(&tools, "muse.exec", json!({"command": "echo нет >&2; exit 3"})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "echo нет >&2; exit 3"})).await.unwrap();
     assert_eq!((r["status"].as_str(), r["exit_code"].as_i64()), (Some("failed"), Some(3)));
     assert_eq!(r["output"], "нет\n");
 
-    let r = call(&tools, "muse.exec", json!({"command": "cat", "stdin": "строка без перевода"})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "cat", "stdin": "строка без перевода"})).await.unwrap();
     assert_eq!(r["output"], "строка без перевода");
 
-    let r = call(&tools, "muse.exec", json!({"command": "echo $GREETING", "env": {"GREETING": "здравствуй"}})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "echo $GREETING", "env": {"GREETING": "здравствуй"}})).await.unwrap();
     assert_eq!(r["output"], "здравствуй\n");
     // Короткая команда — в ящик ничего не приходит.
     assert!(inbox.drain().is_empty());
@@ -58,7 +58,7 @@ async fn short_command() {
 async fn long_command_goes_to_background() {
     let (_home, tools, inbox) = setup("long", vec![]);
     let started = Instant::now();
-    let r = call(&tools, "muse.exec", json!({"command": "echo начало; sleep 30", "yield_ms": 300})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "echo начало; sleep 30", "yield_ms": 300})).await.unwrap();
     assert!(started.elapsed() < Duration::from_secs(3));
     assert_eq!((r["status"].as_str(), r["backgrounded"].as_bool()), (Some("running"), Some(true)));
     assert_eq!(r["output"], "начало\n");
@@ -93,7 +93,7 @@ async fn long_command_goes_to_background() {
 #[tokio::test]
 async fn background_result_arrives_by_itself() {
     let (_home, tools, inbox) = setup("deliver", vec![]);
-    let r = call(&tools, "muse.exec", json!({"command": "sleep 0.3; echo готово", "background": true})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "sleep 0.3; echo готово", "background": true})).await.unwrap();
     assert_eq!(r["status"], "running");
     let id = r["id"].as_str().unwrap().to_string();
     tokio::time::timeout(Duration::from_secs(5), inbox.wait()).await.unwrap();
@@ -108,7 +108,7 @@ async fn background_result_arrives_by_itself() {
 #[tokio::test]
 async fn write_and_keys_to_running_session() {
     let (_home, tools, _inbox) = setup("stdin", vec![]);
-    let r = call(&tools, "muse.exec", json!({"command": "cat", "background": true})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "cat", "background": true})).await.unwrap();
     let id = r["id"].as_str().unwrap().to_string();
     let w = call(&tools, "process.write", json!({"session_id": id, "data": "эхо\n"})).await.unwrap();
     assert_eq!(w["bytes_written"], "эхо\n".len());
@@ -157,7 +157,7 @@ api_key_env = "AGENT_TOOLS_TEST_SECRET_KEY"
     let (_home, tools, _inbox) = setup("secret", reg.api_key_envs());
     let r = call(
         &tools,
-        "muse.exec",
+        "hamlet.exec",
         json!({"command": "echo $AGENT_TOOLS_TEST_SECRET_KEY; echo ключ=sk-fake-0123456789 >&2"}),
     )
     .await
@@ -166,7 +166,7 @@ api_key_env = "AGENT_TOOLS_TEST_SECRET_KEY"
     assert!(!out.contains("sk-fake-0123456789"), "{out}");
     assert_eq!(out, "<redacted>\nключ=<redacted>\n");
 
-    let r = call(&tools, "muse.exec", json!({"command": "echo $AGENT_TOOLS_TEST_SECRET_KEY; sleep 30", "yield_ms": 200}))
+    let r = call(&tools, "hamlet.exec", json!({"command": "echo $AGENT_TOOLS_TEST_SECRET_KEY; sleep 30", "yield_ms": 200}))
         .await
         .unwrap();
     let id = r["id"].as_str().unwrap();
@@ -189,7 +189,7 @@ async fn yield_default_and_tool_specs() {
     let names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,
-        ["muse.exec", "process.list", "process.poll", "process.log", "process.write", "process.send_keys", "process.kill", "process.clear"]
+        ["hamlet.exec", "process.list", "process.poll", "process.log", "process.write", "process.send_keys", "process.kill", "process.clear"]
     );
     assert!(specs[0].description.starts_with("Execute a shell command. If the command is still running after `yield_ms`, it backgrounds"));
     assert_eq!(
@@ -201,7 +201,7 @@ async fn yield_default_and_tool_specs() {
 async fn one_turn(wire: Wire) {
     let (_home, tools, _inbox) = setup("turn", vec![]);
     let steps = vec![
-        Step::Calls(vec![("c1", "muse.exec", json!({"command": "echo из оболочки"}))]),
+        Step::Calls(vec![("c1", "hamlet.exec", json!({"command": "echo из оболочки"}))]),
         Step::Text("Выполнил."),
     ];
     let (_server, p) = model(wire, steps, false);
@@ -228,12 +228,12 @@ async fn one_turn_openai_compat() {
 async fn pty_gives_a_terminal() {
     let (_home, tools, _inbox) = setup("pty", vec![]);
     // Без pty терминала нет.
-    let r = call(&tools, "muse.exec", json!({"command": "tty"})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "tty"})).await.unwrap();
     assert_eq!(r["exit_code"], 1, "{r}");
     assert_eq!(r["pty"], false);
     assert!(r["output"].as_str().unwrap().contains("not a tty"), "{r}");
     // Под pty — есть.
-    let r = call(&tools, "muse.exec", json!({"command": "tty", "pty": true})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "tty", "pty": true})).await.unwrap();
     assert_eq!((r["exit_code"].as_i64(), r["pty"].as_bool()), (Some(0), Some(true)), "{r}");
     assert!(r["output"].as_str().unwrap().trim().starts_with("/dev/"), "{r}");
 }
@@ -242,7 +242,7 @@ async fn pty_gives_a_terminal() {
 async fn send_keys_reach_pty() {
     let (_home, tools, _inbox) = setup("pty-keys", vec![]);
     // read ждёт строку с терминала; Ctrl-C прерывает его, как в терминале.
-    let r = call(&tools, "muse.exec", json!({"command": "read line; echo \"got:$line\"", "pty": true, "background": true}))
+    let r = call(&tools, "hamlet.exec", json!({"command": "read line; echo \"got:$line\"", "pty": true, "background": true}))
         .await
         .unwrap();
     let id = r["id"].as_str().unwrap().to_string();
@@ -258,7 +258,7 @@ async fn send_keys_reach_pty() {
     }
     assert!(out.contains("got:привет"), "{out:?}");
 
-    let r = call(&tools, "muse.exec", json!({"command": "sleep 30", "pty": true, "background": true})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "sleep 30", "pty": true, "background": true})).await.unwrap();
     let id = r["id"].as_str().unwrap().to_string();
     tokio::time::sleep(Duration::from_millis(200)).await;
     call(&tools, "process.send_keys", json!({"session_id": id, "keys": ["c-c"]})).await.unwrap();
@@ -273,7 +273,7 @@ async fn output_buffer_keeps_tail() {
     assert_eq!(cap, 100 * 1024);
     let (_home, tools, _inbox) = setup("cap", vec![]);
     // 3000 строк по 100 байт = 300 000 байт > предела.
-    let r = call(&tools, "muse.exec", json!({"command": "for i in $(seq 1 3000); do printf '%05d %093d\\n' $i 0; done"}))
+    let r = call(&tools, "hamlet.exec", json!({"command": "for i in $(seq 1 3000); do printf '%05d %093d\\n' $i 0; done"}))
         .await
         .unwrap();
     assert_eq!(r["truncated"], true);
@@ -282,7 +282,7 @@ async fn output_buffer_keeps_tail() {
     assert!(out.ends_with(&format!("{:05} {:093}\n", 3000, 0)), "хвост на месте");
     assert!(!out.contains(&format!("{:05} {:093}\n", 1, 0)), "начало отброшено");
 
-    let r = call(&tools, "muse.exec", json!({"command": "echo коротко"})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "echo коротко"})).await.unwrap();
     assert_eq!(r["truncated"], false);
 }
 
@@ -298,6 +298,6 @@ async fn search_key_is_redacted_too() {
     // Безобидное поддельное значение, только для этого теста.
     std::env::set_var("FIRECRAWL_API_KEY", "fc-fake-search-0123456789");
     let (_home, tools, _inbox) = setup("search-secret", names);
-    let r = call(&tools, "muse.exec", json!({"command": "echo key=$FIRECRAWL_API_KEY"})).await.unwrap();
+    let r = call(&tools, "hamlet.exec", json!({"command": "echo key=$FIRECRAWL_API_KEY"})).await.unwrap();
     assert_eq!(r["output"], "key=<redacted>\n");
 }
