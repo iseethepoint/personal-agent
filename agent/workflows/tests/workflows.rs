@@ -39,7 +39,7 @@ struct Env {
 
 async fn env(name: &str, wire: Wire, steps: Vec<Step>) -> Env {
     let (server, provider) = model(wire, steps, false);
-    let dir = temp_dir(&format!("workflows-{name}"));
+    let dir = temp_dir(&format!("workflows-{name}-{wire:?}"));
     let ws = dir.join("home/workspace");
     std::fs::create_dir_all(&ws).unwrap();
     let store = Store::connect(&pg::database()).await.unwrap();

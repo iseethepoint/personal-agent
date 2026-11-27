@@ -288,6 +288,24 @@ async fn hook_validation_and_script_errors() {
     assert!(c.call("hooks.add", json!({"id": "x", "script_path": "~/hooks/scripts/flag.sh", "prompt": " "})).await.unwrap_err().contains("prompt cannot be empty"));
     c.call("hooks.add", bad("x")).await.unwrap();
     assert!(c.call("hooks.add", bad("x")).await.unwrap_err().contains("hook already exists: x"));
+    // Пределы ядра: poll 5..604800, срок скрипта 1..600, prompt до 65 536 байт.
+    let with = |k: &str, v: Value| {
+        let mut h = bad("y");
+        h[k] = v;
+        h
+    };
+    for (k, v, err) in [
+        ("poll_interval_secs", json!(4), "poll_interval_secs must be between 5 and 604800"),
+        ("poll_interval_secs", json!(604_801), "poll_interval_secs must be between 5 and 604800"),
+        ("script_timeout_secs", json!(601), "script_timeout_secs must be between 1 and 600"),
+        ("prompt", json!("p".repeat(65_537)), "prompt exceeds the 65536-byte limit"),
+    ] {
+        assert_eq!(c.call("hooks.add", with(k, v)).await.unwrap_err(), err);
+    }
+    c.call("hooks.add", with("prompt", json!("p".repeat(65_536)))).await.unwrap();
+    assert_eq!(c.call("hooks.update", json!({"id": "y", "poll_interval_secs": 3})).await.unwrap_err(), "poll_interval_secs must be between 5 and 604800");
+    let r = c.call("hooks.update", json!({"id": "y", "poll_interval_secs": 5, "script_timeout_secs": 600})).await.unwrap();
+    assert_eq!(r["poll_interval_secs"], 5, "{r}");
     assert!(c.call("hooks.view", json!({"id": "nope"})).await.unwrap_err().contains("hook does not exist: nope"));
 
     for (name, body, err) in [

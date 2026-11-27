@@ -32,6 +32,7 @@ use agent_loop::monitor::Monitor;
 use agent_loop::{Compactor, Conversation, Inbox, Plan as CompactionPlan, Prefix, Subagents, Tools, Transcript};
 use agent_memory::{Embedder, ForgetTools, MemoryTools, ProviderEmbedder};
 use agent_model::openai_compat::OpenaiCompatProvider;
+use agent_model::http::CRON_FIRST_CHUNK_TIMEOUT;
 use agent_model::{AnyProvider, Purpose, Registry, Resolved};
 use agent_tools::{add_search, secret_envs, Blocklist, Catalog, ExecTools, FileTools, Home, Todo, WebConfig, WebTools};
 
@@ -243,11 +244,12 @@ impl Hamlet {
         let cp = CompactionPlan::from_registry(&reg, sel).map_err(|e| e.to_string())?;
         let compaction = (Arc::new(provider(&cp.flush)?), Arc::new(provider(&cp.compaction)?), cp.trigger);
 
-        // Службы: работник расписаний (`CronWorker` / `CronResolve`) и
-        // сверка памяти на такте.
+        // Службы: работник расписаний (`CronWorker` / `CronResolve`, срок
+        // первого куска потока — 30 мин, как у расписаний muse) и сверка
+        // памяти на такте.
         let cron_plan = agent_cron::Plan::from_registry(&reg, sel).map_err(|e| e.to_string())?;
-        let mut scheduler = Scheduler::new(core, Arc::new(provider(&cron_plan.worker)?), system.clone(), Arc::new(with_workflows(parts.base(None)?)), spill_dir.clone(), inbox.clone());
-        scheduler.resolver(Arc::new(provider(&cron_plan.resolve)?));
+        let mut scheduler = Scheduler::new(core, Arc::new(provider(&cron_plan.worker)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)), system.clone(), Arc::new(with_workflows(parts.base(None)?)), spill_dir.clone(), inbox.clone());
+        scheduler.resolver(Arc::new(provider(&cron_plan.resolve)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)));
         let (mhome, mstore, memb) = (home_dir.clone(), memory.clone(), embedder.clone());
         scheduler.background(Arc::new(move || {
             let (h, s, e) = (mhome.clone(), mstore.clone(), memb.clone());

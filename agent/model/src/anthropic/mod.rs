@@ -55,6 +55,10 @@ impl AnthropicProvider {
         self
     }
 
+    pub fn timeouts(&self) -> Timeouts {
+        self.timeouts
+    }
+
     /// Поставщик для выбранной модели. Ключ — из переменной окружения,
     /// имя которой записано в реестре.
     pub fn from_resolved(r: &Resolved<'_>) -> Result<Self, ProviderError> {
