@@ -160,6 +160,9 @@ pub struct Compactor<'a, F, C> {
     /// его пределов.
     pub segmented: bool,
     pub window: Option<u64>,
+    /// Системный текст хода сброса (профиль `memory_flush`); без него —
+    /// текст разговора.
+    pub flush_system: Option<String>,
 }
 
 impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
@@ -267,9 +270,10 @@ impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
             role: Role::Developer,
             content: vec![Part::Text { text: personal(MEMORY_FLUSH_PROMPT_MD) }],
         });
-        // Системный текст — главного агента, инструменты — набор хода сброса
-        // (роль `memory_flush` у Hamlet).
-        Turn::new(self.flush, self.tools, conv.prefix.system.clone(), self.spill_dir.clone())
+        // Системный текст — свой (профиль `memory_flush`, `flush_system`),
+        // инструменты — набор хода сброса (роль `memory_flush` у Hamlet).
+        let system = self.flush_system.clone().unwrap_or_else(|| conv.prefix.system.clone());
+        Turn::new(self.flush, self.tools, system, self.spill_dir.clone())
             .run(&mut scratch, &mut |_: &str| {})
             .await?;
         Ok(())

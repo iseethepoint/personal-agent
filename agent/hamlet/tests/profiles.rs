@@ -80,40 +80,20 @@ fn every_profile_and_section_is_mapped() {
         }
         for id in order(p) {
             let s = secs.get(id).unwrap_or_else(|| panic!("{}: раздел {id} не в карте", p.at));
-            assert!(["dispatcher", "other_harness", "unresolved"].contains(&s.via.as_str()));
+            assert!(["dispatcher", "other_harness", "browser_table", "unresolved"].contains(&s.via.as_str()));
         }
     }
     let unresolved: Vec<&str> = secs.values().filter(|s| s.via == "unresolved").map(|s| s.id.as_str()).collect();
     let mut u = unresolved.clone();
     u.sort_by_key(|x| u32::from_str_radix(x, 16).unwrap());
-    assert_eq!(u, ["64", "75", "164", "264", "364", "464", "564", "664", "764", "864", "964"]);
+    assert_eq!(u, ["75"]);
 }
 
-/// Порядок разделов ролей, которые у Hamlet есть, но чья сборка ещё не по
-/// профилю (части 2–3 П5-2), — массивы профилей ядра (адрес среза — в
-/// комментарии). Подагент — по собранному тексту (`tests/subagent_prompt.rs`),
-/// работник расписаний и итог — `tests/scheduler_prompt.rs`,
-/// глубокое исследование — `deep_research_blocks_follow_profile`.
-#[test]
-fn hamlet_roles_follow_core_order() {
-    let (ps, _) = load();
-    let cases: [(&str, &[&str]); 5] = [
-        // 0x290bbf50: 0x9905ee
-        ("deep_research", &["66", "67", "68", "12e", "69", "6a", "635", "6b", "6c", "13b"]),
-        // 0x290bc030: 0x99065a, 0x4b0fa0, 0x9905ba
-        ("event_hook", &["7f", "7d", "3d", "7e", "7c", "335", "33b", "cd", "ce", "cc", "b7", "c9", "ca", "b8", "b9", "ba", "bb", "bc", "bd", "bf", "c2", "c1", "92"]),
-        // 0x290bc180: 0x4a3198, 0x9906ca, 0x9905ba
-        ("execute_resolve", &["126", "3d", "435", "33b", "426", "b7", "b8", "b9", "ba", "bb", "bc", "bd", "bf", "c1"]),
-        // 0x290bc228: 0x49a180, 0x9906bc
-        ("verification", &["326", "3d", "435", "33b", "426", "b8", "ba", "bc", "bd", "bf", "c1"]),
-        // 0x290bc490: 0x49a850, 0x99059e, 0x9905ba
-        ("memory_flush", &["9c", "3d", "735", "73b", "cc", "b7", "b8", "b9", "ba", "bb", "bc", "bd", "bf", "c2", "c1", "92", "8c", "91"]),
-    ];
-    for (role, want) in cases {
-        let got: Vec<&str> = order(by_role(&ps, role)).into_iter().filter(|id| !id.ends_with("d0")).collect();
-        assert_eq!(got, want, "{role}");
-    }
-}
+// Порядок ролей Hamlet проверяется по собранным текстам: подагент —
+// `tests/subagent_prompt.rs`, работник расписаний и итог —
+// `tests/scheduler_prompt.rs`, наблюдатель, проверяющий, сброс памяти —
+// `tests/background_prompt.rs`, исполнитель браузера и глубокое
+// исследование — ниже.
 
 /// Блоки глубокого исследования у Hamlet — в порядке профиля 6 ядра (блоки
 /// `deep_research/*` его разделов); `security_authority` — из стека
@@ -146,4 +126,25 @@ fn section_map_matches_dispatcher() {
     for id in ["b7", "b8", "c1", "c2"] {
         assert_eq!(secs[id].via, "other_harness", "{id}");
     }
+}
+
+/// Исполнитель браузера — профиль 1 (`0x290bbe38`, срез 0 `0x4a628c`:
+/// `64 23b`): раздел `0x64` вариант 0 — `browser/system.md`, затем
+/// `browser/pages.md` (таблица `0x2906bd30`); `23b` — П8. Порядок — по
+/// собранному тексту исполнителя.
+#[test]
+fn browser_planner_follows_profile() {
+    let (ps, secs) = load();
+    let p = by_role(&ps, "browser_planner");
+    assert_eq!(p.slice[0].sections, ["64", "23b"]);
+    let blocks: Vec<String> = secs["64"].block.iter().filter_map(|b| b.block.clone()).collect();
+    assert_eq!(blocks, ["browser/system.md", "browser/pages.md"]);
+    let text = agent_browser::planner::system("en-US");
+    let first = |path: &str| -> String {
+        let t = agent_loop::personal(&std::fs::read_to_string(root().join("prompts").join(path)).unwrap());
+        t.trim().lines().next().unwrap().to_string()
+    };
+    let (sys, pages) = (first("browser/system.md"), first("browser/pages.md"));
+    assert!(text.starts_with(&sys), "{text}");
+    assert!(text.find(&sys).unwrap() < text.find(&pages).unwrap());
 }

@@ -592,7 +592,7 @@ async fn cron_report_is_verified_before_handoff() {
                     store: c.core.store.clone(),
                     provider: vp,
                     tools: Arc::new(Tools::new),
-                    system: "verifier system".into(),
+                    system: Arc::new(|| "verifier system".to_string()),
                     spill_dir: c.home.join("spill"),
                     now: Arc::new(move || agent_cron::Clock::now_ms(&clock)),
                 },

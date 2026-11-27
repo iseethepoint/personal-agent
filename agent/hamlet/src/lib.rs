@@ -27,6 +27,8 @@ pub mod daemon;
 pub mod main_prompt;
 pub mod scheduler_prompt;
 pub mod subagent_prompt;
+pub mod temporal;
+pub mod background_prompt;
 pub use agent_loop::roles;
 
 use std::path::{Path, PathBuf};
@@ -88,6 +90,8 @@ pub struct Hamlet {
     /// проверяющий.
     pub verification: Option<Verification>,
     pub timezone: Option<String>,
+    /// Дополнения владельца к системным текстам (`system.md`).
+    pub owner_system: String,
     pub clock: Arc<dyn Clock>,
 }
 
@@ -236,7 +240,13 @@ impl Hamlet {
                         web.add_to(&mut t);
                         roles::Role::get("verifier").apply(t)
                     }),
-                    system: system.clone(),
+                    // Профиль `verification` на момент проверки; `exec` — по
+                    // набору роли `verifier` (его там нет).
+                    system: {
+                        let (c, tz, owner) = (clock.clone(), t.agent.timezone.clone(), system.clone());
+                        let exec = roles::Role::get("verifier").allows("hamlet.exec");
+                        Arc::new(move || main_prompt::with_owner(background_prompt::verification(c.now_ms(), tz.as_deref(), exec), &owner))
+                    },
                     spill_dir: spill_dir.clone(),
                     now: Arc::new(move || vclock.now_ms()),
                 },
@@ -262,7 +272,9 @@ impl Hamlet {
                 });
                 roles::Role::get("workflow_subagent_depth1").apply(t)
             }),
-            system.clone(),
+            // Шаг — подагент роли `workflow_subagent_depth1`: профиль 0,
+            // изолирован, своих подагентов нет (`subagent_prompt`).
+            main_prompt::with_owner(subagent_prompt::assemble(&roles::Role::get("workflow_subagent_depth1").apply(parts.base(None)?), false, false), &system),
             home_dir.clone(),
             home_dir.join("workspace"),
             spill_dir.clone(),
@@ -412,7 +424,14 @@ impl Hamlet {
             scheduler.time_tag(Arc::new(move || daemon::time_tag(tag_clock.now_ms(), Some(&tz)).unwrap_or_default()));
         }
         scheduler.resolve_tools(resolve_tools);
-        scheduler.hook_tools(Arc::new(roles::Role::get("execute_resolve_worker").apply(parts.base(None)?)));
+        let hook_tools = Arc::new(roles::Role::get("execute_resolve_worker").apply(parts.base(None)?));
+        // Работник наблюдателя — профиль `event_hook` на момент прогона.
+        {
+            let (c, tz, owner) = (clock.clone(), t.agent.timezone.clone(), system.clone());
+            let exec = hook_tools.get("hamlet.exec").is_some();
+            scheduler.hook_system(Arc::new(move || main_prompt::with_owner(background_prompt::event_hook(c.now_ms(), tz.as_deref(), exec), &owner)));
+        }
+        scheduler.hook_tools(hook_tools);
         scheduler.resolver(Arc::new(provider(&cron_plan.resolve)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)));
         // Проверка отчётов расписаний: классификатор — модель главного
         // разговора (место `cron_verification_classifier` muse, `main_chat`),
@@ -475,6 +494,7 @@ impl Hamlet {
             history,
             verification,
             timezone: t.agent.timezone.clone(),
+            owner_system: system.clone(),
             clock,
         })
     }
@@ -508,6 +528,11 @@ impl Hamlet {
             spill_dir: self.spill_dir.clone(),
             today: self.today_log(),
             flush_covered,
+            // Профиль `memory_flush` на момент сброса.
+            flush_system: Some(main_prompt::with_owner(
+                background_prompt::memory_flush(self.clock.now_ms(), self.timezone.as_deref(), self.flush_tools.get("hamlet.exec").is_some()),
+                &self.owner_system,
+            )),
         }
     }
 

@@ -27,7 +27,7 @@ number = 0
 at = "0x290bbe00"
 role = "subagent"
 what = "подагент"
-hamlet = "agent/loop/src/subagents.rs — П5-2 ч.1"
+hamlet = "agent/hamlet/src/subagent_prompt.rs (П5-2 ч.1); шаги workflow — тот же профиль"
 [[profile.slice]]
 at = "0x990584"
 sections = ["43", "45", "12e", "132", "39", "3c", "36", "3f", "35", "42", "44", "2f", "13b"]
@@ -41,9 +41,9 @@ sections = ["d0", "1d0", "2d0", "3d0", "4d0", "5d0", "6d0", "7d0", "8d0", "9d0",
 [[profile]]
 number = 1
 at = "0x290bbe38"
-role = "unidentified"
-what = "не опознан: раздел 0x64 вариант 0 — вызов через 0x29ace370 (таблица 0x2906bd30)"
-hamlet = "—"
+role = "browser_planner"
+what = "исполнитель окна браузера (browser/system.md + pages.md)"
+hamlet = "agent/browser/src/planner.rs"
 [[profile.slice]]
 at = "0x4a628c"
 sections = ["64", "23b"]
@@ -54,9 +54,9 @@ sections = ["164"]
 [[profile]]
 number = 2
 at = "0x290bbe70"
-role = "unidentified"
-what = "не опознан: раздел 0x64 вариант 2 — вызов через 0x29ace370 (таблица 0x2906bd30)"
-hamlet = "—"
+role = "browser_login"
+what = "специалист входа (browser/workflows/login)"
+hamlet = "П4к-2"
 [[profile.slice]]
 at = "0x4a7c64"
 sections = ["264", "23b"]
@@ -67,9 +67,9 @@ sections = ["364"]
 [[profile]]
 number = 3
 at = "0x290bbea8"
-role = "unidentified"
-what = "не опознан: раздел 0x64 вариант 4 — вызов через 0x29ace370 (таблица 0x2906bd30)"
-hamlet = "—"
+role = "browser_checkout"
+what = "специалист покупки (browser/workflows/checkout)"
+hamlet = "П4к-4"
 [[profile.slice]]
 at = "0x4a662c"
 sections = ["464", "23b"]
@@ -80,9 +80,9 @@ sections = ["564", "65"]
 [[profile]]
 number = 4
 at = "0x290bbee0"
-role = "unidentified"
-what = "не опознан: раздел 0x64 вариант 6 — вызов через 0x29ace370 (таблица 0x2906bd30)"
-hamlet = "—"
+role = "browser_bot_challenge"
+what = "специалист проверок ботов (browser/workflows/bot_challenge)"
+hamlet = "П4к-3"
 [[profile.slice]]
 at = "0x4a93f0"
 sections = ["664", "23b"]
@@ -93,9 +93,9 @@ sections = ["764"]
 [[profile]]
 number = 5
 at = "0x290bbf18"
-role = "unidentified"
-what = "не опознан: раздел 0x64 вариант 8 — вызов через 0x29ace370 (таблица 0x2906bd30)"
-hamlet = "—"
+role = "browser_poppy"
+what = "poppy (browser/workflows/poppy)"
+hamlet = "П4к-3"
 [[profile.slice]]
 at = "0x4a5748"
 sections = ["864", "23b"]
@@ -166,7 +166,7 @@ number = 10
 at = "0x290bc030"
 role = "event_hook"
 what = "работник наблюдателя (hooks)"
-hamlet = "agent/cron/src/hooks.rs — П5-2 ч.3"
+hamlet = "agent/hamlet/src/background_prompt.rs (П5-2 ч.3)"
 [[profile.slice]]
 at = "0x99065a"
 sections = ["7f", "7d", "3d", "7e", "7c", "335", "33b"]
@@ -259,7 +259,7 @@ number = 16
 at = "0x290bc180"
 role = "execute_resolve"
 what = "итог работника (execute_resolve)"
-hamlet = "agent/cron/src/hooks.rs (роль execute_resolve_worker) — П5-2 ч.3"
+hamlet = "нет части: других работников execute_resolve у Hamlet нет (наблюдатель — профиль 10, проверка — 19)"
 [[profile.slice]]
 at = "0x4a3198"
 sections = ["126", "3d", "435", "33b"]
@@ -304,7 +304,7 @@ number = 19
 at = "0x290bc228"
 role = "verification"
 what = "проверяющий"
-hamlet = "agent/cron/src/verification.rs — П5-2 ч.3"
+hamlet = "agent/hamlet/src/background_prompt.rs (П5-2 ч.3)"
 [[profile.slice]]
 at = "0x49a180"
 sections = ["326", "3d", "435", "33b"]
@@ -477,7 +477,7 @@ number = 30
 at = "0x290bc490"
 role = "memory_flush"
 what = "сброс памяти"
-hamlet = "agent/loop/src/compaction.rs — П5-2 ч.3"
+hamlet = "agent/hamlet/src/background_prompt.rs (П5-2 ч.3)"
 [[profile.slice]]
 at = "0x49a850"
 sections = ["9c", "3d", "735", "73b"]

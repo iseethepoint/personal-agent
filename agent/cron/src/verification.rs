@@ -257,7 +257,8 @@ pub struct Verifier<P> {
     pub provider: Arc<P>,
     /// Набор проверяющего: чтение файлов и веб.
     pub tools: Arc<dyn Fn() -> Tools + Send + Sync>,
-    pub system: String,
+    /// Системный текст на момент проверки (профиль `verification`).
+    pub system: Arc<dyn Fn() -> String + Send + Sync>,
     pub spill_dir: PathBuf,
     pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
@@ -296,7 +297,7 @@ impl<P: Provider + Send + Sync + 'static> Verifier<P> {
             tools.add(NotRelevant(stopped.clone()));
             terminal.push(NOT_RELEVANT.to_string());
         }
-        let prefix = agent_loop::Prefix { system: self.system.clone(), tools: tools.upfront_specs() };
+        let prefix = agent_loop::Prefix { system: (self.system)(), tools: tools.upfront_specs() };
         let flag = stopped.clone();
         let kind = worker::Kind::Verify { resolve: personal(RESOLVE_MD).trim_end().to_string(), terminal, stop: Arc::new(move || *flag.lock().unwrap()) };
         let store = self.store.clone();

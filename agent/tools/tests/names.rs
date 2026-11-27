@@ -175,7 +175,6 @@ fn prompts_have_no_muse_or_meta() {
     assert_clean("spawning_prefix", &format!("{:?}", agent_loop::spawning_prefix(Prefix { system: String::new(), tools: vec![] })), &mut bad);
     assert_clean("worker_message", &agent_cron::worker_message("job", "task", Some("t"), "тело", None, None), &mut bad);
     assert_clean("heartbeat worker_message", &agent_cron::worker_message("heartbeat", "heartbeat", None, "тело", Some(agent_cron::HEARTBEAT_TEMPLATE), None), &mut bad);
-    assert_clean("hook worker system", &agent_cron::hooks::worker_system(""), &mut bad);
     assert_clean("hook result", &agent_cron::hooks::result_text("m"), &mut bad);
     assert_clean("handoff", &format!("{:?}", agent_cron::handoff(&serde_json::json!({"job_id": "job", "message": "m"}))), &mut bad);
     assert!(bad.is_empty(), "{}", bad.join("\n"));

@@ -157,29 +157,6 @@ pub fn worker(tools: &Tools) -> String {
     join(worker_records(tools))
 }
 
-/// `{temporal_awareness_window}` — `0xcdc2380` → `0xcdbf080`, шаблон
-/// `0xa147a9`: строка года (`0x2e6831` + `"\n\n"` `0x414d26`; дата — в поясе,
-/// без пояса — `UTC`, `0x26a616f2`), правило поясов
-/// `shared/temporal_guidance_detached` (без краёв), остальное — по `exec`:
-/// с ним — `0xa14246` и `0xa14448`, соседних дат нет.
-fn temporal_awareness_window(now_ms: i64, timezone: Option<&str>) -> String {
-    use chrono::{Datelike, TimeZone};
-    let tz: chrono_tz::Tz = timezone.and_then(|t| t.parse().ok()).unwrap_or(chrono_tz::UTC);
-    let year = tz.timestamp_millis_opt(now_ms).single().map(|t| t.year());
-    let anchor = year.map(|y| format!("The year is {y}, not {}.\n\n", y - 1)).unwrap_or_default();
-    let guidance = personal(p!("shared/temporal_guidance_detached.md"));
-    fill(
-        p!("shared/temporal_awareness_window.md"),
-        &[
-            ("year_anchor", &anchor),
-            ("temporal_guidance", guidance.trim()),
-            ("nearby_dates", ""),
-            ("weekday_clause", p!("shared/temporal_weekday_clause_exec.md")),
-            ("weekday_rule", p!("shared/temporal_weekday_rule_exec.md")),
-        ],
-    )
-}
-
 /// `{prompt_injection_defense}` фазы итога — раздел `0x35` вариант 8
 /// (`0x29055e88`, 9 записей), формат `"\n{}\n\n"` (`0x393cc5`).
 fn resolution_security_stack() -> String {
@@ -198,8 +175,8 @@ fn resolution_security_stack() -> String {
     format!("\n{}\n\n", stack.trim())
 }
 
-/// Записи фазы итога по порядку профиля 23. Окно времени — с `exec`: он в
-/// роли `scheduler_cron_resolve`. `scheduler_resolution/tools` («The full
+/// Записи фазы итога по порядку профиля 23. Окно времени
+/// (`crate::temporal`) — с `exec`: он в роли `scheduler_cron_resolve`. `scheduler_resolution/tools` («The full
 /// tool list … is in the Runtime section below») не уходит: раздела
 /// `shared/runtime` у Hamlet нет (П8).
 pub fn resolution_records(now_ms: i64, timezone: Option<&str>) -> Vec<Record> {
@@ -211,7 +188,7 @@ pub fn resolution_records(now_ms: i64, timezone: Option<&str>) -> Vec<Record> {
     r(
         "98",
         "scheduler_resolution/temporal_awareness",
-        fill(p!("scheduler_resolution/temporal_awareness.md"), &[("temporal_awareness_window", &temporal_awareness_window(now_ms, timezone))]),
+        fill(p!("scheduler_resolution/temporal_awareness.md"), &[("temporal_awareness_window", &crate::temporal::window(now_ms, timezone, true))]),
     );
     r("835", "scheduler_resolution/safety", p!("scheduler_resolution/safety.md").into());
     r("835", "shared/safety_security_policy", fill(p!("shared/safety_security_policy.md"), &[("prompt_injection_defense", &resolution_security_stack())]));
