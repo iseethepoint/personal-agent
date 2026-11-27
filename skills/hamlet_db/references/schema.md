@@ -126,6 +126,39 @@ Rows holding model reasoning (thinking and redacted-thinking items) are withheld
 
 - PRIMARY KEY `agent_id` (`runtime_restart_checkpoints_pkey`)
 
+## `agent.subagent_spawns`
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `spawn_id` | bigint | no | `nextval('subagent_spawns_spawn_id_seq'::regclass)` |
+| `parent_agent_id` | text | no |  |
+| `child_agent_id` | text | no |  |
+| `parent_message_id` | text | yes |  |
+| `parent_request_id` | text | yes |  |
+| `root_request_id` | text | yes |  |
+| `root_message_execution_id` | text | yes |  |
+| `request_id` | text | yes |  |
+| `created_at` | bigint | no | `(EXTRACT(epoch FROM now()))::bigint` |
+| `status` | text | yes |  |
+| `deferred_terminal_status` | text | yes |  |
+| `final_response` | text | yes |  |
+| `completed_at` | bigint | yes |  |
+| `prompt` | text | yes |  |
+| `requester_source` | text | yes |  |
+| `requester_chat_context_json` | text | yes |  |
+| `seen_at` | bigint | yes |  |
+| `child_depth` | integer | no | `0` |
+| `agent_type` | text | yes |  |
+| `metadata_json` | text | yes |  |
+| `spawn_call_id` | text | yes |  |
+| `handoff_state_json` | jsonb | yes |  |
+| `public_forget_confirmed_at` | bigint | yes |  |
+
+- UNIQUE `child_agent_id` (`subagent_spawns_child_agent_id_key`)
+- UNIQUE `parent_agent_id` (`subagent_spawns_parent_agent_id_child_agent_id_key`)
+- UNIQUE `child_agent_id` (`subagent_spawns_parent_agent_id_child_agent_id_key`)
+- PRIMARY KEY `spawn_id` (`subagent_spawns_pkey`)
+
 ## `agent.volatile_context_pins`
 
 | column | type | nullable | default |

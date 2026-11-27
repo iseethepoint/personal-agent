@@ -1,0 +1,1 @@
+The agent restarted while this work was in progress and could not resume it safely, so it stopped instead of repeating any steps. Steps it finished stand; check their effects before running it again.

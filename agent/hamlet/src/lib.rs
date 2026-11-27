@@ -231,6 +231,10 @@ impl Hamlet {
         let sub_prefix = Prefix::assemble(&system, &home_dir, &sub_tools);
         let subagents = Subagents::new(main.clone(), sub_tools, sub_prefix, spill_dir.clone(), inbox.clone(), transcript.clone());
         subagents.set_monitor(Monitor::new(Arc::new(provider(&resolve(&reg, Purpose::SubagentMonitor, sel)?)?), &home_dir));
+        // Подагенты в базе: после перезапуска — снова в списке, оборванные
+        // ходы продолжаются (`restart_rehydration` muse).
+        let sub_clock = clock.clone();
+        subagents.persistent(Arc::new(agent_history::AgentSubagents::new(&history_store, ROOT_AGENT, &main_model, Arc::new(move || sub_clock.now_ms())))).await?;
 
         // Браузер: модель `BrowserAgent`, профили в домашней папке.
         let chromium = t.browser.chromium.clone().map(|p| dir.path(&p)).or_else(agent_browser::chromium::find).unwrap_or_default();

@@ -34,18 +34,19 @@
 
 use std::sync::Arc;
 
-use agent_loop::{Mailbox, Prefix, Record};
+use agent_loop::{ChildRecord, Mailbox, Prefix, Record, SavedSubagent, Status, SubagentStore};
 use agent_model::{Message, Part, Role, ToolSpec};
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 
-const MIGRATIONS: [&str; 5] = [
+const MIGRATIONS: [&str; 6] = [
     include_str!("../migrations/0001_history.sql"),
     include_str!("../migrations/0002_mailbox.sql"),
     include_str!("../migrations/0003_todo.sql"),
     include_str!("../migrations/0004_compactions.sql"),
     include_str!("../migrations/0005_restart.sql"),
+    include_str!("../migrations/0006_subagents.sql"),
 ];
 /// Режимы точки перезапуска (значения ядра).
 const BEFORE_INFERENCE: &str = "before_inference";
@@ -359,7 +360,8 @@ impl AgentHistory {
 /// `before_inference` с payload, между ходами — `idle` без payload; у
 /// главного агента `recovery_class = 'foreground_root'`, `recovery_owner_id`
 /// — его id, `execution_config_json` не пуст (запрос ядра около
-/// `0x1729b52`).
+/// `0x1729b52`). Своё: у подагента `recovery_class` пуст (значения в разборе
+/// не видно).
 ///
 /// Своё (в разборе не видно): payload — `{"message_id": <имя хода>}`, вести
 /// хода связаны с ним через `stream_owner_message_id`;
@@ -367,7 +369,7 @@ impl AgentHistory {
 impl AgentHistory {
     /// `Some(ход)` — ход идёт (`before_inference`), `None` — между ходами
     /// (`idle`).
-    pub async fn checkpoint(&self, recovery_class: &str, message_id: Option<&str>) -> Result<(), String> {
+    pub async fn checkpoint(&self, recovery_class: Option<&str>, message_id: Option<&str>) -> Result<(), String> {
         let (mode, payload) = match message_id {
             Some(id) => (BEFORE_INFERENCE, Some(serde_json::json!({ "message_id": id }).to_string())),
             None => (IDLE, None),
@@ -610,6 +612,187 @@ impl agent_tools::TodoStore for AgentTodo {
             .map_err(db)?
             .rows_affected();
             Ok(n == 1)
+        })
+    }
+}
+
+impl ChildRecord for AgentHistory {
+    fn checkpoint<'a>(&'a self, turn: Option<&'a str>) -> Fut<'a, ()> {
+        Box::pin(AgentHistory::checkpoint(self, None, turn))
+    }
+
+    fn interrupted<'a>(&'a self) -> Fut<'a, bool> {
+        Box::pin(async move { Ok(AgentHistory::interrupted(self).await?.is_some()) })
+    }
+
+    fn load<'a>(&'a self) -> Fut<'a, (Prefix, Vec<Message>)> {
+        Box::pin(async move {
+            let saved = AgentHistory::load(self).await?.ok_or_else(|| format!("history: no prompt_prefix pin for {}", self.agent_id))?;
+            Ok((saved.prefix, saved.history))
+        })
+    }
+}
+
+/// Значение статуса в `agent.agents.status` и `subagent_spawns.status` —
+/// значения ядра (`pending_init`, `running`, `interrupted`, `completed`,
+/// `errored`, `shutdown`).
+fn status_str(s: Status) -> &'static str {
+    match s {
+        Status::Running => "running",
+        Status::Done => "completed",
+        Status::Interrupted => "interrupted",
+        Status::Failed => "errored",
+        Status::Closed => "shutdown",
+    }
+}
+
+fn status_of(s: Option<&str>) -> Status {
+    match s {
+        Some("completed") => Status::Done,
+        Some("interrupted") => Status::Interrupted,
+        Some("errored") => Status::Failed,
+        Some("shutdown") | Some("not_found") => Status::Closed,
+        _ => Status::Running,
+    }
+}
+
+/// Подагенты одного родителя в `agent.agents` (`kind = 'subagent'`) и
+/// `agent.subagent_spawns` — запросы по форме ядра: строка агента `INSERT
+/// INTO agents (agent_id, id, session_id, kind, parent_id, parent_agent_id,
+/// root_session_id, depth, created_at, updated_at, model, status,
+/// last_assistant_message) … ON CONFLICT (agent_id) DO NOTHING` (около
+/// `0x1707f0c`), заведение `INSERT INTO subagent_spawns (…, child_depth,
+/// created_at, status, prompt, …, agent_type, metadata_json, …)` (около
+/// `0x6abfd4`), новая работа — `UPDATE subagent_spawns SET status =
+/// 'running', deferred_terminal_status = NULL, final_response = NULL,
+/// completed_at = NULL, seen_at = NULL` и `UPDATE agents SET … status =
+/// 'running', last_assistant_message = NULL WHERE … status NOT IN
+/// ('shutdown', 'not_found')` (около `0x16a2601`), конец — `UPDATE
+/// subagent_spawns SET completed_at = COALESCE(completed_at, $1), status =
+/// $2, deferred_terminal_status = NULL, final_response =
+/// COALESCE(final_response, $3)` (около `0x8b76dd`) и `UPDATE agents SET
+/// updated_at, status, last_assistant_message` (около `0x171a560`).
+///
+/// Своё (в разборе не видно): `metadata_json` — `{"finish_hook": true}`, если
+/// итог проходит через крючок родителя; `seen_at` не ведётся (итог сразу
+/// уходит в ящик родителя); глубина подагента — 1.
+pub struct AgentSubagents {
+    store: Store,
+    parent: String,
+    model: String,
+    now: Now,
+}
+
+impl AgentSubagents {
+    pub fn new(store: &Store, parent: &str, model: &str, now: Now) -> AgentSubagents {
+        AgentSubagents { store: store.clone(), parent: parent.into(), model: model.into(), now }
+    }
+
+    async fn open(&self, id: &str) -> Result<Arc<dyn ChildRecord>, String> {
+        Ok(Arc::new(AgentHistory::open(&self.store, id, "subagent", &self.model, self.now.clone()).await?))
+    }
+}
+
+impl SubagentStore for AgentSubagents {
+    fn saved<'a>(&'a self) -> Fut<'a, Vec<SavedSubagent>> {
+        Box::pin(async move {
+            let rows = sqlx::query("select child_agent_id, prompt, status, final_response, completed_at, metadata_json from agent.subagent_spawns where parent_agent_id = $1 order by spawn_id")
+                .bind(&self.parent)
+                .fetch_all(&self.store.pool)
+                .await
+                .map_err(db)?;
+            Ok(rows
+                .into_iter()
+                .map(|r| {
+                    let meta: Option<String> = r.get("metadata_json");
+                    SavedSubagent {
+                        id: r.get("child_agent_id"),
+                        task: r.get::<Option<String>, _>("prompt").unwrap_or_default(),
+                        status: status_of(r.get::<Option<String>, _>("status").as_deref()),
+                        result: r.get("final_response"),
+                        completed: r.get::<Option<i64>, _>("completed_at").is_some(),
+                        finish_hook: meta.and_then(|m| serde_json::from_str::<serde_json::Value>(&m).ok()).is_some_and(|v| v["finish_hook"] == true),
+                    }
+                })
+                .collect())
+        })
+    }
+
+    fn spawned<'a>(&'a self, id: &'a str, task: &'a str, prefix: &'a Prefix, finish_hook: bool) -> Fut<'a, Arc<dyn ChildRecord>> {
+        Box::pin(async move {
+            let now = (self.now)() / 1000;
+            sqlx::query(
+                "insert into agent.agents (agent_id, id, session_id, kind, parent_id, parent_agent_id, root_session_id, depth, created_at, updated_at, model, status, last_assistant_message) \
+                 values ($1, $1, null, 'subagent', $2, $2, null, 1, $3, $3, $4, 'running', null) on conflict (agent_id) do nothing",
+            )
+            .bind(id)
+            .bind(&self.parent)
+            .bind(now)
+            .bind(&self.model)
+            .execute(&self.store.pool)
+            .await
+            .map_err(db)?;
+            let meta = finish_hook.then(|| serde_json::json!({ "finish_hook": true }).to_string());
+            sqlx::query(
+                "insert into agent.subagent_spawns (parent_agent_id, child_agent_id, child_depth, created_at, status, prompt, metadata_json) \
+                 select $1, $2, coalesce((select depth from agent.agents where id = $2), 0), $3, 'running', $4, $5",
+            )
+            .bind(&self.parent)
+            .bind(id)
+            .bind(now)
+            .bind(task)
+            .bind(meta)
+            .execute(&self.store.pool)
+            .await
+            .map_err(db)?;
+            let h = AgentHistory::open(&self.store, id, "subagent", &self.model, self.now.clone()).await?;
+            h.pin_prefix(prefix).await?;
+            Ok(Arc::new(h) as Arc<dyn ChildRecord>)
+        })
+    }
+
+    fn child<'a>(&'a self, id: &'a str) -> Fut<'a, Arc<dyn ChildRecord>> {
+        Box::pin(self.open(id))
+    }
+
+    fn status<'a>(&'a self, id: &'a str, status: Status, result: Option<&'a str>) -> Fut<'a, ()> {
+        Box::pin(async move {
+            let now = (self.now)() / 1000;
+            let pool = &self.store.pool;
+            if status == Status::Running {
+                sqlx::query("update agent.subagent_spawns set status = 'running', deferred_terminal_status = null, final_response = null, completed_at = null, seen_at = null where child_agent_id = $1")
+                    .bind(id)
+                    .execute(pool)
+                    .await
+                    .map_err(db)?;
+                sqlx::query("update agent.agents set updated_at = $1, status = 'running', last_assistant_message = null where id = $2 and status not in ('shutdown', 'not_found')")
+                    .bind(now)
+                    .bind(id)
+                    .execute(pool)
+                    .await
+                    .map_err(db)?;
+                return Ok(());
+            }
+            let st = status_str(status);
+            sqlx::query(
+                "update agent.subagent_spawns set completed_at = coalesce(completed_at, $1), status = $2, deferred_terminal_status = null, final_response = coalesce(final_response, $3) where child_agent_id = $4",
+            )
+            .bind(now)
+            .bind(st)
+            .bind(result)
+            .bind(id)
+            .execute(pool)
+            .await
+            .map_err(db)?;
+            sqlx::query("update agent.agents set updated_at = $1, status = $2, last_assistant_message = coalesce($3, last_assistant_message) where id = $4")
+                .bind(now)
+                .bind(st)
+                .bind(result)
+                .bind(id)
+                .execute(pool)
+                .await
+                .map_err(db)?;
+            Ok(())
         })
     }
 }

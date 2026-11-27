@@ -15,7 +15,17 @@
 //! `subagent.spawn` сразу отдаёт id, итог приходит родителю сам — в его
 //! ящик (`Inbox`), а оттуда заметкой в историю перед следующим вызовом
 //! модели. Сессия подагента живёт и после итога: `subagent.send` даёт ей
-//! новую работу. Между перезапусками ничего не хранится (П3, карточка).
+//! новую работу.
+//!
+//! С хранилищем (`SubagentStore`, П3е-5) подагент живёт в базе, как у muse
+//! (`agent.agents` с `kind = 'subagent'`, `agent.subagent_spawns`, своя
+//! история и точка перезапуска): после перезапуска подагент с точкой
+//! `before_inference` продолжает ход (вызовы без результата закрываются
+//! текстом ядра), незаконченный без такой точки — `errored` с итогом
+//! родителю («marked orphaned active subagent errored after restart»,
+//! `restart_rehydration/orphan_reconciliation.rs`), законченные — снова в
+//! списке и принимают `subagent.send`. Особые подагенты (`Kind`) в базу не
+//! пишутся: их поднимает своя служба (исследователь, `workflow`).
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -26,7 +36,7 @@ use serde_json::{json, Value};
 use tokio::sync::{mpsc, Notify};
 
 use crate::compaction::personal;
-use crate::prompt::{Conversation, Prefix};
+use crate::prompt::{close_interrupted, Prefix};
 use crate::tool::{Tool, ToolError, ToolFuture, Tools};
 use crate::turn::{Turn, TurnError};
 
@@ -114,6 +124,47 @@ pub trait Mailbox: Send + Sync {
     fn complete<'a>(&'a self, owner: &'a str, ok: bool) -> MailboxFuture<'a, ()>;
     /// Принятые и не взятые вести по порядку.
     fn pending<'a>(&'a self) -> MailboxFuture<'a, Vec<(String, Message)>>;
+}
+
+/// Результат работы, которую после перезапуска нельзя безопасно
+/// продолжить, — текст ядра muse (`restart_after_output_unrecoverable`,
+/// около `0x2a4cd73`).
+pub const WORK_NOT_RESUMABLE: &str = include_str!("../../../prompts/restart/work_not_resumable.md");
+
+/// Подагент из базы.
+#[derive(Debug, Clone)]
+pub struct SavedSubagent {
+    pub id: String,
+    pub task: String,
+    pub status: Status,
+    pub result: Option<String>,
+    /// Работа закончена (`completed_at`), итог отдан родителю.
+    pub completed: bool,
+    /// Итог проходит через `AfterDone` родителя — такой подагент после
+    /// перезапуска не продолжается.
+    pub finish_hook: bool,
+}
+
+/// История и точка перезапуска одного подагента.
+pub trait ChildRecord: crate::turn::Record {
+    /// `Some(ход)` — ход идёт (`before_inference`), `None` — между ходами.
+    fn checkpoint<'a>(&'a self, turn: Option<&'a str>) -> MailboxFuture<'a, ()>;
+    /// Ход оборван перезапуском (точка `before_inference`).
+    fn interrupted<'a>(&'a self) -> MailboxFuture<'a, bool>;
+    /// Закреплённое начало и история из базы.
+    fn load<'a>(&'a self) -> MailboxFuture<'a, (Prefix, Vec<Message>)>;
+}
+
+/// Хранилище подагентов одного родителя.
+pub trait SubagentStore: Send + Sync {
+    /// Все подагенты родителя по порядку заведения.
+    fn saved<'a>(&'a self) -> MailboxFuture<'a, Vec<SavedSubagent>>;
+    /// Новый подагент: строки агента и заведения, закреплённое начало.
+    fn spawned<'a>(&'a self, id: &'a str, task: &'a str, prefix: &'a Prefix, finish_hook: bool) -> MailboxFuture<'a, Arc<dyn ChildRecord>>;
+    /// Уже заведённый подагент.
+    fn child<'a>(&'a self, id: &'a str) -> MailboxFuture<'a, Arc<dyn ChildRecord>>;
+    /// Новое состояние; `result` — итог законченной работы.
+    fn status<'a>(&'a self, id: &'a str, status: Status, result: Option<&'a str>) -> MailboxFuture<'a, ()>;
 }
 
 impl Inbox {
@@ -288,6 +339,21 @@ struct Agent {
     finish: Option<Finish>,
 }
 
+/// Начало сессии обычного подагента.
+struct Start {
+    id: String,
+    task: String,
+    /// Начало подсказки и история; `None` — загрузить из базы по первой работе.
+    state: Option<(Prefix, Vec<Message>)>,
+    record: Option<Arc<dyn ChildRecord>>,
+    /// Новый подагент: записать его в хранилище.
+    fresh: bool,
+    after: Option<AfterDone>,
+    first: Option<Input>,
+    status: Status,
+    result: Option<String>,
+}
+
 struct Inner<P> {
     provider: Arc<P>,
     tools: Arc<Tools>,
@@ -296,6 +362,9 @@ struct Inner<P> {
     inbox: Inbox,
     parent: Transcript,
     agents: Mutex<Vec<Agent>>,
+    /// Номер следующего подагента (`agent-<n>`).
+    next: std::sync::atomic::AtomicUsize,
+    store: std::sync::OnceLock<Arc<dyn SubagentStore>>,
     /// Монитор промежуточных событий (`SubagentMonitor`); без него —
     /// только итоги.
     monitor: std::sync::OnceLock<WatchFactory>,
@@ -386,6 +455,8 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 inbox,
                 parent,
                 agents: Mutex::new(Vec::new()),
+                next: std::sync::atomic::AtomicUsize::new(1),
+                store: std::sync::OnceLock::new(),
                 monitor: std::sync::OnceLock::new(),
             }),
         }
@@ -431,45 +502,106 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
 
     /// `spawn`, но итог перед отправкой родителю проходит через `after`.
     pub fn spawn_then(&self, task: &str, after: Option<AfterDone>) -> String {
-        let mut agents = self.inner.agents.lock().unwrap();
-        let id = format!("agent-{}", agents.len() + 1);
-        let (tx, mut rx) = mpsc::unbounded_channel();
-        let interrupt = Arc::new(Notify::new());
-        let _ = tx.send(Input::Message(first_message(task)));
-        let inner = self.inner.clone();
-        let stop = interrupt.clone();
-        let agent_id = id.clone();
-        let watch = self.inner.monitor.get().map(|f| {
-            let me = Arc::downgrade(&self.inner);
-            let watched = id.clone();
-            let running: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
-                me.upgrade()
-                    .is_some_and(|i| i.agents.lock().unwrap().iter().any(|a| a.id == watched && a.status == Status::Running))
-            });
-            f(id.clone(), task.to_string(), self.inner.inbox.clone(), running)
-        });
+        let id = self.next_id();
         let mut history = inherited_history(&self.inner.parent.snapshot());
         if !history.is_empty() {
             history.push(Message { role: Role::Developer, content: vec![Part::Text { text: personal(ACTIVE_TURN_MD).trim_end().to_string() }] });
         }
+        let agent = self.start(Start {
+            id: id.clone(),
+            task: task.to_string(),
+            state: Some((self.inner.prefix.clone(), history)),
+            record: None,
+            fresh: true,
+            after,
+            first: Some(Input::Message(first_message(task))),
+            status: Status::Running,
+            result: None,
+        });
+        self.inner.agents.lock().unwrap().push(agent);
+        id
+    }
+
+    fn next_id(&self) -> String {
+        format!("agent-{}", self.inner.next.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
+    }
+
+    fn watch(&self, id: &str, task: &str) -> Option<crate::turn::StepHook> {
+        self.inner.monitor.get().map(|f| {
+            let me = Arc::downgrade(&self.inner);
+            let watched = id.to_string();
+            let running: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
+                me.upgrade()
+                    .is_some_and(|i| i.agents.lock().unwrap().iter().any(|a| a.id == watched && a.status == Status::Running))
+            });
+            f(id.to_string(), task.to_string(), self.inner.inbox.clone(), running)
+        })
+    }
+
+    /// Сессия обычного подагента: очередь работы, ход за ходом; с
+    /// хранилищем — история, точка перезапуска и состояние в базе.
+    fn start(&self, s: Start) -> Agent {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let interrupt = Arc::new(Notify::new());
+        if let Some(first) = s.first {
+            let _ = tx.send(first);
+        }
+        let inner = self.inner.clone();
+        let stop = interrupt.clone();
+        let agent_id = s.id.clone();
+        let watch = self.watch(&s.id, &s.task);
+        let (task, after, fresh) = (s.task.clone(), s.after, s.fresh);
+        let (mut state, mut record) = (s.state, s.record);
         let handle = tokio::spawn(async move {
-            let mut conv = Conversation::new(inner.prefix.clone());
-            conv.history = history;
+            let store = inner.store.get().cloned();
+            if let (true, Some(st)) = (fresh, &store) {
+                match st.spawned(&agent_id, &task, &inner.prefix, after.is_some()).await {
+                    Ok(r) => record = Some(r),
+                    Err(e) => eprintln!("subagent store: {e}"),
+                }
+            }
+            let mut turns = 0u64;
             while let Some(input) = rx.recv().await {
+                // Законченный до перезапуска — история из базы по первой работе.
+                if state.is_none() {
+                    let loaded = match &record {
+                        Some(r) => r.load().await.unwrap_or_else(|e| {
+                            eprintln!("subagent history: {e}");
+                            (inner.prefix.clone(), Vec::new())
+                        }),
+                        None => (inner.prefix.clone(), Vec::new()),
+                    };
+                    state = Some(loaded);
+                }
+                let (prefix, history) = state.as_mut().unwrap();
                 if let Input::Message(text) = input {
-                    conv.history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
+                    history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
                 }
                 Self::set(&inner, &agent_id, Status::Running, None);
-                let mut turn = Turn::from_prefix(&*inner.provider, &inner.tools, &inner.prefix, inner.spill_dir.clone());
+                if let Some(st) = &store {
+                    if let Err(e) = st.status(&agent_id, Status::Running, None).await {
+                        eprintln!("subagent store: {e}");
+                    }
+                }
+                turns += 1;
+                // Имя хода. Своё: `<id>:turn:<n>`.
+                let turn_id = format!("{agent_id}:turn:{turns}");
+                if let Some(r) = &record {
+                    if let Err(e) = r.checkpoint(Some(&turn_id)).await {
+                        eprintln!("subagent checkpoint: {e}");
+                    }
+                }
+                let mut turn = Turn::from_prefix(&*inner.provider, &inner.tools, prefix, inner.spill_dir.clone());
                 turn.on_step = watch.clone();
+                turn.record = record.clone().map(|r| r as Arc<dyn crate::turn::Record>);
                 let mut quiet = |_: &str| {};
                 let outcome = tokio::select! {
-                    r = turn.run(&mut conv.history, &mut quiet) => Some(r),
+                    r = turn.run(history, &mut quiet) => Some(r),
                     _ = stop.notified() => None,
                 };
                 let Some(outcome) = outcome else {
                     // Прервано `send` с `interrupt`: новая работа уже в очереди.
-                    close_dangling_calls(&mut conv.history);
+                    close_dangling_calls(history);
                     continue;
                 };
                 if !rx.is_empty() {
@@ -485,19 +617,74 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                     Some(f) => f(status, text).await,
                     None => text,
                 };
+                if let Some(r) = &record {
+                    if let Err(e) = r.checkpoint(None).await {
+                        eprintln!("subagent checkpoint: {e}");
+                    }
+                }
                 Self::set(&inner, &agent_id, status, Some(text.clone()));
+                if let Some(st) = &store {
+                    if let Err(e) = st.status(&agent_id, status, Some(&text)).await {
+                        eprintln!("subagent store: {e}");
+                    }
+                }
                 inner.inbox.push(handoff(&agent_id, status, &text)).await;
             }
         });
-        agents.push(Agent { id: id.clone(), task: task.to_string(), status: Status::Running, result: None, tx, interrupt, handle, finish: None });
-        id
+        Agent { id: s.id, task: s.task, status: s.status, result: s.result, tx, interrupt, handle, finish: None }
+    }
+
+    /// Подагенты из базы (после перезапуска): законченные — снова в списке;
+    /// с точкой `before_inference` — ход продолжается; прочие незаконченные
+    /// — `errored`, родителю итог с текстом ядра. Дальше состояние пишется
+    /// в `store`. Возвращает id продолживших.
+    pub async fn persistent(&self, store: Arc<dyn SubagentStore>) -> Result<Vec<String>, String> {
+        let saved = store.saved().await?;
+        let _ = self.inner.store.set(store.clone());
+        let mut resumed = vec![];
+        for sv in saved {
+            if let Some(n) = sv.id.strip_prefix("agent-").and_then(|n| n.parse::<usize>().ok()) {
+                self.inner.next.fetch_max(n + 1, std::sync::atomic::Ordering::SeqCst);
+            }
+            let record = store.child(&sv.id).await?;
+            let mut start = Start {
+                id: sv.id.clone(),
+                task: sv.task.clone(),
+                state: None,
+                record: Some(record.clone()),
+                fresh: false,
+                after: None,
+                first: None,
+                status: sv.status,
+                result: sv.result.clone(),
+            };
+            if !sv.completed {
+                if !sv.finish_hook && record.interrupted().await? {
+                    let (prefix, mut history) = record.load().await?;
+                    close_interrupted(&mut history);
+                    record.record(&history).await?;
+                    start.state = Some((prefix, history));
+                    start.first = Some(Input::Resume);
+                    start.status = Status::Running;
+                    resumed.push(sv.id.clone());
+                } else {
+                    store.status(&sv.id, Status::Failed, Some(WORK_NOT_RESUMABLE)).await?;
+                    self.inner.inbox.push(handoff(&sv.id, Status::Failed, WORK_NOT_RESUMABLE)).await;
+                    start.status = Status::Failed;
+                    start.result = Some(WORK_NOT_RESUMABLE.to_string());
+                }
+            }
+            let agent = self.start(start);
+            self.inner.agents.lock().unwrap().push(agent);
+        }
+        Ok(resumed)
     }
 
     /// Запустить особого подагента (`Kind`); дополнения — тем же
     /// `subagent.send`, остановка — `subagent.close`.
     pub fn spawn_kind(&self, kind: Kind) -> String {
+        let id = self.next_id();
         let mut agents = self.inner.agents.lock().unwrap();
-        let id = format!("agent-{}", agents.len() + 1);
         let (tx, mut rx) = mpsc::unbounded_channel();
         let interrupt = Arc::new(Notify::new());
         let _ = tx.send(Input::Message(kind.first.clone()));
@@ -595,6 +782,11 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         if let Some(f) = finish {
             let note = f(Status::Closed, "stopped by subagent.close".into()).await;
             self.inner.inbox.push(note).await;
+        }
+        if let Some(st) = self.inner.store.get() {
+            if let Err(e) = st.status(id, Status::Closed, None).await {
+                eprintln!("subagent store: {e}");
+            }
         }
         match tokio::time::timeout(CONTROL_TIMEOUT, handle).await {
             Ok(_) => Ok(()),
