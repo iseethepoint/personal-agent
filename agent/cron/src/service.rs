@@ -646,7 +646,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             // Работник прогона. Своё: id — `cron-worker:<run_id>`.
             Some(w) => {
                 let agent_id = format!("cron-worker:{run_id}");
-                let record = w.begin(worker::EXECUTE_CLASS, &run_id, &agent_id, &prefix).await?;
+                let record = w.begin(worker::EXECUTE_CLASS, &run_id, &agent_id, &prefix, None).await?;
                 self.core.store.set_worker(&run_id, &agent_id).await?;
                 Some(worker::Recording::cron(record, run_id.clone()))
             }
@@ -731,7 +731,7 @@ impl<P: Provider + Send + Sync + 'static> HookParts<P> {
         }
         let prefix = self.prefix();
         let recording = match &self.workers {
-            Some(w) => match w.begin(worker::HOOK_CLASS, &run_id, &agent_id, &prefix).await {
+            Some(w) => match w.begin(worker::HOOK_CLASS, &run_id, &agent_id, &prefix, None).await {
                 Ok(record) => Some(worker::Recording::hook(record, run_id.clone())),
                 Err(e) => {
                     eprintln!("hook run {run_id}: {e}");

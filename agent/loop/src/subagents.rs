@@ -166,12 +166,18 @@ pub trait ChildRecord: crate::turn::Record {
     fn load<'a>(&'a self) -> MailboxFuture<'a, (Prefix, Vec<Message>)>;
 }
 
+/// Незакрытый владелец восстановления: `owner_id`, работник, сведения.
+pub type ActiveOwner = (String, Arc<dyn ChildRecord>, Option<String>);
+
 /// Владельцы восстановления (`agent.recovery_owners` muse): работа службы
 /// (`class`, `owner_id` — например прогон расписания) и агент, который её
 /// исполняет.
 pub trait WorkerStore: Send + Sync {
-    /// Новый работник: строка агента, закреплённое начало, владелец.
-    fn begin<'a>(&'a self, class: &'a str, owner_id: &'a str, agent_id: &'a str, prefix: &'a Prefix) -> MailboxFuture<'a, Arc<dyn ChildRecord>>;
+    /// Новый работник: строка агента, закреплённое начало, владелец;
+    /// `metadata` — сведения службы для подъёма после перезапуска.
+    fn begin<'a>(&'a self, class: &'a str, owner_id: &'a str, agent_id: &'a str, prefix: &'a Prefix, metadata: Option<&'a str>) -> MailboxFuture<'a, Arc<dyn ChildRecord>>;
+    /// Все незакрытые владельцы класса: (`owner_id`, работник, сведения).
+    fn list_active<'a>(&'a self, class: &'a str) -> MailboxFuture<'a, Vec<ActiveOwner>>;
     /// Работник незакрытого владельца.
     fn active<'a>(&'a self, class: &'a str, owner_id: &'a str) -> MailboxFuture<'a, Option<Arc<dyn ChildRecord>>>;
     /// Владелец закрыт с итогом `status`.

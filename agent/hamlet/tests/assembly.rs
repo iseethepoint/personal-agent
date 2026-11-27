@@ -838,6 +838,71 @@ async fn workflow_call_continues_after_restart() {
     }
 }
 
+/// П3е-5: окно браузера, работа которого оборвана перезапуском посреди
+/// вызова исполнителя (вопрос главному агенту ждёт ответа), после старта
+/// открывается снова в своём профиле и продолжает работу с записанного:
+/// вызов без результата закрыт текстом ядра, итог окна доходит главному
+/// агенту, окно остаётся в списке. Без Chromium тест пропускается.
+#[tokio::test]
+async fn browser_window_continues_after_restart() {
+    if agent_browser::chromium::find().is_none() {
+        eprintln!("SKIP: Chromium не найден");
+        return;
+    }
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s1, _p) = model(wire, vec![Step::Calls(vec![("q1", "browser.request_input", json!({"question": "Which color?", "reason": "missing_info"}))])], true);
+        let s1 = Arc::new(s1);
+        let dir = agent_dir("browser-restart", wire, &s1);
+        let (d, server) = (dir.clone(), s1.clone());
+        let task_id = std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let task_id = rt.block_on(async {
+                let h1 = build(&d, FakeClock::at(t0())).await;
+                let out = h1.tools.get("browser.browse").unwrap().call(json!({"task_id": "new", "task": "Find out which mug color the owner wants."})).await.unwrap();
+                let text = match &out[0] {
+                    agent_model::ToolResultPart::Text { text } => text.clone(),
+                    p => panic!("{p:?}"),
+                };
+                while server.requests().is_empty() {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                let at = text.find("browser-task:").unwrap();
+                text[at..].chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == ':').collect::<String>()
+            });
+            drop(rt);
+            task_id
+        })
+        .join()
+        .unwrap();
+
+        let (s2, _p) = model(wire, vec![Step::Calls(vec![("r1", "browser.report", json!({"status": "completed", "summary": "The color is still unknown."}))])], true);
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        let services = Services::start(&h2);
+        let mut notes = Vec::new();
+        for _ in 0..400 {
+            notes.extend(h2.inbox.drain().into_iter().map(|m| m.text()));
+            if notes.iter().any(|n| n.contains("## Browser Task Handoff")) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let handoff = notes.iter().find(|n| n.contains("## Browser Task Handoff")).unwrap_or_else(|| panic!("{wire:?}: {notes:?}"));
+        assert!(handoff.contains(&format!("browser_task_id: {task_id}")) && handoff.contains("The color is still unknown."), "{wire:?}: {handoff}");
+        let body = s2.requests()[0].to_string();
+        assert!(body.contains("Find out which mug color the owner wants."), "{wire:?}: история окна из базы");
+        assert!(body.contains(&serde_json::to_string(agent_loop::INTERRUPTED_TOOL_CALL).unwrap()[1..60]), "{wire:?}: {body}");
+        let list = h2.tools.get("browser.windows").unwrap().call(json!({"action": "list"})).await.unwrap();
+        let list = match &list[0] {
+            agent_model::ToolResultPart::Text { text } => text.clone(),
+            p => panic!("{p:?}"),
+        };
+        assert!(list.contains(&task_id), "{wire:?}: {list}");
+        services.stop(&h2).await;
+    }
+}
+
 /// П3е-2: ящик в базе — весть, пришедшая, когда хода нет, и не взятая до
 /// остановки, после перезапуска доходит новым ходом и закрывается.
 #[tokio::test]
