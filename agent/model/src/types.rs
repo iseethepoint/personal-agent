@@ -83,6 +83,7 @@ pub enum Effort {
     Low,
     Medium,
     High,
+    Xhigh,
     Max,
 }
 

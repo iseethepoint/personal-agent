@@ -18,8 +18,9 @@ model = "anthropic/claude-opus-5-5"
 maintenance = "anthropic/claude-haiku-4-5"
 
 # Веса `cedar` у muse — это claude-opus-5-5 (strings-all.txt:235795-235806, :236080).
-# compaction и tool_search у muse включены; здесь выключены, пока прослойка их
-# не умеет (карточка П2б: только thinking, effort, cache_control).
+# compaction и tool_search у muse включены; здесь выключены: прослойка их не
+# умеет, и включённое умение даёт ошибку (карточка П2б: thinking, effort, cache_control).
+# prompt_cache — своё имя умения: cache_control на неизменном начале подсказки.
 [weights."claude-opus-5-5"]
 knowledge_cutoff = "2026-06-30"
 context_window = 1000000
@@ -33,6 +34,7 @@ anthropic.tool_search = false
 anthropic.output_effort = "supported"
 anthropic.image_resolution = "high"
 anthropic.runtime_output_ceiling = 64000
+anthropic.prompt_cache = true
 
 # claude-haiku-4.5 у muse (strings-all.txt:235857-235863).
 [weights."claude-haiku-4.5"]
@@ -42,6 +44,7 @@ compaction_trigger = 150000
 anthropic.adaptive_thinking = false
 anthropic.output_effort = "unsupported"
 anthropic.image_resolution = "standard"
+anthropic.prompt_cache = true
 
 # Локальная модель через сервер «как OpenAI» (Ollama). Окно и порог — как запущен
 # сервер; подбирается под свою модель (план, П7).
