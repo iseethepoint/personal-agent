@@ -89,7 +89,21 @@ pub struct Turn<'a, P> {
     /// нового вызова модели (у muse `nothing_to_report`, `notify_main_agent`:
     /// «Terminal: the run ends immediately», `strings-all.txt:85281`).
     pub terminal: Vec<String>,
+    /// Узнаёт о каждой исполненной пачке вызовов (монитор подагентов);
+    /// ход ждёт его, прежде чем снова звать модель.
+    pub on_step: Option<StepHook>,
 }
+
+/// Исполненный вызов: имя, аргументы, ошибка ли, первая строка результата.
+#[derive(Debug, Clone)]
+pub struct StepCall {
+    pub name: String,
+    pub arguments: Value,
+    pub is_error: bool,
+    pub result: String,
+}
+
+pub type StepHook = std::sync::Arc<dyn Fn(Vec<StepCall>) -> futures_util::future::BoxFuture<'static, ()> + Send + Sync>;
 
 impl<'a, P: Provider> Turn<'a, P> {
     pub fn new(provider: &'a P, tools: &'a Tools, system: impl Into<String>, spill_dir: impl Into<PathBuf>) -> Self {
@@ -105,6 +119,7 @@ impl<'a, P: Provider> Turn<'a, P> {
             inbox: None,
             transcript: None,
             terminal: Vec::new(),
+            on_step: None,
         }
     }
 
@@ -233,10 +248,34 @@ impl<'a, P: Provider> Turn<'a, P> {
                 t.set(history);
             }
             let names: Vec<String> = calls.iter().map(|c| c.1.clone()).collect();
+            let args: Vec<Value> = calls.iter().map(|c| c.2.clone()).collect();
             let results = join_all(calls.into_iter().map(|(id, name, args)| self.dispatch(id, name, args))).await;
             let ended = results.iter().zip(&names).any(|(r, n)| {
                 self.terminal.contains(n) && matches!(r, Part::ToolResult { is_error: false, .. })
             });
+            if let Some(hook) = &self.on_step {
+                let step = results
+                    .iter()
+                    .zip(names.iter().zip(args))
+                    .map(|(r, (name, arguments))| {
+                        let (is_error, result) = match r {
+                            Part::ToolResult { is_error, content, .. } => (
+                                *is_error,
+                                content
+                                    .iter()
+                                    .find_map(|c| match c {
+                                        ToolResultPart::Text { text } => text.lines().next().map(str::to_string),
+                                        _ => None,
+                                    })
+                                    .unwrap_or_default(),
+                            ),
+                            _ => (false, String::new()),
+                        };
+                        StepCall { name: name.clone(), arguments, is_error, result }
+                    })
+                    .collect();
+                hook(step).await;
+            }
             history.push(Message { role: Role::User, content: results });
             if ended {
                 return Ok(resp);

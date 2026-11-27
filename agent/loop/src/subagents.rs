@@ -188,6 +188,9 @@ struct Inner<P> {
     inbox: Inbox,
     parent: Transcript,
     agents: Mutex<Vec<Agent>>,
+    /// Монитор промежуточных событий (`SubagentMonitor`); без него —
+    /// только итоги.
+    monitor: std::sync::OnceLock<Arc<crate::monitor::Monitor<P>>>,
 }
 
 /// Подагенты одного родителя. Инструменты `subagent.*` — из `tools()`.
@@ -267,12 +270,26 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         parent: Transcript,
     ) -> Self {
         Subagents {
-            inner: Arc::new(Inner { provider, tools, prefix, spill_dir: spill_dir.into(), inbox, parent, agents: Mutex::new(Vec::new()) }),
+            inner: Arc::new(Inner {
+                provider,
+                tools,
+                prefix,
+                spill_dir: spill_dir.into(),
+                inbox,
+                parent,
+                agents: Mutex::new(Vec::new()),
+                monitor: std::sync::OnceLock::new(),
+            }),
         }
     }
 
     pub fn inbox(&self) -> &Inbox {
         &self.inner.inbox
+    }
+
+    /// Включить монитор (модель `SubagentMonitor`).
+    pub fn set_monitor(&self, m: Arc<crate::monitor::Monitor<P>>) {
+        let _ = self.inner.monitor.set(m);
     }
 
     /// Инструменты `subagent.spawn/send/list/close/resume` для родителя.
@@ -313,6 +330,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         let inner = self.inner.clone();
         let stop = interrupt.clone();
         let agent_id = id.clone();
+        let task_text = task.to_string();
         let mut history = inherited_history(&self.inner.parent.snapshot());
         if !history.is_empty() {
             history.push(Message { role: Role::Developer, content: vec![Part::Text { text: personal(ACTIVE_TURN_MD).trim_end().to_string() }] });
@@ -325,7 +343,10 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                     conv.history.push(Message { role: Role::User, content: vec![Part::Text { text }] });
                 }
                 Self::set(&inner, &agent_id, Status::Running, None);
-                let turn = Turn::from_prefix(&*inner.provider, &inner.tools, &inner.prefix, inner.spill_dir.clone());
+                let mut turn = Turn::from_prefix(&*inner.provider, &inner.tools, &inner.prefix, inner.spill_dir.clone());
+                if let Some(m) = inner.monitor.get() {
+                    turn.on_step = Some(m.hook(agent_id.clone(), task_text.clone(), inner.inbox.clone()));
+                }
                 let mut quiet = |_: &str| {};
                 let outcome = tokio::select! {
                     r = turn.run(&mut conv.history, &mut quiet) => Some(r),

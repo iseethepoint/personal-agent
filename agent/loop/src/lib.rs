@@ -2,6 +2,7 @@
 //! модель. С моделью говорит только через `agent-model`.
 
 pub mod compaction;
+pub mod monitor;
 pub mod prompt;
 pub mod spill;
 pub mod subagents;
@@ -14,5 +15,5 @@ pub use spill::SPILL_THRESHOLD_BYTES;
 pub use subagents::{first_message, inherited_history, AfterDone, Inbox, Status, SubagentTool, Subagents, Transcript, CONTROL_TIMEOUT};
 pub use tool::{Tool, ToolError, ToolFuture, Tools};
 pub use turn::{
-    forced_tool_choice, Turn, TurnError, MODEL_RETRIES, OUTPUT_TOKEN_CAP_NOTICE, SUBMIT_RESULT, THINKING_ONLY_NOTICE, TOOL_TIMEOUT,
+    forced_tool_choice, StepCall, StepHook, Turn, TurnError, MODEL_RETRIES, OUTPUT_TOKEN_CAP_NOTICE, SUBMIT_RESULT, THINKING_ONLY_NOTICE, TOOL_TIMEOUT,
 };
