@@ -121,3 +121,16 @@
 | `deep_research/tools.json` | строки ядра: описание и поля `browser_deep_research` (`strings-all.txt:75909-75911`), квитанция (`:55486`), `finish_research` и `research_notes` с ошибками (`:75909`, `:78572`, `:78634`, `:55462`), первое сообщение (`:15174-15175`, `:33048`), напоминание (`:55462`), `AGENTS.md` (`:36270-36273`), итог и сбой (`:225914`, `:42210-42211`, `:35746`), фразы о папке после перезапуска (`:55759-55762`, `:12944`) | имя поля папки — `topic` (в разборе не найдено, своё); в остальном без правок |
 
 Своё в коде (`agent/research/src/lib.rs`): состояние запуска — `.run.json` в папке; истории исследователя не храним — после перезапуска он продолжает по своим заметкам; одно окно исследования на запуск; вид `{tooling_lines}` и `{acknowledgment}`.
+
+## Сохранённые работы (П4и)
+
+Исходник — строки ядра и `P/hatch-server/prompts/workflows/agent_structured_output.md`. Общая правка — метки `*-muse-only` → `*-only`.
+
+| Файл | Исходник | Правки |
+|---|---|---|
+| `workflows/workflow_namespace.md` | ядро: описание пространства и «## Authoring contract» (`strings-all.txt:57828-57857`) | «the user or accepted Idea» → «the user»; «If chat, a native product surface, a schedule, a connector action, or a web artifact is the result» → «If chat, a schedule, or a connector action is the result»; убраны предложения о веб-артефакте в итоге и о `artifact.create_web_static`/`artifact.export` («A child without the artifact tools…»); «omit artifacts» убрано — артефактов и Ideas у Hamlet нет |
+| `workflows/tools.json` | ядро: длинные описания `workflow.*` и описания полей (`strings-all.txt:332317-332347`) | без правок; у `limit` инструмента `workflow.list_runs` описания в разборе нет — поле без описания; у `workflow.view_run` взято общее описание `runId` |
+| `workflows/agent_structured_output.md` | `P/hatch-server/prompts/workflows/agent_structured_output.md` | убрано «for a web artifact, say the web artifact is ready and do not include routes, refs, slugs, paths, source files, or implementation files;» |
+| `workflows/execution_files.md` | ядро: «## Workflow execution files» (`strings-all.txt:308503-308546`, `templates.txt:4053`) | «download, or see in Library» → «or download» (Library нет); «the accepted Idea or user outcome» → «the user outcome»; «chat, a native product surface, a schedule, a connector action, or a web artifact» → «chat, a schedule, or a connector action»; «such as a Space source tree or scheduler storage» → «such as scheduler storage» |
+
+Обвязка сценария `agent/workflows/src/harness.js` — текст ядра (`strings-all.txt:42448-42858`); в дампе нет строк короче четырёх знаков, закрывающие `  }` верхнего уровня возвращены. Подставляемые куски подсказки шага — тексты ядра: `{{RESULT_CONTRACT}}` (оба варианта), пример `ok` без схемы. Своё в коде (`agent/workflows/src/lib.rs`, шапка): пример `ok` для шага со схемой; блок `## Workflow execution files` идёт после задачи; текст передачи итога главному агенту (`[Workflow Result] run_id: …` и квитанция ядра «Workflow `…` completed.» и т. п.); прослойка `prelude.js`.

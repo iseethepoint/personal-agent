@@ -10,7 +10,10 @@
 //! Своё: подагенты — на модели `Main` (отдельного назначения у muse нет,
 //! подагент идёт на выбранной модели); инструменты подагента и работника
 //! расписаний — общий набор без `subagent.*`, `forget.*` и окон браузера
-//! (подагент «can't use this browser yourself», `environment_browser.md`);
+//! (подагент «can't use this browser yourself», `environment_browser.md`)
+//! и с `workflow.*` (у muse они в профилях `generic_subagent_depth1`,
+//! `scheduler_cron_execute`); шаг сохранённой работы — общий набор без
+//! `workflow.*`, команды начинаются в папке запуска (`workflow_subagent`);
 //! заметка изменчивого — время и пояс по тексту muse
 //! `session/browser_task_time_context.md` (свой системный текст и заметка
 //! главного агента — П5).
@@ -18,7 +21,7 @@
 pub mod config;
 pub mod daemon;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -48,6 +51,8 @@ pub struct Hamlet {
     pub browsers: Arc<Browsers<AnyProvider>>,
     /// Глубокое исследование (`browser_deep_research`).
     pub research: Arc<agent_research::DeepResearch<AnyProvider>>,
+    /// Сохранённые работы (`workflow.*`).
+    pub workflows: Arc<agent_workflows::Workflows<AnyProvider>>,
     pub compaction: (Arc<AnyProvider>, Arc<AnyProvider>, u64),
     pub timezone: Option<String>,
     pub clock: Arc<dyn Clock>,
@@ -77,11 +82,12 @@ struct Parts {
 }
 
 impl Parts {
-    /// Общий набор: главный агент, подагент и работник расписаний.
-    fn base(&self) -> Result<Tools, String> {
+    /// Общий набор: главный агент, подагент, работник расписаний и шаг
+    /// сохранённой работы; `start` — где начинаются команды без `workdir`.
+    fn base(&self, start: Option<&Path>) -> Result<Tools, String> {
         let mut t = Tools::new();
         FileTools::new(self.home.clone()).add_to(&mut t);
-        ExecTools::new(self.home.clone(), self.secrets.clone(), Some(self.inbox.clone())).add_to(&mut t);
+        ExecTools::starting_in(self.home.clone(), self.secrets.clone(), Some(self.inbox.clone()), start.map(Path::to_path_buf)).add_to(&mut t);
         t.add(Todo::new());
         let skills = Catalog::skills(self.skills_dir.clone(), &self.home);
         let connectors = Catalog::connectors(self.connectors_dir.clone(), &self.home);
@@ -159,10 +165,39 @@ impl Hamlet {
             goals,
         };
         let system = std::fs::read_to_string(dir.path(&t.paths.system)).unwrap_or_default();
+        let parts = Arc::new(parts);
+
+        // Сохранённые работы: шаги — на модели сессии, рабочая папка —
+        // `workspace` в доме (`.jarvis/workflows`, `.jarvis/workflow-runs`).
+        // Набор шага собирается на каждый запуск. Своё: если чтение списка
+        // блокировок сети при этом упадёт (при сборке оно уже удалось), шаг
+        // получит пустой набор, а ошибка уйдёт в журнал.
+        let step_parts = parts.clone();
+        let workflows = agent_workflows::Workflows::new(
+            agent_workflows::store::Store::connect(&url).await?,
+            main.clone(),
+            Arc::new(move |dir: &Path| {
+                step_parts.base(Some(dir)).unwrap_or_else(|e| {
+                    eprintln!("workflow step tools: {e}");
+                    Tools::new()
+                })
+            }),
+            system.clone(),
+            home_dir.clone(),
+            home_dir.join("workspace"),
+            spill_dir.clone(),
+            inbox.clone(),
+        );
+        let with_workflows = |mut t: Tools| {
+            for x in workflows.tools() {
+                t.add(x);
+            }
+            t
+        };
 
         // Подагенты: общий набор, своё начало подсказки; монитор — модель
         // `SubagentMonitor`.
-        let sub_tools = Arc::new(parts.base()?);
+        let sub_tools = Arc::new(with_workflows(parts.base(None)?));
         let sub_prefix = Prefix::assemble(&system, &home_dir, &sub_tools);
         let subagents = Subagents::new(main.clone(), sub_tools, sub_prefix, spill_dir.clone(), inbox.clone(), transcript.clone());
         subagents.set_monitor(Monitor::new(Arc::new(provider(&resolve(&reg, Purpose::SubagentMonitor, sel)?)?), &home_dir));
@@ -180,7 +215,7 @@ impl Hamlet {
         );
 
         // Главный агент: общий набор + подагенты, забывание, окна браузера.
-        let mut tools = parts.base()?;
+        let mut tools = with_workflows(parts.base(None)?);
         for x in subagents.tools() {
             tools.add(x);
         }
@@ -211,7 +246,7 @@ impl Hamlet {
         // Службы: работник расписаний (`CronWorker` / `CronResolve`) и
         // сверка памяти на такте.
         let cron_plan = agent_cron::Plan::from_registry(&reg, sel).map_err(|e| e.to_string())?;
-        let mut scheduler = Scheduler::new(core, Arc::new(provider(&cron_plan.worker)?), system.clone(), Arc::new(parts.base()?), spill_dir.clone(), inbox.clone());
+        let mut scheduler = Scheduler::new(core, Arc::new(provider(&cron_plan.worker)?), system.clone(), Arc::new(with_workflows(parts.base(None)?)), spill_dir.clone(), inbox.clone());
         scheduler.resolver(Arc::new(provider(&cron_plan.resolve)?));
         let (mhome, mstore, memb) = (home_dir.clone(), memory.clone(), embedder.clone());
         scheduler.background(Arc::new(move || {
@@ -231,6 +266,7 @@ impl Hamlet {
             scheduler: Arc::new(scheduler),
             browsers,
             research,
+            workflows,
             compaction,
             timezone: t.agent.timezone.clone(),
             clock,
