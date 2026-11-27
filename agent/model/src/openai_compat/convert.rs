@@ -191,7 +191,8 @@ pub fn request_body(model: &str, req: &Request, facts: &OpenaiCompatFacts) -> Re
         (w, c) => w.or(c),
     };
     if let Some(n) = max {
-        body.insert("max_tokens".into(), json!(n));
+        let field = if facts.max_completion_tokens { "max_completion_tokens" } else { "max_tokens" };
+        body.insert(field.into(), json!(n));
     }
     if !req.tools.is_empty() {
         let tools: Vec<Value> = req

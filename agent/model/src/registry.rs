@@ -132,6 +132,11 @@ pub struct OpenaiCompatFacts {
     pub parallel_tool_calls: bool,
     /// Роль `developer`/`system` посреди разговора (`magi.developer_role`).
     pub developer_role: bool,
+    /// Предел ответа полем `max_completion_tokens` вместо `max_tokens`: так
+    /// требуют нынешние модели OpenAI (GPT-5.x, рассуждающие), а локальные
+    /// серверы понимают `max_tokens`. Своё умение: у muse его нет
+    /// (в `strings-all.txt` поле `max_completion_tokens` не встречается).
+    pub max_completion_tokens: bool,
     pub runtime_output_ceiling: Option<u32>,
 }
 

@@ -273,3 +273,17 @@ fn unsupported_flag_and_registry() {
     let main = reg.resolve(Purpose::Main, None).unwrap().unwrap();
     assert!(OpenaiCompatProvider::from_resolved(&main).is_err());
 }
+
+#[test]
+fn output_limit_field_by_flag() {
+    let on = OpenaiCompatFacts { max_completion_tokens: true, ..full_facts() };
+    let b = request_body("gpt-5", &request(), &on).unwrap();
+    let o = b.as_object().unwrap();
+    assert_eq!(b["max_completion_tokens"], 8192);
+    assert!(!o.contains_key("max_tokens"));
+
+    let b = request_body("qwen3:8b", &request(), &full_facts()).unwrap();
+    let o = b.as_object().unwrap();
+    assert_eq!(b["max_tokens"], 8192);
+    assert!(!o.contains_key("max_completion_tokens"));
+}
