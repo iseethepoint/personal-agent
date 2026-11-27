@@ -1,11 +1,13 @@
 //! `agent-loop` — цикл хода: модель → вызовы инструментов → результаты →
 //! модель. С моделью говорит только через `agent-model`.
 
+pub mod compaction;
 pub mod prompt;
 pub mod spill;
 pub mod tool;
 pub mod turn;
 
+pub use compaction::{personal, summarization_prompt, Compactor, Plan, SUMMARY_HEADER};
 pub use prompt::{o200k_count, Conversation, Prefix, HOME_FILES};
 pub use spill::SPILL_THRESHOLD_BYTES;
 pub use tool::{Tool, ToolError, ToolFuture, Tools};

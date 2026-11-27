@@ -48,6 +48,9 @@ pub enum TurnError {
     /// Модель не ответила, а повторять нельзя.
     #[error("model: {0}")]
     Model(ProviderError),
+    /// Сжатие не удалось.
+    #[error("compaction: {0}")]
+    Compaction(String),
     /// Ответ не в заданной форме.
     #[error("output contract: {0}")]
     OutputContract(String),
