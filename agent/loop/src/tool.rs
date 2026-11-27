@@ -1,0 +1,61 @@
+//! Инструмент и реестр инструментов. Описание инструмента — `ToolSpec` из
+//! прослойки модели, одно на всех поставщиков; исполнение — `call(args)`.
+
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
+use agent_model::{ToolResultPart, ToolSpec};
+use serde_json::Value;
+
+/// Ошибка инструмента. Модели уходит результатом с `is_error`.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum ToolError {
+    /// Аргументы не подходят инструменту. Модели уходит текстом muse
+    /// «Invalid arguments for {name}: …» (`strings-all.txt:11963`).
+    #[error("{0}")]
+    InvalidArguments(String),
+    /// Инструмент не справился.
+    #[error("{0}")]
+    Failed(String),
+}
+
+pub type ToolFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<Vec<ToolResultPart>, ToolError>> + Send + 'a>>;
+
+/// Инструмент: описание и исполнение.
+pub trait Tool: Send + Sync {
+    fn spec(&self) -> ToolSpec;
+    fn call(&self, args: Value) -> ToolFuture<'_>;
+}
+
+/// Реестр: имя → инструмент. Описания модели уходят в порядке добавления.
+#[derive(Default, Clone)]
+pub struct Tools {
+    list: Vec<(String, Arc<dyn Tool>)>,
+}
+
+impl Tools {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Добавить инструмент; инструмент с тем же именем заменяется.
+    pub fn add(&mut self, tool: impl Tool + 'static) -> &mut Self {
+        let name = tool.spec().name;
+        let tool: Arc<dyn Tool> = Arc::new(tool);
+        match self.list.iter_mut().find(|(n, _)| *n == name) {
+            Some(slot) => slot.1 = tool,
+            None => self.list.push((name, tool)),
+        }
+        self
+    }
+
+    pub fn get(&self, name: &str) -> Option<&Arc<dyn Tool>> {
+        self.list.iter().find(|(n, _)| n == name).map(|(_, t)| t)
+    }
+
+    pub fn specs(&self) -> Vec<ToolSpec> {
+        self.list.iter().map(|(_, t)| t.spec()).collect()
+    }
+}

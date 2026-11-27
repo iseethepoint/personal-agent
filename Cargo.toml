@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["agent/model"]
+members = ["agent/model", "agent/loop"]
 
 [workspace.package]
 edition = "2021"

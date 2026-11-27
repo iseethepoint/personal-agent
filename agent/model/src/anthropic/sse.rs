@@ -5,6 +5,7 @@
 use serde_json::Value;
 
 use crate::http::{decode_err, stream_err};
+use crate::OnText;
 use crate::types::{Part, ProviderError, ProviderErrorKind, Response, StopReason, Usage};
 
 /// Собираемый блок содержимого.
@@ -83,7 +84,11 @@ impl State {
         &mut self.blocks[index]
     }
 
-    pub(crate) fn event(&mut self, data: &str) -> Result<(), ProviderError> {
+    pub(crate) fn event(
+        &mut self,
+        data: &str,
+        on_text: &mut OnText<'_>,
+    ) -> Result<(), ProviderError> {
         let v: Value = serde_json::from_str(data).map_err(|e| decode_err(format!("SSE data: {e}")))?;
         let index = u(&v, "index").unwrap_or(0) as usize;
         match v["type"].as_str().unwrap_or("") {
@@ -112,7 +117,11 @@ impl State {
                     return Err(decode_err(format!("дельта для блока {index} без начала")));
                 };
                 match (d["type"].as_str().unwrap_or(""), block) {
-                    ("text_delta", Block::Text(t)) => t.push_str(d["text"].as_str().unwrap_or("")),
+                    ("text_delta", Block::Text(t)) => {
+                        let piece = d["text"].as_str().unwrap_or("");
+                        on_text(piece);
+                        t.push_str(piece)
+                    }
                     ("input_json_delta", Block::ToolCall { json, .. }) => {
                         json.push_str(d["partial_json"].as_str().unwrap_or(""))
                     }
@@ -145,6 +154,9 @@ impl State {
         if !self.stopped {
             return Err(stream_err("поток оборвался до message_stop"));
         }
+        let stop_reason = self
+            .stop_reason
+            .ok_or_else(|| decode_err("в потоке нет stop_reason"))?;
         let mut content = Vec::new();
         for b in self.blocks.into_iter().flatten() {
             content.push(match b {
@@ -153,8 +165,13 @@ impl State {
                     let arguments = if json.trim().is_empty() {
                         Value::Object(Default::default())
                     } else {
-                        serde_json::from_str(&json)
-                            .map_err(|e| decode_err(format!("аргументы `{name}`: {e}")))?
+                        match serde_json::from_str(&json) {
+                            Ok(v) => v,
+                            // Вызов оборван пределом ответа: он не закончен и
+                            // не исполняется; ответ остаётся `MaxTokens`.
+                            Err(_) if stop_reason == StopReason::MaxTokens => continue,
+                            Err(e) => return Err(decode_err(format!("аргументы `{name}`: {e}"))),
+                        }
                     };
                     Part::ToolCall { id, name, arguments }
                 }
@@ -162,9 +179,6 @@ impl State {
                 Block::Redacted(data) => Part::RedactedThinking { data },
             });
         }
-        let stop_reason = self
-            .stop_reason
-            .ok_or_else(|| decode_err("в потоке нет stop_reason"))?;
         Ok(Response {
             content,
             stop_reason,

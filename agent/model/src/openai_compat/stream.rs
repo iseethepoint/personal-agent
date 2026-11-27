@@ -6,6 +6,7 @@
 use serde_json::Value;
 
 use crate::http::{decode_err, stream_err};
+use crate::OnText;
 use crate::types::{Part, ProviderError, ProviderErrorKind, Response, StopReason, Usage};
 
 #[derive(Default)]
@@ -39,7 +40,11 @@ impl State {
         }
     }
 
-    pub(crate) fn event(&mut self, data: &str) -> Result<(), ProviderError> {
+    pub(crate) fn event(
+        &mut self,
+        data: &str,
+        on_text: &mut OnText<'_>,
+    ) -> Result<(), ProviderError> {
         if data.trim() == "[DONE]" {
             self.done = true;
             return Ok(());
@@ -70,6 +75,7 @@ impl State {
         };
         let d = &choice["delta"];
         if let Some(t) = d["content"].as_str() {
+            on_text(t);
             self.text.push_str(t);
         }
         if self.reasoning {
@@ -115,12 +121,18 @@ impl State {
         if !self.text.is_empty() {
             content.push(Part::Text { text: self.text });
         }
+        let cut = self.finish.as_deref() == Some("length");
         for c in self.calls {
             let arguments = if c.arguments.trim().is_empty() {
                 Value::Object(Default::default())
             } else {
-                serde_json::from_str(&c.arguments)
-                    .map_err(|e| decode_err(format!("аргументы `{}`: {e}", c.name)))?
+                match serde_json::from_str(&c.arguments) {
+                    Ok(v) => v,
+                    // Вызов оборван пределом ответа: он не закончен и не
+                    // исполняется; ответ остаётся `MaxTokens`.
+                    Err(_) if cut => continue,
+                    Err(e) => return Err(decode_err(format!("аргументы `{}`: {e}", c.name))),
+                }
             };
             content.push(Part::ToolCall {
                 id: c.id,
