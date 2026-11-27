@@ -16,13 +16,14 @@ use serde_json::{json, Value};
 
 type Clock = Arc<Mutex<DateTime<Utc>>>;
 
-fn setup(name: &str) -> (PathBuf, Tools, Clock) {
+fn setup(name: &str) -> (PathBuf, Tools, Clock, Trash) {
     let home = temp_dir(&format!("{name}-trash"));
     let clock: Clock = Arc::new(Mutex::new(Utc.with_ymd_and_hms(2027, 1, 15, 8, 0, 0).unwrap()));
     let c = clock.clone();
     let mut tools = Tools::new();
-    Trash::with_clock(Home::new(&home), Arc::new(move || *c.lock().unwrap())).add_to(&mut tools);
-    (home, tools, clock)
+    let trash = Trash::with_clock(Home::new(&home), Arc::new(move || *c.lock().unwrap()));
+    trash.add_to(&mut tools);
+    (home, tools, clock, trash)
 }
 
 async fn call(tools: &Tools, name: &str, args: Value) -> Result<String, String> {
@@ -42,7 +43,7 @@ fn field(out: &str, key: &str) -> String {
 
 #[tokio::test]
 async fn put_list_restore_and_expiry() {
-    let (home, tools, clock) = setup("flow");
+    let (home, tools, clock, trash) = setup("flow");
     assert_eq!(call(&tools, "trash.list", json!({})).await.unwrap(), "No Hamlet trash entries found.");
     std::fs::create_dir_all(home.join("workspace/old")).unwrap();
     std::fs::write(home.join("workspace/old/a.txt"), "a").unwrap();
@@ -77,6 +78,10 @@ async fn put_list_restore_and_expiry() {
     std::fs::write(home.join("workspace/b.txt"), "b").unwrap();
     let id2 = field(&call(&tools, "trash.put", json!({"path": "~/workspace/b.txt"})).await.unwrap(), "trash_id");
     *clock.lock().unwrap() += Duration::days(30);
+    // Обращение к корзине само не убирает: это работа уборщика (такт службы).
+    assert!(call(&tools, "trash.list", json!({})).await.unwrap().contains(&format!("| `{id2}` | active |")));
+    assert_eq!(trash.reap().unwrap(), 1);
+    assert_eq!(trash.reap().unwrap(), 0);
     let list = call(&tools, "trash.list", json!({})).await.unwrap();
     assert!(list.contains(&format!("| `{id2}` | expired |")), "{list}");
     assert!(!home.join(format!(".local/share/Trash/hamlet/{id2}/files")).exists());
@@ -93,7 +98,7 @@ async fn put_list_restore_and_expiry() {
 }
 
 async fn one_turn(wire: Wire) {
-    let (home, tools, _clock) = setup(&format!("turn-{wire:?}"));
+    let (home, tools, _clock, _trash) = setup(&format!("turn-{wire:?}"));
     std::fs::write(home.join("draft.md"), "x").unwrap();
     let (_server, p) = model(
         wire,

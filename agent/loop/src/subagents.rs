@@ -526,6 +526,11 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         }
     }
 
+    /// Сколько подагентов сейчас работает.
+    pub fn running(&self) -> usize {
+        self.inner.agents.lock().unwrap().iter().filter(|a| a.status == Status::Running).count()
+    }
+
     pub fn list(&self, limit: usize) -> Value {
         let agents = self.inner.agents.lock().unwrap();
         let entry = |a: &Agent| {
