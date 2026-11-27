@@ -25,6 +25,10 @@ pub enum Purpose {
     MemoryFlush,
     BackgroundWorker,
     CronWorker,
+    /// Решение о строке состояния цели после записи («Goal Activity Pulse»).
+    GoalActivityState,
+    /// Запись подцели в словах родителя («Subgoal Activity Rollup»).
+    GoalSubgoalRollup,
     SelfImprovementStep,
     BrowserAgent,
     BrowserMain,

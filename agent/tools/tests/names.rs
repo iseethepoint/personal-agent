@@ -91,6 +91,11 @@ async fn all_tools() -> Tools {
     for t in agent_cron::hook_tools(&cron) {
         tools.add(t);
     }
+    let goals_store = agent_goals::Store::connect(&pg::database(), Arc::new(|| 0)).await.unwrap();
+    let goals: Arc<agent_goals::Goals<common::AnyProvider>> = Arc::new(agent_goals::Goals { store: goals_store, home: home_dir.clone(), models: None, cleanup: None });
+    for t in agent_goals::tools(&goals) {
+        tools.add(t);
+    }
     tools
 }
 
@@ -100,7 +105,7 @@ async fn tool_descriptions_have_no_muse_or_meta() {
     let mut specs = tools.specs();
     specs.extend(agent_cron::resolution_specs());
     let names: Vec<&str> = specs.iter().map(|s| s.name.as_str()).collect();
-    for want in ["hamlet.read", "hamlet.write", "hamlet.edit", "hamlet.exec", "hamlet.skill_search", "hamlet.connector_search", "hamlet.memory_search", "subagent.spawn", "browser.search", "todo.write", "forget.plan", "forget.confirm", "cron.add", "cron.stop", "hooks.add", "hooks.dry_run", "hamlet.notify_main_agent", "hamlet.nothing_to_report", "hamlet.nothing_to_do"] {
+    for want in ["hamlet.read", "hamlet.write", "hamlet.edit", "hamlet.exec", "hamlet.skill_search", "hamlet.connector_search", "hamlet.memory_search", "subagent.spawn", "browser.search", "todo.write", "forget.plan", "forget.confirm", "cron.add", "cron.stop", "hooks.add", "hooks.dry_run", "hamlet.notify_main_agent", "hamlet.nothing_to_report", "hamlet.nothing_to_do", "user_goal.create", "user_goal.delete_briefing", "tracking.create", "tracking.set_status"] {
         assert!(names.contains(&want), "нет {want} в {names:?}");
     }
     let mut bad = Vec::new();
@@ -139,8 +144,8 @@ fn prompts_have_no_muse_or_meta() {
     assert!(seen >= 8, "тексты prompts/ не найдены");
     assert_clean("summarization_prompt", &summarization_prompt(), &mut bad);
     assert_clean("first_message", &first_message("задача"), &mut bad);
-    assert_clean("worker_message", &agent_cron::worker_message("job", "task", Some("t"), "тело", None), &mut bad);
-    assert_clean("heartbeat worker_message", &agent_cron::worker_message("heartbeat", "heartbeat", None, "тело", Some(agent_cron::HEARTBEAT_TEMPLATE)), &mut bad);
+    assert_clean("worker_message", &agent_cron::worker_message("job", "task", Some("t"), "тело", None, None), &mut bad);
+    assert_clean("heartbeat worker_message", &agent_cron::worker_message("heartbeat", "heartbeat", None, "тело", Some(agent_cron::HEARTBEAT_TEMPLATE), None), &mut bad);
     assert_clean("hook worker system", &agent_cron::hooks::worker_system(""), &mut bad);
     assert_clean("hook result", &agent_cron::hooks::result_text("m"), &mut bad);
     assert_clean("handoff", &format!("{:?}", agent_cron::handoff(&serde_json::json!({"job_id": "job", "message": "m"}))), &mut bad);
