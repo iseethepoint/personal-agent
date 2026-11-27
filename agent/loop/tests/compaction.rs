@@ -153,6 +153,9 @@ async fn flush_then_summary(wire: Wire) {
     assert_eq!(system_of(wire, sum), personal(SYSTEM_MD));
     let sum_text = sum["messages"].to_string();
     assert!(sum_text.contains("Create a context checkpoint summary for yourself"));
+    // Заметка muse: инструментов нет — перед просьбой.
+    let no_tools = sum_text.find("The available tool set has been modified.").expect("no_tools");
+    assert!(sum_text.contains("No tools available.") && no_tools < sum_text.find("Create a context checkpoint summary").unwrap());
     assert!(sum_text.contains("Готово: 1 файл"));
     assert!(!sum_text.contains("а теперь сожми"));
     match wire {
@@ -326,6 +329,7 @@ async fn segmented_keeps_old_segments(wire: Wire) {
     assert_eq!(reqs.len(), 2, "{wire:?}: ответ и ответ после замечания");
     let first = reqs[0]["messages"].to_string();
     assert!(first.contains("ЧАСТЬ-А") && first.contains("Rewrite the current state fresh and complete"), "{wire:?}");
+    assert!(first.contains("No tools available."), "{wire:?}");
     assert!(first.contains("Keep this segment under about 2720 tokens") && first.contains("under about 10880 tokens"), "{wire:?}");
     assert!(!first.contains("The previous current state is longer than this limit"), "{wire:?}");
     let second = reqs[1]["messages"].to_string();

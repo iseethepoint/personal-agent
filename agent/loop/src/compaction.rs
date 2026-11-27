@@ -39,6 +39,16 @@ pub const SUMMARIZATION_MD: &str = include_str!("../../../prompts/compaction/sum
 pub const SUMMARY_RULES_MD: &str = include_str!("../../../prompts/compaction/summary_rules.md");
 pub const MEMORY_FLUSH_PROMPT_MD: &str = include_str!("../../../prompts/compaction/memory_flush_prompt.md");
 pub const OUTPUT_CAP_FEEDBACK_MD: &str = include_str!("../../../prompts/compaction/output_cap_feedback.md");
+/// Заметка muse в запросе сводки: инструментов нет (`compact/no_tools.md`).
+pub const NO_TOOLS_MD: &str = include_str!("../../../prompts/compaction/no_tools.md");
+
+/// Старая часть разговора для сводки: заметка `no_tools.md` и просьба.
+fn summary_input(old: &[Message], prompt: String) -> Vec<Message> {
+    let mut messages = old.to_vec();
+    messages.push(Message { role: Role::Developer, content: vec![Part::Text { text: personal(NO_TOOLS_MD).trim_end().to_string() }] });
+    messages.push(Message { role: Role::User, content: vec![Part::Text { text: prompt }] });
+    messages
+}
 
 /// Порог периодического сброса памяти в токенах (по умолчанию ядра).
 pub const PERIODIC_THRESHOLD_TOKENS: u64 = 50_000;
@@ -201,8 +211,7 @@ impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
     /// Сводка одним куском; упор в предел ответа — одно замечание
     /// `output_cap_feedback.md` (`compaction_output_token_cap_feedback`).
     async fn plain_summary(&self, conv: &Conversation, cut: usize) -> Result<String, TurnError> {
-        let mut messages = conv.history[..cut].to_vec();
-        messages.push(Message { role: Role::User, content: vec![Part::Text { text: summarization_prompt() }] });
+        let mut messages = summary_input(&conv.history[..cut], summarization_prompt());
         let resp = self.compaction.complete(&self.request(conv, messages.clone())).await.map_err(TurnError::Model)?;
         if resp.stop_reason != StopReason::MaxTokens {
             return Ok(resp.text());
@@ -221,8 +230,7 @@ impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
         use crate::segmented::*;
         let limits = Limits::for_window(self.window);
         let old = conv.history.first().map(|m| m.text()).and_then(|t| t.strip_prefix(SUMMARY_HEADER).map(Summary::parse)).unwrap_or_default();
-        let mut messages = conv.history[..cut].to_vec();
-        messages.push(Message { role: Role::User, content: vec![Part::Text { text: segmented_prompt(&limits, old.state.as_deref()) }] });
+        let mut messages = summary_input(&conv.history[..cut], segmented_prompt(&limits, old.state.as_deref()));
         let resp = self.compaction.complete(&self.request(conv, messages.clone())).await.map_err(TurnError::Model)?;
         let (mut segment, mut state) = parse_reply(&resp.text());
         let bad = |seg: &Option<String>, st: &Option<String>| seg.is_none() || st.is_none() || over_limits(seg.as_deref().unwrap_or(""), st.as_deref().unwrap_or(""), &limits);
