@@ -1,0 +1,1 @@
+Use this only when the current subtree state should be surfaced to the receiving parent agent under SUBAGENTS_MONITORING.md. For a nested worker, that parent is the coordinator agent. Runtime sends the internal handoff envelope; assistant prose is ignored.

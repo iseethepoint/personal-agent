@@ -25,6 +25,10 @@ pub enum Purpose {
     MemoryFlush,
     BackgroundWorker,
     CronWorker,
+    /// Фаза итога работника расписаний.
+    CronResolve,
+    /// Монитор промежуточных событий подагентов.
+    SubagentMonitor,
     /// Решение о строке состояния цели после записи («Goal Activity Pulse»).
     GoalActivityState,
     /// Запись подцели в словах родителя («Subgoal Activity Rollup»).

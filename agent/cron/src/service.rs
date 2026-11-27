@@ -194,10 +194,29 @@ impl Core {
     }
 }
 
+/// Модели работника расписаний через `Registry::resolve`: исполнение —
+/// `CronWorker`, итог — `CronResolve`.
+pub struct Plan<'r> {
+    pub worker: agent_model::Resolved<'r>,
+    pub resolve: agent_model::Resolved<'r>,
+}
+
+impl<'r> Plan<'r> {
+    pub fn from_registry(reg: &'r agent_model::Registry, selection: Option<&str>) -> Result<Self, agent_model::RegistryError> {
+        let get = |p: agent_model::Purpose| -> Result<agent_model::Resolved<'r>, agent_model::RegistryError> {
+            Ok(reg.resolve(p, selection)?.expect("resolve отдаёт None только для Embeddings"))
+        };
+        Ok(Plan { worker: get(agent_model::Purpose::CronWorker)?, resolve: get(agent_model::Purpose::CronResolve)? })
+    }
+}
+
 /// Служба: такт и прогоны на модели `CronWorker`.
 pub struct Scheduler<P> {
     core: Arc<Core>,
     provider: Arc<P>,
+    /// Модель фазы итога работника расписаний — назначение muse
+    /// `CronResolve` (`strings-all.txt:56281`).
+    resolver: Arc<P>,
     /// Системный текст и инструменты работника.
     system: String,
     tools: Arc<Tools>,
@@ -212,7 +231,14 @@ fn new_run_id(job_id: &str, scheduled_for: i64, attempt: i32) -> String {
 
 impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
     pub fn new(core: Arc<Core>, provider: Arc<P>, system: impl Into<String>, tools: Arc<Tools>, spill_dir: impl Into<PathBuf>, inbox: Inbox) -> Self {
-        Scheduler { core, provider, system: system.into(), tools, spill_dir: spill_dir.into(), inbox, background: Vec::new() }
+        Scheduler { core, resolver: provider.clone(), provider, system: system.into(), tools, spill_dir: spill_dir.into(), inbox, background: Vec::new() }
+    }
+
+    /// Модель фазы итога (`Plan::resolve`); без вызова — та же, что у
+    /// исполнения.
+    pub fn resolver(&mut self, p: Arc<P>) -> &mut Self {
+        self.resolver = p;
+        self
     }
 
     /// Фоновая работа на каждом такте (сверка памяти).
@@ -303,7 +329,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         let handle = tokio::spawn(async move {
             let first = crate::hooks::execute_message(&w, &id);
             let kind = worker::Kind::Hook { resolve: crate::hooks::resolve_message(&w, &id) };
-            let out = worker::run(&*provider, &system, &tools, &spill, first, None, kind, |_, _| {}).await;
+            let out = worker::run(&*provider, &*provider, &system, &tools, &spill, first, None, kind, |_, _| {}).await;
             match out.signal {
                 Some(Signal::Notify { message, .. }) => inbox.push(Message {
                     role: Role::Developer,
@@ -405,6 +431,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         };
         let core = self.core.clone();
         let provider = self.provider.clone();
+        let resolver = self.resolver.clone();
         let tools = self.tools.clone();
         let system = self.system.clone();
         let spill = self.spill_dir.clone();
@@ -422,7 +449,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                 });
             };
             let kind = worker::Kind::Cron { mode: d.mode.clone() };
-            let out = worker::run(&*provider, &system, &tools, &spill, first, Some(timeout), kind, on_phase).await;
+            let out = worker::run(&*provider, &*resolver, &system, &tools, &spill, first, Some(timeout), kind, on_phase).await;
             if let Err(e) = settle_run(&core, &job, &id, attempt, timeout, out).await {
                 eprintln!("scheduler run {id}: {e}");
             }

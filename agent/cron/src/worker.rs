@@ -299,12 +299,15 @@ pub struct Outcome {
     pub error: Option<String>,
 }
 
-/// Прогнать задание: `system` и `tools` — работника; `timeout_secs` —
+/// Прогнать задание: фаза исполнения — на `provider`, фаза итога — на
+/// `resolver` (у расписаний — модель `CronResolve`); `system` и `tools` —
+/// работника; `timeout_secs` —
 /// срок фазы исполнения (у наблюдателя срока нет); `on_phase` узнаёт о
 /// переходе к итогу и о том, был ли срок.
 #[allow(clippy::too_many_arguments)]
 pub async fn run<P: Provider>(
     provider: &P,
+    resolver: &P,
     system: &str,
     tools: &Tools,
     spill_dir: &std::path::Path,
@@ -367,7 +370,7 @@ pub async fn run<P: Provider>(
         NOTHING_TO_REPORT
     };
     terminal.add(NotifyMainAgent(resolution.clone()));
-    let mut turn = Turn::new(provider, &terminal, system, spill_dir);
+    let mut turn = Turn::new(resolver, &terminal, system, spill_dir);
     turn.terminal = vec![quiet_name.into(), NOTIFY_MAIN_AGENT.into()];
     let error = turn.run(&mut history, &mut quiet).await.err().map(|e| e.to_string());
     let signal = resolution.signal.lock().unwrap().clone();

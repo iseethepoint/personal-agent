@@ -84,6 +84,9 @@ fn resolve_by_purpose() {
     // выбранной модели.
     assert_eq!(id(Purpose::GoalActivityState, None), "anthropic/main");
     assert_eq!(id(Purpose::GoalSubgoalRollup, Some("local/chat")), "local/chat");
+    // П4ж-2: итог расписаний и монитор подагентов — свои назначения.
+    assert_eq!(id(Purpose::CronResolve, Some("local/chat")), "local/chat");
+    assert_eq!(id(Purpose::SubagentMonitor, None), "anthropic/main");
 }
 
 #[test]

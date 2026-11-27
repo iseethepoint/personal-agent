@@ -418,3 +418,35 @@ async fn memory_maintenance_runs_on_scheduler_tick() {
         assert!(search().await.contains("MEMORY.md"), "{wire:?}");
     }
 }
+
+/// П4ж-2: фаза итога — на своей модели (`CronResolve`).
+#[tokio::test]
+async fn resolution_phase_runs_on_resolve_model() {
+    for wire in WIRES {
+        let mut c = ctx("resolve", wire, vec![Step::Text("Checked.")], None).await;
+        let (resolve_server, rp) = model(wire, vec![quiet("q1")], true);
+        c.sched.resolver(Arc::new(rp));
+        c.call("cron.add", water(json!({"kind": "runonce", "at": "2027-01-15T08:00", "timezone": "UTC"}))).await.unwrap();
+        c.sched.tick().await.unwrap();
+        c.sched.settle().await.unwrap();
+        assert_eq!(c.server.requests().len(), 1, "{wire:?}: исполнение — на модели работника");
+        let r = resolve_server.requests();
+        assert_eq!(r.len(), 1, "итог — на модели CronResolve");
+        assert!(r[0].to_string().contains("Call exactly one final tool"));
+        assert_eq!(c.runs("water").await[0]["status"], "succeeded");
+    }
+}
+
+#[test]
+fn plan_picks_worker_and_resolve_models() {
+    let base = std::fs::read_to_string(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../model/tests/fixtures/registry_base.toml")).unwrap();
+    let from = "  { purpose = \"BrowserAgent\", model = \"anthropic/main\" },";
+    let text = base.replacen(from, &format!("{from}\n  {{ purpose = \"CronResolve\", model = \"anthropic/small\" }},"), 1);
+    let reg = agent_model::Registry::parse(&text).unwrap();
+    let p = agent_cron::Plan::from_registry(&reg, Some("local/chat")).unwrap();
+    // CronWorker — в default_model_purposes у local/chat; CronResolve — переопределён.
+    assert_eq!(p.worker.option.id, "anthropic/main");
+    assert_eq!(p.resolve.option.id, "anthropic/small");
+    let p = agent_cron::Plan::from_registry(&reg, None).unwrap();
+    assert_eq!(p.resolve.option.id, "anthropic/main");
+}

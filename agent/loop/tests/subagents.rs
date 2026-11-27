@@ -262,3 +262,75 @@ fn inherited_history_drops_pending_calls_only() {
     let only_call = vec![user, Message { role: Role::Assistant, content: vec![call] }];
     assert_eq!(inherited_history(&only_call).len(), 1);
 }
+
+/// П4ж-2: монитор промежуточных событий (`SubagentMonitor`) — своя задача
+/// с очередью. На шаге с вызовом инструмента монитор решает;
+/// `notify_main_agent` — заметка родителю, `nothing_to_do` — тишина; итог
+/// приходит в любом случае. Второй шаг подагента медленный, чтобы монитор
+/// успел решить первое событие до итога.
+async fn monitor_relays_only_on_notify(wire: Wire) {
+    for (decision, relayed) in [("subagent_monitor.notify_main_agent", true), ("subagent_monitor.nothing_to_do", false)] {
+        let home = temp_dir("monitor-home");
+        let steps = vec![
+            Step::Calls(vec![("c1", "echo", json!({"text": "проверил"}))]),
+            Step::Calls(vec![("c2", "slow", json!({"ms": 800}))]),
+            Step::Text("Готово: 7"),
+        ];
+        let (_cs, subs) = children(wire, steps);
+        let mon = vec![Step::Calls(vec![("m1", decision, json!({}))]), Step::Calls(vec![("m2", "subagent_monitor.nothing_to_do", json!({}))])];
+        let (monitor_server, mp) = model(wire, mon, true);
+        subs.set_monitor(agent_loop::monitor::Monitor::new(Arc::new(mp), &home));
+        call(&subs, "subagent.spawn", json!({"message": "посчитай"})).await.unwrap();
+        let mut got = Vec::new();
+        while !got.iter().any(|m: &Message| text_of(m).starts_with("[Subagent Result]")) {
+            got.extend(wait(subs.inbox()).await);
+        }
+        let texts: Vec<String> = got.iter().map(text_of).collect();
+        assert_eq!(texts.len(), if relayed { 2 } else { 1 }, "{wire:?} {decision}: {texts:?}");
+        if relayed {
+            assert!(texts[0].starts_with("[Automatic progress note from a running subagent task, not a user message]\nmonitor_event_id: 1\ncoordinator_agent_id: agent-1"), "{}", texts[0]);
+            assert!(texts[0].contains("- tool `echo` completed") && texts[0].contains("result: проверил"), "{}", texts[0]);
+        }
+        assert!(texts.last().unwrap().contains("Готово: 7"));
+        // Монитор видит свой договор из `~/SUBAGENTS_MONITORING.md` и задачу.
+        let req = monitor_server.requests()[0].to_string();
+        assert!(req.contains("You are the monitoring agent for a spawned subagent tree") && req.contains("# Subagents Monitoring Guide"), "{req}");
+        assert!(req.contains("посчитай") && req.contains("## Trigger"));
+        assert!(home.join("SUBAGENTS_MONITORING.md").exists());
+    }
+}
+both!(monitor_relays_only_on_notify);
+
+/// Поставщик, который отвечает с задержкой.
+struct Late(AnyProvider, Duration);
+
+impl agent_model::Provider for Late {
+    async fn stream(&self, req: &agent_model::Request, on_text: &mut agent_model::OnText<'_>) -> Result<agent_model::Response, agent_model::ProviderError> {
+        tokio::time::sleep(self.1).await;
+        self.0.stream(req, on_text).await
+    }
+}
+
+/// Подагент монитор не ждёт: с медленным монитором итог приходит сразу,
+/// а решение монитора после итога уже ничего не присылает.
+async fn slow_monitor_does_not_delay_result(wire: Wire) {
+    let home = temp_dir("monitor-slow");
+    let (_cs, subs) = children(wire, vec![Step::Calls(vec![("c1", "echo", json!({"text": "x"}))]), Step::Text("Готово: 8")]);
+    let (_ms, mp) = model(wire, vec![Step::Calls(vec![("m1", "subagent_monitor.notify_main_agent", json!({}))])], true);
+    subs.set_monitor(agent_loop::monitor::Monitor::new(Arc::new(Late(mp, Duration::from_secs(3))), &home));
+    let started = Instant::now();
+    call(&subs, "subagent.spawn", json!({"message": "быстро"})).await.unwrap();
+    let got = wait(subs.inbox()).await;
+    assert!(started.elapsed() < Duration::from_secs(2), "{wire:?}: подагент ждал монитор: {:?}", started.elapsed());
+    let texts: Vec<String> = got.iter().map(text_of).collect();
+    assert_eq!(texts.len(), 1, "{texts:?}");
+    assert!(texts[0].starts_with("[Subagent Result]") && texts[0].contains("Готово: 8"));
+    // Монитор решил «notify» уже после итога — заметки нет.
+    tokio::time::sleep(Duration::from_millis(3500)).await;
+    assert!(subs.inbox().drain().is_empty());
+}
+both!(slow_monitor_does_not_delay_result);
+
+fn text_of(m: &Message) -> String {
+    m.content.iter().filter_map(|p| if let Part::Text { text } = p { Some(text.clone()) } else { None }).collect()
+}
