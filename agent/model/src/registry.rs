@@ -13,7 +13,8 @@ use std::path::Path;
 use serde::Deserialize;
 
 /// Задача, под которую выбирается модель. Имена — как у muse
-/// (`strings-all.txt:56281`, `:237127-237137`, `:237150-237151`).
+/// (`strings-all.txt:56281`, `:237127-237137`, `:237150-237151`;
+/// `MediaDescription` — `:236113`).
 /// `Main` и `Embeddings` — свои: у muse главный разговор идёт на выбранной
 /// модели, а эмбеддинги — отдельная служба (опись, раздел 3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
@@ -96,6 +97,13 @@ pub struct AnthropicFacts {
     pub image_resolution: ImageResolution,
     pub runtime_output_ceiling: Option<u32>,
     pub beta: Option<String>,
+    /// `cache_control` на неизменном начале подсказки (system и инструменты).
+    /// Своё имя: в списке умений весов muse такого флага нет.
+    pub prompt_cache: bool,
+    /// Принудительный вызов инструмента (`tool_choice` `tool`/`any`).
+    /// На claude-opus-5-5, Sonnet 5.5, Fable 5.1/5.2 сервер отвечает 400 —
+    /// там умение выключено. Своё имя: у muse такого флага нет.
+    pub forced_tool_choice: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
