@@ -118,3 +118,35 @@ async fn mailbox_states_follow_the_core() {
     let third = Inbox::persistent(Arc::new(AgentMailbox::new(&store, "root"))).await.unwrap();
     assert!(third.drain().is_empty());
 }
+
+/// П3е-3: список дел и сторож продолжения в базе переживают перезапуск:
+/// после двух напоминаний по той же работе — тишина и в новом процессе;
+/// новая незакрытая работа — новое поколение сторожа.
+#[tokio::test]
+async fn todo_and_continuation_guard_survive_restart() {
+    use agent_history::AgentTodo;
+    use agent_loop::Tool;
+    use agent_tools::{Continuation, Todo};
+    let store = Store::connect(&pg::database()).await.unwrap();
+    let open = || async { Todo::persistent(Arc::new(AgentTodo::new(&store, "root"))).await.unwrap() };
+    let todo = open().await;
+    todo.call(json!({"todos": [{"text": "a", "status": "in_progress"}, {"text": "b", "status": "pending"}]})).await.unwrap();
+    let first = Continuation::new().next(&todo).await.unwrap();
+    assert!(!first.contains("has not changed since the last reminder"));
+    // Перезапуск: список тот же, сторож помнит одно напоминание.
+    let todo = open().await;
+    assert_eq!(todo.current().len(), 2);
+    let second = Continuation::new().next(&todo).await.unwrap();
+    assert!(second.contains("The unfinished work in this list has not changed since the last reminder."), "{second}");
+    let todo = open().await;
+    assert!(Continuation::new().next(&todo).await.is_none(), "два напоминания — тишина и после перезапуска");
+    // Новая незакрытая работа — новое поколение, снова продолжение.
+    todo.call(json!({"todos": [{"text": "a", "status": "completed"}, {"text": "b", "status": "in_progress"}]})).await.unwrap();
+    let todo = open().await;
+    assert!(Continuation::new().next(&todo).await.is_some());
+    let row: (i64, i64, i16) = sqlx::query_as("select revision, continuation_generation, continuation_reminders from runtime.agent_todo_snapshots where conversation_id = 'root'")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(row, (2, 2, 1));
+}

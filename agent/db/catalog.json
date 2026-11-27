@@ -1777,6 +1777,93 @@
       "columns": [
         {
           "comment": null,
+          "default": null,
+          "name": "conversation_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "agent_identity",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'[]'::text",
+          "name": "items_json",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "1",
+          "name": "revision",
+          "nullable": false,
+          "position": 4,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "((EXTRACT(epoch FROM now()) * (1000)::numeric))::bigint",
+          "name": "updated_at_ms",
+          "nullable": false,
+          "position": 5,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "continuation_key",
+          "nullable": true,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "continuation_generation",
+          "nullable": false,
+          "position": 7,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "continuation_reminders",
+          "nullable": false,
+          "position": 8,
+          "type": "smallint"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "conversation_id",
+          "name": "agent_todo_snapshots_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        },
+        {
+          "column": "agent_identity",
+          "name": "agent_todo_snapshots_pkey",
+          "position": 2,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "agent_todo_snapshots",
+      "schema": "runtime"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
           "default": "nextval('runtime.search_documents_search_document_id_seq'::regclass)",
           "name": "search_document_id",
           "nullable": false,

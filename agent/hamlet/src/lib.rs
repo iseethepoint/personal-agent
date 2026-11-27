@@ -244,8 +244,9 @@ impl Hamlet {
 
         // Главный агент: общий набор + подагенты, забывание, окна браузера.
         let mut tools = with_workflows(parts.base(None)?);
-        // Свой список дел главного агента — по нему продолжение хода.
-        let todo = Todo::new();
+        // Свой список дел главного агента — по нему продолжение хода; снимок
+        // и сторож — в базе.
+        let todo = Todo::persistent(Arc::new(agent_history::AgentTodo::new(&history_store, ROOT_AGENT))).await?;
         tools.add(todo.clone());
         for x in subagents.tools() {
             tools.add(x);

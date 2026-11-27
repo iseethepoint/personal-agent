@@ -26,11 +26,52 @@ pub struct TodoItem {
 #[derive(Clone, Default)]
 pub struct Todo {
     list: Arc<Mutex<Vec<TodoItem>>>,
+    store: Option<Arc<dyn TodoStore>>,
+}
+
+type StoreFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = Result<T, String>> + Send + 'a>>;
+
+/// Снимок списка дел и сторож продолжения — строка
+/// `runtime.agent_todo_snapshots` muse.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Snapshot {
+    pub items: Vec<TodoItem>,
+    pub continuation_key: Option<String>,
+    pub continuation_generation: i64,
+    pub continuation_reminders: i16,
+}
+
+/// Хранилище списка дел (`replace_agent_todo_snapshot`,
+/// `load_agent_todo_snapshot`, `record_agent_todo_reminder` у muse).
+pub trait TodoStore: Send + Sync {
+    fn load<'a>(&'a self) -> StoreFuture<'a, Option<Snapshot>>;
+    /// Заменить список; новый ключ продолжения — новое поколение сторожа.
+    fn replace<'a>(&'a self, items: &'a [TodoItem], continuation_key: Option<&'a str>) -> StoreFuture<'a, ()>;
+    /// Записать `reminders` напоминаний по ключу и поколению; `false` — сторож
+    /// уже сдвинулся.
+    fn record_reminder<'a>(&'a self, key: &'a str, generation: i64, reminders: i16) -> StoreFuture<'a, bool>;
+}
+
+/// Ключ незакрытой работы: незакрытые пункты (текст, статус) без порядка.
+/// Своё: вид ключа (у muse он в разборе не виден).
+fn work_key(items: &[TodoItem]) -> Option<String> {
+    let mut key: WorkKey = items.iter().filter(|i| i.status != "completed" && i.status != "cancelled").map(|i| (i.text.clone(), i.status.clone())).collect();
+    if key.is_empty() {
+        return None;
+    }
+    key.sort();
+    serde_json::to_string(&key).ok()
 }
 
 impl Todo {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Список дел в базе: после перезапуска — сохранённый снимок.
+    pub async fn persistent(store: Arc<dyn TodoStore>) -> Result<Self, String> {
+        let items = store.load().await?.map(|s| s.items).unwrap_or_default();
+        Ok(Todo { list: Arc::new(Mutex::new(items)), store: Some(store) })
     }
 
     pub fn current(&self) -> Vec<TodoItem> {
@@ -103,6 +144,9 @@ impl Tool for Todo {
                 ));
             }
             let n = items.len();
+            if let Some(store) = &self.store {
+                store.replace(&items, work_key(&items).as_deref()).await.map_err(ToolError::Failed)?;
+            }
             *self.list.lock().unwrap() = items;
             Ok(vec![ToolResultPart::Text { text: json!({"items": n, "in_progress": active}).to_string() }])
         })
@@ -141,23 +185,54 @@ impl Continuation {
     }
 
     /// Записка для хода-продолжения или `None`, если продолжать не нужно.
-    pub fn next(&self, todo: &Todo) -> Option<String> {
+    /// У списка в базе сторож — там же (`prepare_agent_todo_continuation`,
+    /// `record_agent_todo_reminder`: `UPDATE … SET continuation_reminders =
+    /// $5 WHERE … continuation_key = $3 AND continuation_generation = $4 AND
+    /// continuation_reminders < $5`).
+    pub async fn next(&self, todo: &Todo) -> Option<String> {
         let items = todo.current();
         if !items.iter().any(|i| i.status == "pending" || i.status == "in_progress") {
             return None;
         }
-        let mut key: WorkKey =
-            items.iter().filter(|i| i.status != "completed" && i.status != "cancelled").map(|i| (i.text.clone(), i.status.clone())).collect();
-        key.sort();
-        let mut g = self.guard.lock().unwrap();
-        let reminders = match g.as_ref() {
-            Some((k, n)) if *k == key => *n,
-            _ => 0,
+        let reminders = match &todo.store {
+            Some(store) => {
+                let snap = match store.load().await {
+                    Ok(Some(s)) => s,
+                    Ok(None) => {
+                        eprintln!("todo continuation skipped: snapshot unavailable");
+                        return None;
+                    }
+                    Err(e) => {
+                        eprintln!("todo continuation skipped: guard unavailable ({e})");
+                        return None;
+                    }
+                };
+                let key = snap.continuation_key.clone()?;
+                let n = snap.continuation_reminders as u32;
+                if n >= 2 {
+                    return None;
+                }
+                match store.record_reminder(&key, snap.continuation_generation, (n + 1) as i16).await {
+                    Ok(true) => n,
+                    _ => return None,
+                }
+            }
+            None => {
+                let mut key: WorkKey =
+                    items.iter().filter(|i| i.status != "completed" && i.status != "cancelled").map(|i| (i.text.clone(), i.status.clone())).collect();
+                key.sort();
+                let mut g = self.guard.lock().unwrap();
+                let reminders = match g.as_ref() {
+                    Some((k, n)) if *k == key => *n,
+                    _ => 0,
+                };
+                if reminders >= 2 {
+                    return None;
+                }
+                *g = Some((key, reminders + 1));
+                reminders
+            }
         };
-        if reminders >= 2 {
-            return None;
-        }
-        *g = Some((key, reminders + 1));
         let guidance = if reminders == 1 { personal(RECONCILIATION_MD).trim_end().to_string() } else { String::new() };
         let snapshot = serde_json::to_string_pretty(&json!({"todos": items.iter().map(|i| json!({"text": i.text, "status": i.status})).collect::<Vec<_>>()})).unwrap_or_default();
         let text = personal(HANDOFF_MD).replace("{{RECONCILIATION_GUIDANCE}}\n\n", &if guidance.is_empty() { String::new() } else { format!("{guidance}\n\n") }).replace("{{TODO_SNAPSHOT}}", &snapshot);

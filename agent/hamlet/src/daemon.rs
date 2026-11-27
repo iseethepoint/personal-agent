@@ -161,7 +161,7 @@ impl Hamlet {
                 Ok(text) => {
                     let _ = out.send(text);
                     // Продолжение по списку дел (`todo_continuation`).
-                    if let Some(note) = self.todo_continuation() {
+                    if let Some(note) = self.todo_continuation().await {
                         conv.history.push(Message { role: Role::Developer, content: vec![Part::Text { text: note }] });
                         if let Err(e) = self.history.sync(&conv.history, conv.last_volatile()).await {
                             let _ = out.send(format!("[ошибка истории] {e}"));
@@ -181,10 +181,10 @@ impl Hamlet {
     /// делегированной работы в пути («todo continuation skipped: delegated
     /// work in flight»). Своё: делегированная работа — подагенты (и
     /// исследователь) и исполняемые запуски `workflow`.
-    pub fn todo_continuation(&self) -> Option<String> {
+    pub async fn todo_continuation(&self) -> Option<String> {
         if self.subagents.running() > 0 || self.workflows.running() > 0 {
             return None;
         }
-        self.continuation.next(&self.todo)
+        self.continuation.next(&self.todo).await
     }
 }

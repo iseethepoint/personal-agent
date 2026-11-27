@@ -117,6 +117,7 @@ version = "0.1.0"
 dependencies = [
  "agent-loop",
  "agent-model",
+ "agent-tools",
  "libc",
  "serde",
  "serde_json",
