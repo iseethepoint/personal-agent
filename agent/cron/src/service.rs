@@ -403,6 +403,19 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
     pub async fn recover(&self) -> Result<(), String> {
         let now = self.core.now();
         for r in self.core.store.running().await? {
+            // Работник уже кончил, итог ждал проверки — продолжается проверка.
+            if let (Some(p), Some(job)) = (self.core.store.pending(&r.run_id).await?, self.core.store.job(&r.job_id).await?) {
+                let history = match &self.workers {
+                    Some(w) => match w.active(worker::EXECUTE_CLASS, &r.run_id).await? {
+                        Some(rec) => rec.load().await?.1,
+                        None => Vec::new(),
+                    },
+                    None => Vec::new(),
+                };
+                let (timeout, _) = self.core.effective_timeout(&job.definition, now);
+                self.resume_pending(r.run_id.clone(), job, r.attempt, timeout, pending_outcome(&p, history));
+                continue;
+            }
             if let Some(w) = &self.workers {
                 if let Some(rec) = w.active(worker::EXECUTE_CLASS, &r.run_id).await? {
                     if let (Some(cp), Some(job)) = (rec.interrupted().await?, self.core.store.job(&r.job_id).await?) {
@@ -688,17 +701,22 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                 });
             };
             let kind = worker::Kind::Cron { mode: job.definition.mode.clone() };
-            let mut out = worker::run(&*provider, &*resolver, &prefix, &tools, &spill, begin, left, kind, on_phase, recording).await;
-            if let (Some(v), Some(Signal::Notify { outcome, message, .. })) = (&verification, &mut out.signal) {
-                if outcome == "succeeded" {
-                    *message = v.check(&job.definition.body, message, out.history.get(1..).unwrap_or_default(), &spill).await;
-                }
-            }
-            if let Err(e) = settle_run(&core, &job, &id, attempt, timeout, out, workers.as_deref()).await {
-                eprintln!("scheduler run {id}: {e}");
-            }
-            // Итог в ящик и повтор — на следующем такте.
-            core.wake();
+            let out = worker::run(&*provider, &*resolver, &prefix, &tools, &spill, begin, left, kind, on_phase, recording).await;
+            finish(&core, verification.as_deref(), &job, &id, attempt, timeout, out, workers.as_deref(), &spill).await;
+        });
+        self.core.running.lock().unwrap().insert(run_id, handle);
+    }
+
+    /// Прогон с отложенным итогом после перезапуска: работник уже кончил,
+    /// продолжается проверка и итог.
+    fn resume_pending(&self, run_id: String, job: Job, attempt: i32, timeout: i64, out: worker::Outcome) {
+        let core = self.core.clone();
+        let spill = self.spill_dir.clone();
+        let workers = self.workers.clone();
+        let verification = self.verification.clone();
+        let id = run_id.clone();
+        let handle = tokio::spawn(async move {
+            finish(&core, verification.as_deref(), &job, &id, attempt, timeout, out, workers.as_deref(), &spill).await;
         });
         self.core.running.lock().unwrap().insert(run_id, handle);
     }
@@ -798,6 +816,50 @@ impl<P: Provider + Send + Sync + 'static> HookParts<P> {
             }
         }
         self.core.wake();
+    }
+}
+
+/// Итог работника: успешный отчёт при проверке — сначала в отложенный итог
+/// прогона, потом проверка; затем `settle_run`.
+#[allow(clippy::too_many_arguments)]
+async fn finish<P: Provider + Send + Sync + 'static>(
+    core: &Core,
+    verification: Option<&crate::verification::CronVerification<P>>,
+    job: &Job,
+    id: &str,
+    attempt: i32,
+    timeout: i64,
+    mut out: worker::Outcome,
+    workers: Option<&dyn agent_loop::WorkerStore>,
+    spill: &std::path::Path,
+) {
+    if let (Some(v), Some(Signal::Notify { outcome, message, blocked_reason, blocked_dependency })) = (verification, &mut out.signal) {
+        if outcome == "succeeded" {
+            let pending = json!({
+                "outcome": outcome, "message": message, "blocked_reason": blocked_reason,
+                "blocked_dependency": blocked_dependency, "timed_out": out.timed_out,
+            });
+            if let Err(e) = core.store.pending_put(id, &pending).await {
+                eprintln!("failed to persist pending terminal result {id}: {e}");
+            }
+            *message = v.check(id, &job.definition.body, message, out.history.get(1..).unwrap_or_default(), spill).await;
+        }
+    }
+    if let Err(e) = settle_run(core, job, id, attempt, timeout, out, workers).await {
+        eprintln!("scheduler run {id}: {e}");
+    }
+    // Итог в ящик и повтор — на следующем такте.
+    core.wake();
+}
+
+/// Отложенный итог из базы — снова итог работника.
+fn pending_outcome(p: &Value, history: Vec<Message>) -> worker::Outcome {
+    let s = |k: &str| p[k].as_str().map(str::to_string);
+    worker::Outcome {
+        signal: Some(Signal::Notify { outcome: s("outcome").unwrap_or_default(), message: s("message").unwrap_or_default(), blocked_reason: s("blocked_reason"), blocked_dependency: s("blocked_dependency") }),
+        timed_out: p["timed_out"].as_bool().unwrap_or(false),
+        error: None,
+        history,
     }
 }
 

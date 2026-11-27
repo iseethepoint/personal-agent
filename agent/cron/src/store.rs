@@ -19,10 +19,11 @@ use sqlx::Row;
 
 use crate::schedule::Schedule;
 
-const MIGRATIONS: [&str; 3] = [
+const MIGRATIONS: [&str; 4] = [
     include_str!("../migrations/0001_scheduler.sql"),
     include_str!("../migrations/0002_runtime_hooks.sql"),
     include_str!("../migrations/0003_execute_resolve.sql"),
+    include_str!("../migrations/0004_pending_terminal_result.sql"),
 ];
 
 pub type Result<T> = std::result::Result<T, String>;
@@ -365,6 +366,49 @@ impl Store {
             .await
             .map_err(db)?;
         Ok(rows.iter().map(run).collect())
+    }
+
+    /// Отложенный итог работника (`pending_terminal_result_json`): только у
+    /// идущего прогона, один раз.
+    pub async fn pending_put(&self, run_id: &str, result: &serde_json::Value) -> Result<()> {
+        sqlx::query("update scheduler.job_runs set pending_terminal_result_json = $2 where run_id = $1 and status = 'running' and pending_terminal_result_json is null")
+            .bind(run_id)
+            .bind(result.to_string())
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(())
+    }
+
+    /// Отложенный итог идущего прогона — запрос ядра `select
+    /// pending_terminal_result_json from scheduler.job_runs where run_id = $1
+    /// and status = 'running'`.
+    pub async fn pending(&self, run_id: &str) -> Result<Option<serde_json::Value>> {
+        let raw: Option<Option<String>> = sqlx::query_scalar("select pending_terminal_result_json from scheduler.job_runs where run_id = $1 and status = 'running'")
+            .bind(run_id)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(raw.flatten().and_then(|s| serde_json::from_str(&s).ok()))
+    }
+
+    /// Категория проверки — в отложенный итог (`retain_cron_verification_
+    /// category`: `select pending_terminal_result_json … and
+    /// pending_terminal_result_json is not null for update`, `update
+    /// scheduler.job_runs set pending_terminal_result_json = $2 where run_id
+    /// = $1`).
+    pub async fn retain_category(&self, run_id: &str, category: &str) -> Result<()> {
+        let mut tx = self.pool.begin().await.map_err(db)?;
+        let raw: Option<String> = sqlx::query_scalar("select pending_terminal_result_json from scheduler.job_runs where run_id = $1 and status = 'running' and pending_terminal_result_json is not null for update")
+            .bind(run_id)
+            .fetch_optional(&mut *tx)
+            .await
+            .map_err(db)?;
+        let Some(raw) = raw else { return Ok(()) };
+        let mut v: serde_json::Value = serde_json::from_str(&raw).map_err(|e| e.to_string())?;
+        v["verification_category"] = category.into();
+        sqlx::query("update scheduler.job_runs set pending_terminal_result_json = $2 where run_id = $1").bind(run_id).bind(v.to_string()).execute(&mut *tx).await.map_err(db)?;
+        tx.commit().await.map_err(db)
     }
 
     /// queued → running. `false` — прогон уже не в очереди.

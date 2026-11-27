@@ -593,6 +593,7 @@ Rows holding model reasoning (thinking and redacted-thinking items) are withheld
 | `worker_agent_id` | text | yes |  |
 | `worker_execution_timed_out` | boolean | no | `false` |
 | `notification_policy_json` | text | yes |  |
+| `pending_terminal_result_json` | text | yes |  |
 
 - PRIMARY KEY `run_id` (`job_runs_pkey`)
 

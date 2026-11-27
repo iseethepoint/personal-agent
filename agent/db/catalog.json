@@ -3725,6 +3725,14 @@
           "nullable": true,
           "position": 19,
           "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "pending_terminal_result_json",
+          "nullable": true,
+          "position": 20,
+          "type": "text"
         }
       ],
       "comment": null,
