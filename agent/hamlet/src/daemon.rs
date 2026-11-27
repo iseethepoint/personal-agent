@@ -80,8 +80,8 @@ impl Hamlet {
     /// Один ход главной сессии. Перед ходом — сжатие, если разговор дорос
     /// до порога.
     pub async fn turn(&self, conv: &mut Conversation) -> Result<String, String> {
-        if self.compactor().compact_if_needed(conv).await.map_err(|e| e.to_string())? {
-            self.history.replace(&conv.history, conv.last_volatile()).await?;
+        if let Some(done) = self.compactor().compact_if_needed(conv).await.map_err(|e| e.to_string())? {
+            self.history.replace(&conv.history, conv.last_volatile(), &done).await?;
         }
         // Поданное в ящик до хода: строка владельца — с заметкой изменчивого
         // за ней, весть службы — как есть; записывается историей и

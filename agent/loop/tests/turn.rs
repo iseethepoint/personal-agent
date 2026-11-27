@@ -365,3 +365,41 @@ async fn terminal_tool_ends_the_turn(wire: Wire) {
     assert_eq!(results(h.last().unwrap()), [("c2".to_string(), "done".to_string(), false)]);
 }
 both!(terminal_tool_ends_the_turn);
+
+/// П3е-4: ход отдаёт счёт поставщика после каждого записанного ответа
+/// модели (`agent_message_token_usage`) — на обоих проводах.
+struct Usages(std::sync::Mutex<Vec<(usize, u64)>>, std::sync::Mutex<usize>);
+
+impl agent_loop::Record for Usages {
+    fn record<'a>(&'a self, history: &'a [Message]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
+        *self.1.lock().unwrap() = history.len();
+        Box::pin(async { Ok(()) })
+    }
+    fn usage<'a>(&'a self, usage: &'a agent_model::Usage) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
+        let len = *self.1.lock().unwrap();
+        self.0.lock().unwrap().push((len, usage.output_tokens));
+        Box::pin(async { Ok(()) })
+    }
+}
+
+async fn usage_follows_each_answer(wire: Wire) {
+    let (_server, provider) = model(wire, vec![Step::Calls(vec![("c1", "echo", json!({"text": "x"}))]), Step::Text("Done.")], false);
+    let tools = tools();
+    let rec = std::sync::Arc::new(Usages(Default::default(), Default::default()));
+    let mut turn = Turn::new(&provider, &tools, "s", temp_dir("usage").join("spill"));
+    turn.record = Some(rec.clone());
+    let mut h = vec![Message { role: Role::User, content: vec![Part::Text { text: "go".into() }] }];
+    turn.run(&mut h, &mut |_| {}).await.unwrap();
+    // После ответа с вызовом (история из 2) и после итогового (из 4).
+    assert_eq!(rec.0.lock().unwrap().as_slice(), [(2, 5), (4, 5)], "{wire:?}");
+}
+
+#[tokio::test]
+async fn usage_follows_each_answer_anthropic() {
+    usage_follows_each_answer(Wire::Anthropic).await
+}
+
+#[tokio::test]
+async fn usage_follows_each_answer_openai_compat() {
+    usage_follows_each_answer(Wire::OpenaiCompat).await
+}

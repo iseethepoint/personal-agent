@@ -255,3 +255,16 @@
 - вид `continuation_key` — незакрытые пункты (текст, статус) без порядка, JSON;
 - `conversation_id` и `agent_identity` — `root`;
 - без хранилища (подагенты, тесты) сторож живёт в памяти, как раньше.
+
+## Сжатия и счёт токенов в Postgres (П3е-4)
+
+Текстов для модели нет. Таблицы `agent.agent_compactions` и `agent.agent_message_token_usage` — `agent/history/migrations/0004_compactions.sql` по каталогу ядра; вставки — форма ядра (около `0x16f4750`, `0x1700cb4`).
+
+Вид `inspection.agent_compactions` без `details_json` — `redaction` каталога ядра. Обе таблицы добавлены в каталог `hamlet.db` (26 таблиц) с этой пометкой.
+
+Своё (`agent/history/src/lib.rs`):
+- `trigger` — `context_pressure`: значения в разборе нет, рядом — «context-pressure compaction failed…»;
+- `details_json` — `{"replacement_history": …}`;
+- `first_kept_seq` — `seq` первого оставленного сообщения старой истории;
+- `checkpoint_seq` — новая граница подсказки;
+- `input_tokens` — вход вместе с чтением и записью кэша.

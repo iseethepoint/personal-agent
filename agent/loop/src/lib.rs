@@ -10,7 +10,7 @@ pub mod tool;
 pub mod tool_search;
 pub mod turn;
 
-pub use compaction::{personal, summarization_prompt, Compactor, Plan, SUMMARY_HEADER};
+pub use compaction::{personal, summarization_prompt, Compacted, Compactor, Plan, SUMMARY_HEADER};
 pub use prompt::{o200k_count, Conversation, Prefix, HOME_FILES};
 pub use spill::SPILL_THRESHOLD_BYTES;
 pub use subagents::{first_message, inherited_history, AfterDone, Finish, Inbox, Kind, Mailbox, Status, SubagentTool, Subagents, Transcript, CONTROL_TIMEOUT};

@@ -18,7 +18,9 @@ pub const FORMAT_VERSION: u32 = 3;
 pub const SCOPE: &str = "Hamlet application base tables readable by hamlet.db";
 
 /// Наши таблицы из каталога muse (`runtime.event_hook_admissions` в нём нет).
-pub const READABLE: [&str; 24] = [
+pub const READABLE: [&str; 26] = [
+    "agent.agent_compactions",
+    "agent.agent_message_token_usage",
     "agent.agents",
     "agent.context_items",
     "agent.message_mailbox",
@@ -98,11 +100,19 @@ pub struct Redaction {
 
 /// `redaction` каталога muse у наших таблиц; «muse.db» → «hamlet.db».
 fn redaction(full: &str) -> Option<Redaction> {
-    (full == "agent.context_items").then(|| Redaction {
-        note: "Rows holding model reasoning (thinking and redacted-thinking items) are withheld. Stored commentary can be queried through `hamlet.db` for diagnosis. Commentary is hidden from the user's chat. A commentary record does not establish that the user received its contents.".into(),
-        view: "inspection.context_items".into(),
-        withheld_columns: vec![],
-    })
+    match full {
+        "agent.context_items" => Some(Redaction {
+            note: "Rows holding model reasoning (thinking and redacted-thinking items) are withheld. Stored commentary can be queried through `hamlet.db` for diagnosis. Commentary is hidden from the user's chat. A commentary record does not establish that the user received its contents.".into(),
+            view: "inspection.context_items".into(),
+            withheld_columns: vec![],
+        }),
+        "agent.agent_compactions" => Some(Redaction {
+            note: "The compaction detail payload is withheld because it carries the model reasoning retained across the checkpoint.".into(),
+            view: "inspection.agent_compactions".into(),
+            withheld_columns: vec!["details_json".into()],
+        }),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

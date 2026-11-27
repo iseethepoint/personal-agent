@@ -106,6 +106,10 @@ pub struct Turn<'a, P> {
 /// Куда ход пишет свою историю по мере хода.
 pub trait Record: Send + Sync {
     fn record<'a>(&'a self, history: &'a [Message]) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>>;
+    /// Счёт поставщика за последний ответ модели (уже записанный в истории).
+    fn usage<'a>(&'a self, _usage: &'a agent_model::Usage) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async { Ok(()) })
+    }
 }
 
 /// Исполненный вызов: имя, аргументы, ошибка ли, первая строка результата.
@@ -249,6 +253,9 @@ impl<'a, P: Provider> Turn<'a, P> {
                     history.push(Message { role: Role::Assistant, content: kept });
                 }
                 self.save(history).await?;
+                if !resp.content.iter().all(|p| matches!(p, Part::ToolCall { .. })) {
+                    self.save_usage(&resp.usage).await?;
+                }
                 return Ok(resp);
             }
             if let Some(name) = contract {
@@ -274,6 +281,7 @@ impl<'a, P: Provider> Turn<'a, P> {
             }
             history.push(Message { role: Role::Assistant, content: resp.content.clone() });
             self.save(history).await?;
+            self.save_usage(&resp.usage).await?;
             if calls.is_empty() {
                 return Ok(resp);
             }
@@ -314,6 +322,13 @@ impl<'a, P: Provider> Turn<'a, P> {
             if ended {
                 return Ok(resp);
             }
+        }
+    }
+
+    async fn save_usage(&self, usage: &agent_model::Usage) -> Result<(), TurnError> {
+        match &self.record {
+            Some(r) if usage.reported => r.usage(usage).await.map_err(TurnError::Record),
+            _ => Ok(()),
         }
     }
 
