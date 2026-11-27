@@ -349,7 +349,7 @@ fn text_of(m: &Message) -> String {
 }
 
 /// П3з-2: глубина 2. Подагент глубины 1 заводит своего (раздел
-/// `subagent_spawning.md` и `subagent.*` в его начале, блоки глубины 1 в
+/// `subagent.*` в его начале, системный текст не меняется, блоки глубины 1 в
 /// первом сообщении); внук изолирован (без разговора родителя, без
 /// `subagent.*`), его итог приходит подагенту — и будит его, если ход уже
 /// кончился, — а не корню. `scope: descendants` видит и достаёт внука,
@@ -390,7 +390,7 @@ async fn grandchildren(wire: Wire) {
     assert!(got[0].text().contains("итог: 7"));
     let r = server.requests();
     let (child, grandchild, woken) = (r[0].to_string(), r[1].to_string(), r[4].to_string());
-    assert!(child.contains("## Sub-Agent Spawning") && child.contains("\"subagent.spawn\""), "{child}");
+    assert!(!child.contains("## Sub-Agent Spawning") && child.contains("Ты — подагент.") && child.contains("\"subagent.spawn\""), "{child}");
     assert!(child.contains("(depth 1/2)") && child.contains("If you coordinate child subagents"));
     assert!(grandchild.contains("(depth 2/2)") && grandchild.contains("You are running in isolated mode."), "{grandchild}");
     assert!(grandchild.contains("[Subagent Task]: внук, посчитай") && grandchild.contains("Ты — внук."));
@@ -549,3 +549,31 @@ async fn monitor_at_depth_two(wire: Wire) {
     assert!(r[7].to_string().contains("[Subagent Result] agent_id: agent-2, status: done") && r[7].to_string().contains("внук: 3"));
 }
 both!(monitor_at_depth_two);
+
+/// П5-2: метка времени входа — перед каждым сообщением подагенту (задание и
+/// `subagent.send` законченному), как у muse (`worker_turns/staging.rs`,
+/// `0xc59c3e0` → контекст входа `0xbc4b3a0`); без метки — заметки нет.
+async fn time_tag_before_each_input(wire: Wire) {
+    let (server, subs) = children(wire, vec![Step::Text("сделал"), Step::Text("и это")]);
+    let n = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let k = n.clone();
+    subs.set_time_tag(Arc::new(move || format!("[Fri 2027-01-15 08:0{}:00 UTC] [client_timezone=UTC]", k.fetch_add(1, std::sync::atomic::Ordering::SeqCst))));
+    let a = call(&subs, "subagent.spawn", json!({"message": "работа"})).await.unwrap();
+    let id = a["agent_id"].as_str().unwrap().to_string();
+    wait(subs.inbox()).await;
+    call(&subs, "subagent.send", json!({"agent_id": id, "message": "ещё одно"})).await.unwrap();
+    wait(subs.inbox()).await;
+    let r = server.requests();
+    let first = r[0]["messages"].to_string();
+    let at = |s: &str, t: &str| s.find(t).unwrap_or_else(|| panic!("нет «{t}» в {s}"));
+    assert!(at(&first, "[Fri 2027-01-15 08:00:00 UTC] [client_timezone=UTC]") < at(&first, "[Subagent Task]: работа"), "{first}");
+    let second = r[1]["messages"].to_string();
+    assert!(at(&second, "сделал") < at(&second, "08:01:00 UTC") && at(&second, "08:01:00 UTC") < at(&second, "ещё одно"), "{second}");
+
+    // Без метки — только сообщения.
+    let (plain, subs) = children(wire, vec![Step::Text("сделал")]);
+    call(&subs, "subagent.spawn", json!({"message": "работа"})).await.unwrap();
+    wait(subs.inbox()).await;
+    assert!(!plain.requests()[0]["messages"].to_string().contains("client_timezone"));
+}
+both!(time_tag_before_each_input);

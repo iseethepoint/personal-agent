@@ -128,11 +128,14 @@ pub fn records(tools: &Tools, inherits: bool, can_spawn: bool) -> Vec<Record> {
     r("45", "shared/environment/tracking", p!("shared/environment/tracking.md").into());
     r("45", "agent/your_requester", fill(p!("agent/your_requester.md"), &[("requester_description", p!("agent/requester_description.md"))]));
 
-    // 12e — время. Метка времени у Hamlet идёт за сообщением
-    // (`Conversation::push_user`) — `time_tag_after_input`; соседних дат в
-    // заметке нет — `{nearby_dates_reference}` пуст, как у главного.
+    // 12e — время. `{time_tag_placement}` — `0xcd51dd0` по полю контекста
+    // отрисовки `+0x383` (у сборщика `0xcdbbdf0` — копия поля, `0xb5b(%rsp)`,
+    // без контекста — 0): «before» — `chat/time_tag_before_input` (`0x290dd830`),
+    // как у главного; метка у Hamlet — перед сообщением подагенту
+    // (`Subagents::set_time_tag`). Соседних дат в метке нет —
+    // `{nearby_dates_reference}` пуст, как у главного.
     r("12e", "chat/contextual_awareness", p!("chat/contextual_awareness.md").into());
-    r("12e", "chat/date_time_awareness_head", fill(p!("chat/date_time_awareness_head.md"), &[("time_tag_placement", p!("chat/time_tag_after_input.md").trim())]));
+    r("12e", "chat/date_time_awareness_head", fill(p!("chat/date_time_awareness_head.md"), &[("time_tag_placement", p!("chat/time_tag_before_input.md").trim())]));
     r("12e", "agent/timezones_trust", p!("agent/timezones_trust.md").into());
     r("12e", "agent/date_validation_opener", p!("agent/date_validation_opener.md").into());
     r(

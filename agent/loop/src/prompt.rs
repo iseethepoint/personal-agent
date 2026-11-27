@@ -5,8 +5,8 @@
 //!   папки, описания инструментов. Собирается один раз за разговор и дальше
 //!   не меняется — между ходами начало запроса совпадает байт в байт, и кэш
 //!   подсказки у поставщика не сбивается.
-//! - Изменчивое (`volatile_context_pin`): время, откуда пришло сообщение —
-//!   заметкой `Role::Developer` в хвосте разговора. Новая заметка — только
+//! - Изменчивое (`volatile_context_pin`): метка времени — заметкой
+//!   `Role::Developer` перед сообщением владельца. Новая заметка — только
 //!   когда изменчивое изменилось (у muse тела заметок хранятся по хэшу,
 //!   `INSERT … ON CONFLICT (body_hash) DO NOTHING`, `strings-all.txt:68724`).
 //! - Оценка длины (`context_estimate.rs`): по счёту токенов поставщика, а
@@ -126,10 +126,12 @@ impl Conversation {
         self.last_volatile.as_deref()
     }
 
-    /// Сообщение владельца и, если изменилось, заметка изменчивого за ним —
-    /// в хвост разговора.
+    /// Заметка изменчивого, если изменилась, и за ней сообщение владельца —
+    /// в хвост разговора. Метка перед сообщением — как у главного muse:
+    /// `time_tag_placement` главного — `chat/time_tag_before_input.md`
+    /// («are prepended with», `0x290dd830`; выбор `0xcd51dd0` по полю
+    /// контекста отрисовки `+0x383`, у главного снимка — «before»).
     pub fn push_user(&mut self, content: Vec<Part>, volatile: &str) {
-        self.history.push(Message { role: Role::User, content });
         if self.last_volatile.as_deref() != Some(volatile) {
             self.history.push(Message {
                 role: Role::Developer,
@@ -137,6 +139,7 @@ impl Conversation {
             });
             self.last_volatile = Some(volatile.to_string());
         }
+        self.history.push(Message { role: Role::User, content });
     }
 
     /// Запомнить счёт поставщика после ответа, который последним лёг в

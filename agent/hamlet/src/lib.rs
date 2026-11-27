@@ -305,6 +305,9 @@ impl Hamlet {
             subagents.set_deeper(deep_tools, deep_prefix);
         }
         subagents.set_monitor(Monitor::new(Arc::new(provider(&resolve(&reg, Purpose::SubagentMonitor, sel)?)?), &home_dir));
+        // Метка времени на входы подагентов — как у главного (`daemon::time_tag`).
+        let (tag_clock, tag_tz) = (clock.clone(), t.agent.timezone.clone());
+        subagents.set_time_tag(Arc::new(move || daemon::time_tag(tag_clock.now_ms(), tag_tz.as_deref())));
         // Подагенты в базе: после перезапуска — снова в списке, оборванные
         // ходы продолжаются (`restart_rehydration` muse).
         let sub_clock = clock.clone();

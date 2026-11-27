@@ -165,7 +165,7 @@ fn fills_follow_core() {
     assert!(text.contains("fold their results into your own report rather than handing the whole task to a single child.\n\nAfter you spawn subagents, briefly note what you delegated and continue your task."));
     assert!(text.contains("If your parent agent asks for a status update"));
     assert!(text.contains("goal’s workspace. You can manage these with `cron.add`"));
-    assert!(text.contains("handoffs from background tasks are followed by a developer message"));
+    assert!(text.contains("handoffs from background tasks are prepended with a developer message"));
     assert!(text.contains("- Your parent agent: The parent agent that spawned you."));
     assert!(text.contains("You are a subagent: a focused background agent spawned by your parent agent to carry out one specific task."));
     for (i, _) in text.match_indices('{') {

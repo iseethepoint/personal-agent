@@ -154,7 +154,7 @@ const CHAT: [&str; 47] = [
     "security_sensitive_actions.md",
     "security_social_engineering.md",
     "system_prompt_copy_file.md",
-    "time_tag_after_input.md",
+    "time_tag_before_input.md",
     "timezones_save.md",
     "tool_rules_deep_research.md",
     "who_you_are.md",

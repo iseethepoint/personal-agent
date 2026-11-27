@@ -604,7 +604,7 @@
 - в базе: `agents.depth` и `subagent_spawns.child_depth` — 2, `parent_agent_id` — подагент; после перезапуска дерево собирается по `subagent_spawns.parent_agent_id`, внук с точкой `before_inference` продолжает ход.
 
 Своё:
-- раздел `subagent_spawning.md` — в конце системного текста подагента глубины 1 (в шаблоне ядра это `subagent_spawning_section` при `can_spawn`, место в тексте не видно); описания `subagent.*` — за прочими;
+- описания `subagent.*` — за прочими (раздел `subagent_spawning.md` убран в П5-2: профиль его не рисует);
 - блоки глубины 1 в первом сообщении — у подагента глубины 1, который сам заводит подагентов (условие ядра не видно);
 - id подагентов — один счёт `agent-<n>` на всё дерево;
 - в записи поддерева `subagent.list` — поле `parent_agent_id` (имя — по столбцу `subagent_spawns`);
@@ -991,7 +991,7 @@
 | `subagent_identity_intro` | постоянная `0xa14f2c` | `prompts/agent/subagent_identity_intro.md` |
 | `requester_description` | постоянная `0xa15016` (строителю идей — `0xa14faf`) | `prompts/agent/requester_description.md` |
 | `history_inheritance_section` | `0xcdc26d0(изолирован, есть subagent.spawn, глубина > 0)`: наследует — `0xa15cd4`; изолирован при глубине > 0 — `0xa15a18`, иначе `0xa15b56`; без `subagent.spawn` — плюс `0xa15c7c` («You work alone…») | `prompts/agent/history_inheritance_{inherited,isolated,alone}.md`; глубина 1 — inherited, глубина 2 — isolated + alone |
-| `time_tag_placement` | `0xcd51dd0`: `chat/time_tag_before_input` («are prepended with», `0x9fec56`) или `chat/time_tag_after_input` («are followed by») | after: заметка времени у Hamlet идёт за сообщением (`Conversation::push_user`) |
+| `time_tag_placement` | `0xcd51dd0`: бит поля `+0x383` контекста отрисовки поднят — `chat/time_tag_after_input` («are followed by», `0x290dd878`), нет — `chat/time_tag_before_input` («are prepended with», `0x290dd830`). Главный (`0xcd51461`) и сборщик агентов (`0xcdbd20b`, копия поля `0xb5b(%rsp)`; без контекста — 0, `0xcdbc1c0`) читают одно поле | before, как в снимке главного; метка у Hamlet — перед сообщением и у главного (`Conversation::push_user`), и у подагента (`Subagents::set_time_tag`) |
 | `nearby_dates_reference` | `0xcd52990`: текст, когда в заметке есть соседние даты | пусто: соседних дат в заметке Hamlet нет (как у главного) |
 | `date_batch_check_guidance` | `0xcd54390`: `chat/date_batch_check_available` / `…_unavailable` | available (как у главного: `hamlet.exec` есть всегда) |
 | `cron_created_acknowledgement` | `0xcd54910`: пусто при глубине > 0 или варианте 7; иначе файл без краёв + « » (`0x3be75c`) | пусто — подагент |
@@ -1020,7 +1020,12 @@
 **Тексты.** Новые блоки — `prompts/agent/*` (28), `prompts/shared/*` (24), `prompts/subagents/subagent/*` (9; `extra_delegation_bullet` не кладём — П17) — файлы `P/hatch-agent/prompts/blocks/…` и тексты ядра как есть; вшиты в ядро: `shared/tools_intro` (`0x7e962f`), `shared/subagents` (`0x7aa1ed`), `shared/memory_recall_doctrine` (`0x7e9e25`), `agent/history_inheritance_*`, `agent/subagent_identity_intro`, `agent/requester_description` (адреса — в таблице). Отличия П10: метки `personal-muse-only`/`group-muse-only` → `personal-only`/`group-only`, `Muse` → `Hamlet`, `~/docs/muse.md` → `~/docs/hamlet.md`, `/opt/muse/` → `/opt/hamlet/`; в `agent/who_you_are.md` «Meta maintains these docs» → «The Hamlet team maintains these docs» (как в `chat/how_you_work.md`). Блоки, которые упоминают части, которых у Hamlet пока нет (Secure Vault в `agent/safety_credentials`, медиа в `agent/safety_oversight`), — как у главного (`user_chat/security_secrets`, `chat/safety_oversight`): блок целиком о части — не уходит, упоминание внутри общего правила — остаётся.
 
 Своё:
-- раздел `subagent_spawning.md` у подагента глубины 1 по-прежнему в конце системного текста (`spawning_prefix`, П3з): в профиле 0 его нет, это текст `session/`, место в ядре не найдено;
-- подагент своей заметки времени пока не получает (метка времени — только в наследованном разговоре родителя); блок о метке оставлен, как в профиле.
+- без пояса в настройках агента метка — в `UTC` (у muse без пояса метки нет, `0xbc4c4cd`; у Hamlet нет приложения, которое сообщает пояс).
+
+**Метка времени входа** (продолжение части 1). Форма ядра: `0xbc4b050` склеивает через пробел `[Day YYYY-MM-DD HH:MM:SS TZ]` (`0xf19a160` → `0xf19a3d0`: дни `Mon`…`Sun`, `{:04}-{:02}-{:02} {:02}:{:02}:{:02}` — `0xb38799`, `%Z`, скобки — `0x2dcb58`) и `[client_timezone=…]` (`0x409b29`); это пункт контекста входа (`0xbc4b3a0`, вызов `0xbc4c503`), ставится, когда у входа есть пояс. Сборку контекста входа зовут главный ход (`0xbd0ab08` в `0xbd0a0b0`) и подготовка хода работника (`hatch-db-context/src/worker_turns/staging.rs`, `0xc59e74e` в `0xc59c3e0`: пояс источника — `0x290(%rsp)`), так что у подагентов muse свои метки на каждое сообщение. У Hamlet: `daemon::time_tag` (было своё «Current date and time: …»), у главного — заметкой перед строкой владельца, у подагента — перед заданием и каждым `subagent.send` (`Subagents::set_time_tag`, наследуется глубже). Работник расписаний и прочие роли — с их сборкой (части 2–3 П5-2).
+
+**Раздел `subagent_spawning.md`** убран из текста подагента и из `spawning_prefix`: `{subagent_spawning_section}` нет ни в одном блоке (ни в файлах `P`, ни в ядре; имя — только в таблице переменных сборщика, `0xa09cc3`), профиль его не рисует. Файл `prompts/subagent/subagent_spawning.md` удалён.
+
+**Шаги сохранённых работ** (`workflow`) пока получают `system.md` владельца; их профиль — в части 3 П5-2 вместе с `event_hook` и остальными.
 
 Тест — `agent/hamlet/tests/subagent_prompt.rs`: записи — в порядке блоков профиля 0 (раздел за разделом) без `ABSENT`, и текст каждой стоит в собранном тексте за предыдущей; разделы по набору инструментов; наследование по глубине; подстановки ядра (стек, учение, пустые переменные), ни одной незаполненной `{переменной}`, меток и «muse».

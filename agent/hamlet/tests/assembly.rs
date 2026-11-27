@@ -207,7 +207,10 @@ async fn conversation_writes_searches_schedules_and_wakes_on_handoff() {
         assert_eq!(first, "Done.", "{wire:?}");
         assert_eq!(std::fs::read_to_string(dir.join("home/workspace/notes.md")).unwrap(), "Buy coffee beans.\n");
         let reqs = server.requests();
-        assert!(reqs[0].to_string().contains("You are Hamlet, a test agent.") && reqs[0].to_string().contains("Current date and time: 2027-01-15T08:00:00Z"), "{wire:?}: начало и изменчивое");
+        assert!(reqs[0].to_string().contains("You are Hamlet, a test agent.") && reqs[0].to_string().contains("[Fri 2027-01-15 08:00:00 UTC] [client_timezone=UTC]"), "{wire:?}: начало и изменчивое");
+        // Метка времени — перед строкой владельца (`time_tag_before_input`).
+        let r0 = reqs[0].to_string();
+        assert!(r0.find("[client_timezone=UTC]").unwrap() < r0.find("Note to buy coffee beans").unwrap(), "{wire:?}: метка перед сообщением");
         assert!(reqs[2].to_string().contains("coffee without sugar"), "{wire:?}: поиск в памяти нашёл MEMORY.md");
         assert!(reqs[3].to_string().contains("Loaded 9 function(s). Full schemas:"), "{wire:?}: пространство cron загружено");
         assert!(reqs[4].to_string().contains("next_run_in"), "{wire:?}: расписание заведено");
@@ -619,7 +622,7 @@ async fn subagents_survive_restart() {
 }
 
 /// П3з-2: дерево подагентов переживает перезапуск. Подагент глубины 1
-/// (начало с `subagent_spawning.md`) заводит внука; внук оборван
+/// (раздел «## Subagents» профиля 0 и `subagent.*`) заводит внука; внук оборван
 /// перезапуском посреди команды. В базе внук — глубина 2 под подагентом;
 /// после старта внук продолжает ход из своей истории, его итог будит
 /// подагента, корню — итог подагента; поддерево снова в списке.
@@ -655,7 +658,7 @@ async fn subagent_tree_survives_restart() {
         .unwrap();
         let r = s1.requests();
         let (child, grand) = (request_start(wire, &r[0]), r[1].to_string());
-        assert!(child.contains("## Sub-Agent Spawning") && child.contains("\"subagent.spawn\""), "{wire:?}: {child}");
+        assert!(child.contains("## Subagents") && child.contains("You can delegate work to subagents. They run in the background while you stay focused on your own task.") && !child.contains("## Sub-Agent Spawning") && child.contains("\"subagent.spawn\""), "{wire:?}: {child}");
         assert!(grand.contains("(depth 2/2)") && grand.contains("isolated mode") && !grand.contains("split the work"), "{wire:?}: {grand}");
         assert!(!request_start(wire, &r[1]).contains("\"subagent.spawn\""), "{wire:?}: у внука нет subagent.*");
 
