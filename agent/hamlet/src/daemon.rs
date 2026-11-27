@@ -35,6 +35,14 @@ impl Services {
         let reattach = tokio::spawn(async move {
             research.reattach().await;
         });
+        // Сохранённые работы, прерванные перезапуском, — повтор сценария
+        // (`daemon_restarted_while_workflow_running`).
+        let workflows = h.workflows.clone();
+        let recover = tokio::spawn(async move {
+            if let Err(e) = workflows.recover().await {
+                eprintln!("workflow recovery: {e}");
+            }
+        });
         let s = h.scheduler.clone();
         let handle = tokio::spawn(async move {
             if let Err(e) = s.recover().await {
@@ -50,13 +58,14 @@ impl Services {
                 tokio::time::sleep(tick).await;
             }
         });
-        Services { handles: vec![handle, reattach] }
+        Services { handles: vec![handle, reattach, recover] }
     }
 
     pub async fn stop(self, h: &Hamlet) {
         for x in self.handles {
             x.abort();
         }
+        h.workflows.shutdown().await;
         h.browsers.shutdown().await;
     }
 }

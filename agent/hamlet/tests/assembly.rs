@@ -105,7 +105,7 @@ async fn build(dir: &Path, clock: FakeClock) -> Arc<Hamlet> {
 
 /// Полный список инструментов главного агента — красный, если что-то не
 /// подключено.
-const MAIN_TOOLS: [&str; 71] = [
+const MAIN_TOOLS: [&str; 85] = [
     "browser.browse", "browser.find", "browser.lookup_citation_url", "browser.open", "browser.search", "browser.windows", "browser_deep_research",
     "cron.add", "cron.list", "cron.remove", "cron.run", "cron.runs", "cron.status", "cron.stop", "cron.update", "cron.view",
     "forget.confirm", "forget.plan",
@@ -116,6 +116,8 @@ const MAIN_TOOLS: [&str; 71] = [
     "todo.write",
     "tracking.create", "tracking.create_entry", "tracking.delete", "tracking.delete_entry", "tracking.get", "tracking.list", "tracking.search", "tracking.set_status", "tracking.update", "tracking.update_entry",
     "user_goal.create", "user_goal.create_entry", "user_goal.delete", "user_goal.delete_briefing", "user_goal.delete_entry", "user_goal.get", "user_goal.list", "user_goal.search", "user_goal.set_status", "user_goal.update", "user_goal.update_entry",
+    "workflow.create", "workflow.delete", "workflow.launch", "workflow.launch_async", "workflow.list", "workflow.list_runs", "workflow.pause",
+    "workflow.resume", "workflow.save_run", "workflow.stop", "workflow.stop_agent", "workflow.update", "workflow.view", "workflow.view_run",
 ];
 
 #[tokio::test]

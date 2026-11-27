@@ -9,6 +9,7 @@
 //! Значения переменных с ключами моделей (`api_key_env` реестра) в выводе
 //! заменяются. Своих запретов на команды нет: граница — права ОС.
 
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -120,6 +121,8 @@ struct Inner {
     home: Home,
     secrets: Vec<String>,
     inbox: Option<Inbox>,
+    /// Папка, где команда начинается без `workdir`; нет — дом.
+    start: Option<PathBuf>,
     sessions: Mutex<Vec<Arc<Session>>>,
     next: Mutex<u64>,
 }
@@ -135,8 +138,16 @@ impl ExecTools {
     /// моделей и настройка поиска);
     /// `inbox` — куда приходят итоги фоновых команд.
     pub fn new(home: Home, secret_envs: Vec<String>, inbox: Option<Inbox>) -> Self {
+        Self::starting_in(home, secret_envs, inbox, None)
+    }
+
+    /// Команды без `workdir` начинаются в `start` — у шага сохранённой
+    /// работы это общая папка запуска («Exec commands start in this
+    /// directory unless you specify another working directory»,
+    /// `prompts/workflows/execution_files.md`).
+    pub fn starting_in(home: Home, secret_envs: Vec<String>, inbox: Option<Inbox>, start: Option<PathBuf>) -> Self {
         ExecTools {
-            inner: Arc::new(Inner { home, secrets: secret_envs, inbox, sessions: Mutex::new(Vec::new()), next: Mutex::new(0) }),
+            inner: Arc::new(Inner { home, secrets: secret_envs, inbox, start, sessions: Mutex::new(Vec::new()), next: Mutex::new(0) }),
         }
     }
 
@@ -201,7 +212,7 @@ impl ExecTools {
         let pty = args.get("pty").and_then(Value::as_bool).unwrap_or(false);
         let cwd = match args.get("workdir").and_then(Value::as_str) {
             Some(w) => self.inner.home.resolve(w).map_err(ToolError::InvalidArguments)?,
-            None => self.inner.home.dir.clone(),
+            None => self.inner.start.clone().unwrap_or_else(|| self.inner.home.dir.clone()),
         };
         let mut cmd = Command::new("bash");
         cmd.arg("-c").arg(&command).current_dir(&cwd);
