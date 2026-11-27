@@ -79,3 +79,14 @@
 4. Перезапуск `hamlet`: разговор главного агента продолжается с того же места (закреплённое начало и история из базы — байт в байт, чтобы кэш подсказки уцелел); ящик не теряет вестей; незаконченные ходы, подагенты, работы — по точкам перезапуска и владельцам восстановления muse (`restart_boundary`, `restart_state`, `recovery_owners`), а не «всё заново».
 5. «Past conversations» в выдаче памяти (`hamlet.memory_search`) — по истории в базе (П4д, долг б20).
 6. Тесты на обоих проводах с временным Postgres: разговор → остановка программы посреди хода → запуск → продолжение с той же историей и тем же началом подсказки; весть, пришедшая во время остановки, доходит; подагент, работавший при остановке, восстанавливается по правилу muse; память находит прошлый разговор.
+
+## П3ж — проверка завершения, карантин, сбор памяти, сжатие по частям
+
+Срезы П3ж-1, П3ж-2… по смыслу. `docs/coverage/core.md`, «Нет в плане» п.4 и п.10; реестр упрощений б18.
+
+1. **Проверка завершения и ответа** — `message_execution › completion_gate` (`completion_gate.rs`, `browser_report.rs`, `space_task_return.rs`), `tools › completion` (`completion_checks.rs`, `fabrication_gates.rs`, `interactions_driven.rs`, `completion_contract.rs`), `response_verification`, назначение `ResponseVerificationClassifier` (П4ж-2); тексты `P/hatch-agent/prompts/completion_gate/*` (с правками П10; блоки про Ideas и Spaces — с П17/П22). Ход не заканчивается, пока не выполнен обещанный результат; ловля выдумок — как у muse.
+2. **Карантин куска подсказки** — `message_execution › prompt_quarantine.rs`: кусок контекста, на котором модель стабильно падает, убирается из запроса по правилу muse (опись 2.1, `strings-all.txt:54778-54781`).
+3. **Сбор памяти по сроку и в простое** — `daemon/runtime › memory_capture` (`idle_internalization.rs`, `session_memory_capture.rs`), `memory_flush/periodic_coverage.rs`: сброс памяти не только перед сжатием, но и периодически и когда разговор затих — пороги и сроки из ядра.
+4. **Сжатие по частям** — `hatch-compaction/segmented.rs`, `quality.rs`; тексты `hatch-compaction/prompts/compact/segmented_*`, `chat_worker_conversation.md`, `hatch-agent/prompts/compact/*` (`no_tools`, `output_cap_feedback`, `recent_conversation`, `segmented_output_cap_feedback`) — сжатие длинной истории по сегментам, проверка качества сводки, обратная связь при упоре в предел ответа.
+5. **Очистка разговора** (`turn_core` — нет очистки, `docs/coverage/core.md`).
+6. Тесты на обоих проводах: ход с невыполненным обещанием не заканчивается; кусок, на котором модель падает, уходит в карантин и ход идёт; сброс памяти в простое по подделанным часам; сжатие очень длинной истории по частям с проверкой качества.
