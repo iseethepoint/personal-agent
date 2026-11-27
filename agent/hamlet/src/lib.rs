@@ -7,13 +7,16 @@
 //! `daemon_loop/root_turn_arbiter`), новый ход начинает строка владельца
 //! или весть в ящике.
 //!
-//! Своё: подагенты — на модели `Main` (отдельного назначения у muse нет,
-//! подагент идёт на выбранной модели); инструменты подагента и работника
-//! расписаний — общий набор без `subagent.*`, `forget.*` и окон браузера
-//! (подагент «can't use this browser yourself», `environment_browser.md`)
-//! и с `workflow.*` (у muse они в профилях `generic_subagent_depth1`,
-//! `scheduler_cron_execute`); шаг сохранённой работы — общий набор без
-//! `workflow.*`, команды начинаются в папке запуска (`workflow_subagent`);
+//! Наборы инструментов — по ролям muse (`roles.rs`): главный агент —
+//! `foreground_root`, подагент — `owner_subagent_depth1`, шаг сохранённой
+//! работы — `workflow_subagent_depth1` (команды начинаются в папке запуска),
+//! работник расписаний — `scheduler_cron_execute`, его итог —
+//! `scheduler_cron_resolve`, работник наблюдателя — `execute_resolve_worker`,
+//! проверяющий — `verifier`, сброс памяти — `memory_flush`.
+//!
+//! Своё: подагенты — на модели `Main` (у ролей muse `model = "session"`);
+//! работнику расписаний не даны окна браузера, хотя они в его роли: окна
+//! Hamlet отдают итог в ящик главного агента;
 //! заметка изменчивого — время и пояс по тексту muse
 //! `session/browser_task_time_context.md` (свой системный текст и заметка
 //! главного агента — П5); `hamlet.db` — в общем наборе, как поиск навыков
@@ -21,6 +24,7 @@
 
 pub mod config;
 pub mod daemon;
+pub mod roles;
 
 use std::path::{Path, PathBuf};
 use std::sync::atomic::Ordering;
@@ -73,6 +77,8 @@ pub struct Hamlet {
     pub continuation: agent_tools::Continuation,
     /// Сжатие: модели сброса и сводки, порог, окно главной модели, по частям ли.
     pub compaction: (Arc<AnyProvider>, Arc<AnyProvider>, u64, u64, bool),
+    /// Набор хода сброса памяти (роль `memory_flush`).
+    pub flush_tools: Tools,
     /// История главного агента в базе (`agent.context_items`).
     pub history: Arc<agent_history::AgentHistory>,
     /// Проверка ответа (`[verification] enabled`): классификатор и
@@ -225,7 +231,7 @@ impl Hamlet {
                         let mut t = Tools::new();
                         files.add_read_to(&mut t);
                         web.add_to(&mut t);
-                        t
+                        roles::Role::get("verifier").apply(t)
                     }),
                     system: system.clone(),
                     spill_dir: spill_dir.clone(),
@@ -247,10 +253,11 @@ impl Hamlet {
             agent_workflows::store::Store::connect(&url).await?,
             main.clone(),
             Arc::new(move |dir: &Path| {
-                step_parts.base(Some(dir)).unwrap_or_else(|e| {
+                let t = step_parts.base(Some(dir)).unwrap_or_else(|e| {
                     eprintln!("workflow step tools: {e}");
                     Tools::new()
-                })
+                });
+                roles::Role::get("workflow_subagent_depth1").apply(t)
             }),
             system.clone(),
             home_dir.clone(),
@@ -271,7 +278,7 @@ impl Hamlet {
 
         // Подагенты: общий набор, своё начало подсказки; монитор — модель
         // `SubagentMonitor`.
-        let sub_tools = Arc::new(with_workflows(parts.base(None)?));
+        let sub_tools = Arc::new(roles::Role::get("owner_subagent_depth1").apply(with_workflows(parts.base(None)?)));
         let sub_prefix = Prefix::assemble(&system, &home_dir, &sub_tools);
         let subagents = Subagents::new(main.clone(), sub_tools, sub_prefix, spill_dir.clone(), inbox.clone(), transcript.clone());
         subagents.set_monitor(Monitor::new(Arc::new(provider(&resolve(&reg, Purpose::SubagentMonitor, sel)?)?), &home_dir));
@@ -333,8 +340,10 @@ impl Hamlet {
             .defer("user_goal", &agent_goals::namespace_description(agent_goals::Ns::UserGoal))
             .defer("tracking", &agent_goals::namespace_description(agent_goals::Ns::Tracking))
             .defer("workflow", &agent_workflows::tools::namespace_description());
-        let tools = Arc::new(tools);
+        let tools = Arc::new(roles::Role::get("foreground_root").apply(tools));
         let prefix = Prefix::assemble(&system, &home_dir, &tools);
+        // Сброс памяти — набор роли `memory_flush`.
+        let flush_tools = roles::Role::get("memory_flush").apply((*tools).clone());
 
         // Сжатие: модели `MemoryFlush` / `Compaction`, порог главной.
         let cp = CompactionPlan::from_registry(&reg, sel).map_err(|e| e.to_string())?;
@@ -344,7 +353,15 @@ impl Hamlet {
         // первого куска потока — 30 мин, как у расписаний muse) и сверка
         // памяти на такте.
         let cron_plan = agent_cron::Plan::from_registry(&reg, sel).map_err(|e| e.to_string())?;
-        let mut scheduler = Scheduler::new(core, Arc::new(provider(&cron_plan.worker)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)), system.clone(), Arc::new(with_workflows(parts.base(None)?)), spill_dir.clone(), inbox.clone());
+        // Наборы ролей `scheduler_cron_execute`, `scheduler_cron_resolve`
+        // (инструменты итога сверх терминальных — из набора исполнения) и
+        // `execute_resolve_worker`.
+        let cron_tools = roles::Role::get("scheduler_cron_execute").apply(with_workflows(parts.base(None)?));
+        let resolve_role = roles::Role::get("scheduler_cron_resolve");
+        let resolve_tools: Vec<String> = resolve_role.tool_names().into_iter().filter(|n| cron_tools.get(n).is_some()).collect();
+        let mut scheduler = Scheduler::new(core, Arc::new(provider(&cron_plan.worker)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)), system.clone(), Arc::new(cron_tools), spill_dir.clone(), inbox.clone());
+        scheduler.resolve_tools(resolve_tools);
+        scheduler.hook_tools(Arc::new(roles::Role::get("execute_resolve_worker").apply(parts.base(None)?)));
         scheduler.resolver(Arc::new(provider(&cron_plan.resolve)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)));
         // Проверка отчётов расписаний: классификатор — модель главного
         // разговора (место `cron_verification_classifier` muse, `main_chat`),
@@ -403,6 +420,7 @@ impl Hamlet {
             todo,
             continuation: agent_tools::Continuation::new(),
             compaction,
+            flush_tools,
             history,
             verification,
             timezone: t.agent.timezone.clone(),
@@ -432,7 +450,7 @@ impl Hamlet {
         Compactor {
             flush: &self.compaction.0,
             compaction: &self.compaction.1,
-            tools: &self.tools,
+            tools: &self.flush_tools,
             trigger: self.compaction.2,
             segmented: self.compaction.4,
             window: Some(self.compaction.3),

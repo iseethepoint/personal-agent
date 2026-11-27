@@ -267,7 +267,9 @@ impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
             role: Role::Developer,
             content: vec![Part::Text { text: personal(MEMORY_FLUSH_PROMPT_MD) }],
         });
-        Turn::from_prefix(self.flush, self.tools, &conv.prefix, self.spill_dir.clone())
+        // Системный текст — главного агента, инструменты — набор хода сброса
+        // (роль `memory_flush` у Hamlet).
+        Turn::new(self.flush, self.tools, conv.prefix.system.clone(), self.spill_dir.clone())
             .run(&mut scratch, &mut |_: &str| {})
             .await?;
         Ok(())

@@ -245,6 +245,10 @@ pub struct Scheduler<P> {
     /// Системный текст и инструменты работника.
     system: String,
     tools: Arc<Tools>,
+    /// Набор работника наблюдателя; без него — набор работника расписаний.
+    hook_tools: Option<Arc<Tools>>,
+    /// Инструменты исполнения, которые есть и в фазе итога.
+    resolve_tools: Vec<String>,
     spill_dir: PathBuf,
     inbox: Inbox,
     background: Vec<Background>,
@@ -271,6 +275,8 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             provider,
             system: system.into(),
             tools,
+            hook_tools: None,
+            resolve_tools: Vec::new(),
             spill_dir: spill_dir.into(),
             inbox,
             background: Vec::new(),
@@ -292,6 +298,19 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
     /// восстановления (`agent.recovery_owners`).
     pub fn workers(&mut self, w: Arc<dyn agent_loop::WorkerStore>) -> &mut Self {
         self.workers = Some(w);
+        self
+    }
+
+    /// Набор работника наблюдателя (роль `execute_resolve_worker`).
+    pub fn hook_tools(&mut self, t: Arc<Tools>) -> &mut Self {
+        self.hook_tools = Some(t);
+        self
+    }
+
+    /// Инструменты исполнения, которые есть и в фазе итога (роль
+    /// `scheduler_cron_resolve`).
+    pub fn resolve_tools(&mut self, names: Vec<String>) -> &mut Self {
+        self.resolve_tools = names;
         self
     }
 
@@ -565,7 +584,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         HookParts {
             core: self.core.clone(),
             provider: self.provider.clone(),
-            tools: self.tools.clone(),
+            tools: self.hook_tools.clone().unwrap_or_else(|| self.tools.clone()),
             system: crate::hooks::worker_system(&self.system),
             spill: self.spill_dir.clone(),
             inbox: self.inbox.clone(),
@@ -689,6 +708,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         let spill = self.spill_dir.clone();
         let workers = self.workers.clone();
         let verification = self.verification.clone();
+        let resolve = self.resolve_tools.clone();
         let id = run_id.clone();
         let handle = tokio::spawn(async move {
             let store = core.store.clone();
@@ -700,7 +720,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                     let _ = store.set_phase(&run, p, timed_out).await;
                 });
             };
-            let kind = worker::Kind::Cron { mode: job.definition.mode.clone() };
+            let kind = worker::Kind::Cron { mode: job.definition.mode.clone(), resolve };
             let out = worker::run(&*provider, &*resolver, &prefix, &tools, &spill, begin, left, kind, on_phase, recording).await;
             finish(&core, verification.as_deref(), &job, &id, attempt, timeout, out, workers.as_deref(), &spill).await;
         });
