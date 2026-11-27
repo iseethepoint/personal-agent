@@ -16,7 +16,8 @@
 //! `workflow.*`, команды начинаются в папке запуска (`workflow_subagent`);
 //! заметка изменчивого — время и пояс по тексту muse
 //! `session/browser_task_time_context.md` (свой системный текст и заметка
-//! главного агента — П5).
+//! главного агента — П5); `hamlet.db` — в общем наборе, как поиск навыков
+//! (в разборе профилей, где он есть у muse, не видно).
 
 pub mod config;
 pub mod daemon;
@@ -87,6 +88,8 @@ struct Parts {
     goals: Arc<Goals<AnyProvider>>,
     /// Корзина — на часах службы: её уборщик идёт на такте.
     trash: Trash,
+    /// Запросы к своей базе (`hamlet.db`).
+    db: agent_db::Db,
 }
 
 impl Parts {
@@ -98,6 +101,7 @@ impl Parts {
         ExecTools::starting_in(self.home.clone(), self.secrets.clone(), Some(self.inbox.clone()), start.map(Path::to_path_buf)).add_to(&mut t);
         t.add(Todo::new());
         self.trash.add_to(&mut t);
+        t.add(self.db.clone());
         let skills = Catalog::skills(self.skills_dir.clone(), &self.home);
         let connectors = Catalog::connectors(self.connectors_dir.clone(), &self.home);
         add_search(&mut t, &skills, &connectors);
@@ -176,6 +180,7 @@ impl Hamlet {
                 let c = clock.clone();
                 Trash::with_clock(home.clone(), Arc::new(move || chrono::DateTime::from_timestamp_millis(c.now_ms()).unwrap_or_default()))
             },
+            db: agent_db::Db::connect(&url, &dir.path(&t.paths.skills)).await?,
         };
         let system = std::fs::read_to_string(dir.path(&t.paths.system)).unwrap_or_default();
         let parts = Arc::new(parts);

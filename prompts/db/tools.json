@@ -1,0 +1,11 @@
+{
+ "tool": {
+  "name": "hamlet.db",
+  "description": "Run bounded, read-only SQL SELECT queries against database-backed Hamlet records. Use for database introspection, diagnosis, and cross-table tracing—for example memories, scheduled work, goals and briefings, and workflow runs and their agent calls.\n\nPrefer purpose-built tools for ordinary product reads and actions because they provide canonical semantics and may include live state. Use this tool for missing or orphaned records, execution history, inconsistencies, cross-domain relationships, or information those tools do not expose.\n\nBefore composing SQL, read `{schema_path}`. Only the built-in functions and cast spellings listed in `querying.md` beside it are accepted; if the tool rejects one, rewrite the query using the listed operations rather than treating the records as missing. Alias columns to unique names in joins because duplicate output names are rejected.",
+  "sql": "One PostgreSQL SELECT statement using schema-qualified table names from the schema guide."
+ },
+ "texts": {
+  "no_rows": "0 rows",
+  "truncated": "{n} rows shown; more rows matched. Narrow the query to see the rest."
+ }
+}

@@ -1,0 +1,3 @@
+name: hamlet_db
+title: Hamlet database
+description: Inspect Hamlet's own database records with hamlet.db — memories, scheduled work, goals and briefings, workflow runs — when a purpose-built tool does not expose the needed state or cross-table relationships.
