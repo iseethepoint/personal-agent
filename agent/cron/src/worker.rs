@@ -68,14 +68,18 @@ fn stream_error_notice(failure: &str) -> String {
 /// Первое сообщение работнику. У пульса (`mode = heartbeat`) — правила
 /// `worker_schedule_change_rules_system.md` и блок `[HEARTBEAT]` с
 /// `~/HEARTBEAT.md` (`heartbeat`).
-pub fn worker_message(job_id: &str, mode: &str, title: Option<&str>, body: &str, heartbeat: Option<&str>) -> String {
+/// У задания цели — блок `[GOAL CONTEXT]` (`goal`, см. `Core::goal_context`).
+pub fn worker_message(job_id: &str, mode: &str, title: Option<&str>, body: &str, heartbeat: Option<&str>, goal: Option<&str>) -> String {
     let rules = if mode == "heartbeat" { CHANGE_RULES_SYSTEM } else { CHANGE_RULES_USER };
     let instruction = personal(WORKER_INSTRUCTION)
         .replace("{job_id}", job_id)
         .replace("{mode}", mode)
         .replace("{schedule_change_rules}", personal(rules).trim_end());
     let title = title.map(|t| format!("\ntitle: {t}")).unwrap_or_default();
-    let heartbeat = heartbeat.map(|h| format!("\n\n[HEARTBEAT]\n{}", h.trim_end())).unwrap_or_default();
+    let mut heartbeat = heartbeat.map(|h| format!("\n\n[HEARTBEAT]\n{}", h.trim_end())).unwrap_or_default();
+    if let Some(g) = goal {
+        heartbeat = format!("\n\n{}{heartbeat}", g.trim_end());
+    }
     format!(
         "{}\n\n[SCHEDULED TASK CONTEXT]\n<scheduled_job id=\"{job_id}\">{title}\n</scheduled_job>{heartbeat}\n\n[BODY]\n{}\n\n{}",
         instruction.trim_end(),

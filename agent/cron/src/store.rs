@@ -80,9 +80,19 @@ impl Definition {
         Ok(d)
     }
 
-    /// Путь копии от дома: `workspace/cron.d/<вид>/<id>__<ключ>.md`.
+    /// Путь копии от дома: `workspace/cron.d/<вид>/<id>__<ключ>.md`; у
+    /// задания цели — `workspace/goals/<slug>/crons/<id>__<ключ>.md`
+    /// (описание `cron` muse, `goal_context.md`).
     pub fn source_path(&self) -> String {
-        format!("workspace/cron.d/{}/{}__{}.md", self.schedule.folder(), self.id, self.schedule.key())
+        match self.goal_slug() {
+            Some(slug) => format!("workspace/goals/{slug}/crons/{}__{}.md", self.id, self.schedule.key()),
+            None => format!("workspace/cron.d/{}/{}__{}.md", self.schedule.folder(), self.id, self.schedule.key()),
+        }
+    }
+
+    /// Slug цели-владельца (`owner: goal:<slug>`).
+    pub fn goal_slug(&self) -> Option<&str> {
+        self.owner.as_deref().and_then(|o| o.strip_prefix("goal:"))
     }
 }
 

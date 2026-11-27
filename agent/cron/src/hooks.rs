@@ -44,6 +44,7 @@ const TEXTS_JSON: &str = include_str!("../../../prompts/hooks/tools.json");
 pub const WHO_YOU_ARE: &str = include_str!("../../../prompts/hooks/who_you_are.md");
 pub const HOW_THIS_RUN_WORKS: &str = include_str!("../../../prompts/hooks/how_this_run_works.md");
 pub const TOOLS_BLOCK: &str = include_str!("../../../prompts/hooks/tools.md");
+pub const FILESYSTEM_BLOCK: &str = include_str!("../../../prompts/hooks/filesystem.md");
 
 static TEXTS: LazyLock<Value> = LazyLock::new(|| serde_json::from_str(TEXTS_JSON).expect("prompts/hooks/tools.json"));
 
@@ -447,13 +448,14 @@ pub fn resolve_message(w: &Wake, run_id: &str) -> String {
 }
 
 /// Системный текст работника наблюдателя: блоки `event_hook/*` muse перед
-/// общим текстом агента. Блок `filesystem.md` не взят (пути целей — П4ж).
+/// общим текстом агента.
 pub fn worker_system(base: &str) -> String {
     format!(
-        "{}\n\n{}\n\n{}\n\n{}",
+        "{}\n\n{}\n\n{}\n\n{}\n\n{}",
         personal(WHO_YOU_ARE).trim_end(),
         personal(HOW_THIS_RUN_WORKS).trim_end(),
         personal(TOOLS_BLOCK).trim_end(),
+        personal(FILESYSTEM_BLOCK).trim_end(),
         base
     )
 }

@@ -8,7 +8,8 @@
 //!
 //! Не делаются (их служб у Hamlet нет): `delivery`, `connection_id`,
 //! `execution`, `predicted_connector_permissions`, `confirmation`,
-//! `cron.add_artifact_action`; `owner` — с целями (П4ж).
+//! `cron.add_artifact_action`; у `owner` — только `goal:<slug>` (`space:` —
+//! владельцы-артефакты, их у нас нет).
 
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
@@ -125,6 +126,7 @@ fn definition_props(p: &mut Map<String, Value>) {
         }),
     );
     p.insert("notification_requested".into(), json!({"type": "boolean", "description": field("notification_requested")}));
+    p.insert("owner".into(), s(field("owner")));
 }
 
 impl CronTool {
@@ -279,7 +281,7 @@ impl CronTool {
             "mode": d.mode,
             "schedule": d.schedule,
             "source_path": j.source_path,
-            "owner": null,
+            "owner": d.owner,
             "system": d.mode == "heartbeat",
             "last_run_at_utc": j.last_run_at_utc,
             "last_status": j.last_status,
@@ -370,11 +372,33 @@ impl CronTool {
                 d.retry.max_retries = v.max(0) as i32;
             }
         }
+        if let Some(o) = str_arg(args, "owner") {
+            d.owner = (!o.trim().is_empty()).then(|| o.trim().to_string());
+        }
         if let Some(n) = args.get("notification_requested").and_then(Value::as_bool) {
             d.metadata.notification_requested = Some(n);
         }
         if let Some(v) = args.get("schedule") {
             d.schedule = Schedule::from_input(v, (!adding).then_some(&d.schedule), self.user_tz(), &d.id).map_err(bad)?;
+        }
+        Ok(())
+    }
+
+    /// Проверка владельца — тексты ядра (`strings-all.txt`, «Ошибки имени
+    /// файла и формата расписания»); из текста о неизвестном виде убран
+    /// `space:<space-slug>`.
+    async fn check_owner(&self, d: &Definition) -> Result<(), ToolError> {
+        let Some(owner) = &d.owner else { return Ok(()) };
+        let Some(slug) = owner.strip_prefix("goal:") else {
+            return Err(bad("owner must be a supported namespaced value; use `goal:<goal-slug>` for goal-owned crons"));
+        };
+        let well_formed = !slug.is_empty() && slug.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        let exists = match (&self.core.goals, well_formed) {
+            (Some(g), true) => g.goal_by_slug(slug).await.map_err(failed)?.is_some(),
+            _ => false,
+        };
+        if !exists {
+            return Err(bad("owner `goal:<goal-slug>` must use the stored goal slug containing only lowercase ASCII letters, digits, and hyphens; pass the goal slug, not the title"));
         }
         Ok(())
     }
@@ -454,6 +478,7 @@ impl CronTool {
             body: String::new(),
         };
         self.apply(args, &mut d, true)?;
+        self.check_owner(&d).await?;
         let next = self.first_run(&d, now)?;
         self.save(&d, next, None, "add").await
     }
@@ -464,6 +489,7 @@ impl CronTool {
         system_guard(&job)?;
         let mut d = job.definition.clone();
         self.apply(args, &mut d, false)?;
+        self.check_owner(&d).await?;
         let now = self.core.now();
         let rescheduled = d.schedule != job.definition.schedule || (d.enabled && !job.enabled);
         let next = if rescheduled { self.first_run(&d, now)? } else { job.next_run_at_utc };
@@ -474,18 +500,7 @@ impl CronTool {
         let id = required_id(args)?;
         let job = self.job(&id).await?;
         system_guard(&job)?;
-        let now = self.core.now();
-        for r in self.core.store.active_runs(&id).await.map_err(failed)? {
-            if let Some(h) = self.core.running.lock().unwrap().remove(&r.run_id) {
-                h.abort();
-            }
-            self.core.store.finish_run(&r.run_id, "cancelled", None, Some("schedule removed"), now).await.map_err(failed)?;
-        }
-        self.core.store.delete_job(&id).await.map_err(failed)?;
-        if let Some(p) = &job.source_path {
-            let _ = tokio::fs::remove_file(self.core.home.join(p)).await;
-        }
-        self.core.store.record_mutation(&id, "remove", now).await.map_err(failed)?;
+        self.core.remove_job(&id, "schedule removed").await.map_err(failed)?;
         Ok(json!({"id": id, "removed": true}))
     }
 

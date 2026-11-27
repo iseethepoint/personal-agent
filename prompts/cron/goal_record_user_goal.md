@@ -1,0 +1,1 @@
+Before finishing this execution, if the run produced a meaningful final result, record it on the owned goal with `user_goal.create_entry`, using the Goal ID from the guide below. Keep the entry concise and user-facing: say what work YOU completed and what YOU discovered. Record the result once; do not add an entry when the run produced no meaningful result.

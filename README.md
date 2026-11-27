@@ -12,7 +12,7 @@
    ```
 
    Без этого на месте файла остаётся короткая ссылка LFS, и тесты сети падают.
-3. Postgres 18 с pgvector — для тестов памяти и расписаний (`agent/memory`, `agent/cron`). На Mac:
+3. Postgres 18 с pgvector — для тестов памяти, целей и расписаний (`agent/memory`, `agent/goals`, `agent/cron`). На Mac:
 
    ```sh
    brew install postgresql@18 pgvector

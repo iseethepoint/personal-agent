@@ -23,6 +23,10 @@ use crate::store::{Job, Store};
 use crate::worker::{self, Signal};
 
 const HANDOFF_INTRO: &str = include_str!("../../../prompts/cron/main_agent_handoff_intro.md");
+const GOAL_CONTEXT: &str = include_str!("../../../prompts/cron/goal_context.md");
+const GOAL_RECORD_USER_GOAL: &str = include_str!("../../../prompts/cron/goal_record_user_goal.md");
+const GOAL_RECORD_TRACKING: &str = include_str!("../../../prompts/cron/goal_record_tracking.md");
+const GOAL_GUIDE_MAX_BYTES: usize = 64_000;
 
 pub const HEARTBEAT_ID: &str = "heartbeat";
 
@@ -73,15 +77,28 @@ pub struct Core {
     pub(crate) next_poll: crate::hooks::PollSchedule,
     /// Срабатывания наблюдателей, ждущие работника.
     pub(crate) wakes: Mutex<Vec<crate::hooks::Wake>>,
+    /// Цели — для `owner: goal:<slug>` и контекста работника.
+    pub goals: Option<agent_goals::Store>,
 }
 
 impl Core {
     pub fn new(store: Store, clock: Arc<dyn Clock>, home: impl Into<PathBuf>, user_tz: Option<String>) -> Arc<Core> {
-        Self::with_secrets(store, clock, home, user_tz, Vec::new())
+        Self::build(store, clock, home, user_tz, Vec::new(), None)
     }
 
     /// `secret_envs` — как у `hamlet.exec` (`agent_tools::secret_envs`).
     pub fn with_secrets(store: Store, clock: Arc<dyn Clock>, home: impl Into<PathBuf>, user_tz: Option<String>, secret_envs: Vec<String>) -> Arc<Core> {
+        Self::build(store, clock, home, user_tz, secret_envs, None)
+    }
+
+    pub fn build(
+        store: Store,
+        clock: Arc<dyn Clock>,
+        home: impl Into<PathBuf>,
+        user_tz: Option<String>,
+        secret_envs: Vec<String>,
+        goals: Option<agent_goals::Store>,
+    ) -> Arc<Core> {
         Arc::new(Core {
             store,
             clock,
@@ -91,8 +108,74 @@ impl Core {
             secret_envs,
             next_poll: Default::default(),
             wakes: Mutex::new(Vec::new()),
+            goals,
         })
     }
+
+    /// Блок `[GOAL CONTEXT]` для задания цели — `goal_context.md` muse с
+    /// указаниями по виду цели (`goal_record_user_goal.md` /
+    /// `goal_record_tracking.md`) и `GOAL.md` (до 64 000 байт, текст ядра
+    /// `strings-all.txt:84943`).
+    pub async fn goal_context(&self, d: &crate::store::Definition) -> Option<String> {
+        let slug = d.goal_slug()?;
+        let goal = self.goals.as_ref()?.goal_by_slug(slug).await.ok()??;
+        let record = if goal.source == agent_goals::TRACKING { GOAL_RECORD_TRACKING } else { GOAL_RECORD_USER_GOAL };
+        let raw = tokio::fs::read(self.home.join(format!("workspace/goals/{slug}/GOAL.md"))).await.unwrap_or_default();
+        let guide = if raw.len() > GOAL_GUIDE_MAX_BYTES {
+            let mut cut = GOAL_GUIDE_MAX_BYTES;
+            while cut > 0 && (raw[cut] & 0xC0) == 0x80 {
+                cut -= 1;
+            }
+            format!(
+                "GOAL.md exceeds 64000 bytes. This scheduled worker context includes only the first 64000 bytes; read the goal guide from the goal workspace if more detail is required.\n\n{}",
+                String::from_utf8_lossy(&raw[..cut])
+            )
+        } else {
+            String::from_utf8_lossy(&raw).to_string()
+        };
+        Some(
+            agent_loop::personal(GOAL_CONTEXT)
+                .replace("{goal_slug}", slug)
+                .replace("{goal_record_instructions}", agent_loop::personal(record).trim_end())
+                .replace("{goal_guide}", guide.trim_end()),
+        )
+    }
+
+    /// Снять задание: отменить его прогоны, удалить из базы и копию.
+    pub async fn remove_job(&self, id: &str, reason: &str) -> Result<(), String> {
+        let now = self.now();
+        for r in self.store.active_runs(id).await? {
+            if let Some(h) = self.running.lock().unwrap().remove(&r.run_id) {
+                h.abort();
+            }
+            self.store.finish_run(&r.run_id, "cancelled", None, Some(reason), now).await?;
+        }
+        let job = self.store.job(id).await?;
+        self.store.delete_job(id).await?;
+        if let Some(p) = job.and_then(|j| j.source_path) {
+            let _ = tokio::fs::remove_file(self.home.join(p)).await;
+        }
+        self.store.record_mutation(id, "remove", now).await
+    }
+}
+
+/// Задания цели удаляются вместе с ней (`cron_cleanup.rs` muse).
+impl agent_goals::OwnedCleanup for Core {
+    fn remove_owned<'a>(&'a self, owner: &'a str) -> Pin<Box<dyn Future<Output = Result<Vec<String>, String>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut removed = Vec::new();
+            for j in self.store.jobs(true).await? {
+                if j.definition.owner.as_deref() == Some(owner) {
+                    self.remove_job(&j.job_id, "owner removed").await?;
+                    removed.push(j.job_id);
+                }
+            }
+            Ok(removed)
+        })
+    }
+}
+
+impl Core {
 
     pub fn now(&self) -> i64 {
         self.clock.now_ms()
@@ -309,6 +392,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         let (timeout, _) = self.core.effective_timeout(&job.definition, now);
         // Пульс без инструкций модель не зовёт — «skipping heartbeat
         // inference because HEARTBEAT.md has no instructions» (`strings-all.txt:84815`).
+        let goal = self.core.goal_context(&job.definition).await;
         let heartbeat = if job.definition.mode == "heartbeat" {
             let text = tokio::fs::read_to_string(self.core.home.join("HEARTBEAT.md")).await.unwrap_or_default();
             if !has_instructions(&text) {
@@ -327,7 +411,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         let id = run_id.clone();
         let handle = tokio::spawn(async move {
             let d = &job.definition;
-            let first = worker::worker_message(&d.id, &d.mode, d.title.as_deref(), &d.body, heartbeat.as_deref());
+            let first = worker::worker_message(&d.id, &d.mode, d.title.as_deref(), &d.body, heartbeat.as_deref(), goal.as_deref());
             let store = core.store.clone();
             let phase_run = id.clone();
             let on_phase = move |p: &'static str, timed_out: bool| {
