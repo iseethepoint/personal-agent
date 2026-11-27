@@ -1,0 +1,18 @@
+[package]
+name = "agent-memory"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+agent-loop = { path = "../loop" }
+agent-model = { path = "../model" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["fs", "rt"] }
+# Клиент базы — как у muse (sqlx-postgres-0.8.6, core-v2-analysis/crates.txt).
+sqlx = { version = "0.8", default-features = false, features = ["postgres", "runtime-tokio", "json"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+libc = "0.2"
