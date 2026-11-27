@@ -18,7 +18,7 @@ pub const FORMAT_VERSION: u32 = 3;
 pub const SCOPE: &str = "Hamlet application base tables readable by hamlet.db";
 
 /// Наши таблицы из каталога muse (`runtime.event_hook_admissions` в нём нет).
-pub const READABLE: [&str; 29] = [
+pub const READABLE: [&str; 30] = [
     "agent.agent_compactions",
     "agent.agent_message_token_usage",
     "agent.agents",
@@ -38,6 +38,7 @@ pub const READABLE: [&str; 29] = [
     "memory.entry_attributes",
     "memory.metadata",
     "runtime.agent_todo_snapshots",
+    "runtime.execute_resolve_runs",
     "runtime.search_documents",
     "runtime.workflow_agent_calls",
     "runtime.workflow_phase_runs",

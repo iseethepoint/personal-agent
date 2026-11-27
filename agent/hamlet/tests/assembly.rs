@@ -687,6 +687,80 @@ async fn cron_run_continues_after_restart() {
     }
 }
 
+/// П3е-5: прогоны наблюдателей в `runtime.execute_resolve_runs`. Прогон,
+/// оборванный перезапуском посреди команды работника, продолжается с
+/// записанного (владелец `execute_resolve_worker`), итог доходит главному
+/// агенту; итог `notify_pending`, не доставленный до остановки, доставляется
+/// снова; взятый работником без точки — `failed` со стадией
+/// `invalid_restart_checkpoint`.
+#[tokio::test]
+async fn hook_run_continues_after_restart() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s1, _p) = model(wire, vec![Step::Calls(vec![("x1", "hamlet.exec", json!({"command": "sleep 30"}))])], true);
+        let s1 = Arc::new(s1);
+        let dir = agent_dir("hook-restart", wire, &s1);
+        let scripts = dir.join("home/hooks/scripts");
+        std::fs::create_dir_all(&scripts).unwrap();
+        std::fs::write(scripts.join("flag.sh"), "#!/usr/bin/env bash\nset -euo pipefail\nsource \"$HAMLET_HOOK_RUNTIME\"\nwake \"flag appeared\" '{\"text\":\"deploy finished\"}'\n").unwrap();
+        let (d, server) = (dir.clone(), s1.clone());
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            rt.block_on(async {
+                let h1 = build(&d, FakeClock::at(t0())).await;
+                h1.tools.get("hooks.add").unwrap().call(json!({"id": "flag", "script_path": "~/hooks/scripts/flag.sh", "prompt": "Tell the owner what the flag says."})).await.unwrap();
+                h1.tools.get("hooks.run").unwrap().call(json!({"id": "flag"})).await.unwrap();
+                let _services = Services::start(&h1);
+                while server.requests().is_empty() {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                tokio::time::sleep(Duration::from_millis(300)).await;
+            });
+            drop(rt);
+        })
+        .join()
+        .unwrap();
+
+        let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
+        let (run_id, status, gen): (String, String, i64) = sqlx::query_as("select run_id, status, worker_generation from runtime.execute_resolve_runs where worker_kind = 'event_hook'").fetch_one(&pool).await.unwrap();
+        assert_eq!((status.as_str(), gen), ("pending", 1), "{wire:?}");
+        // Итог, не доставленный до остановки, и прогон, взятый работником без точки.
+        sqlx::query("insert into runtime.execute_resolve_runs (run_id, worker_kind, source_ref, lane_key, status, terminal_decision, terminal_message, worker_agent_id) values ('hook:old:1', 'event_hook', 'old-1', 'old', 'notify_pending', 'notify_main_agent', 'The backup finished.', 'hook-worker:gone')").execute(&pool).await.unwrap();
+        sqlx::query("insert into runtime.execute_resolve_runs (run_id, worker_kind, source_ref, lane_key, status, worker_agent_id, worker_generation) values ('hook:old:2', 'event_hook', 'old-2', 'old', 'pending', 'hook-worker:gone2', 1)").execute(&pool).await.unwrap();
+
+        let (s2, _p) = model(
+            wire,
+            vec![Step::Text("The flag says deploy finished."), Step::Calls(vec![("n1", "hamlet.notify_main_agent", json!({"message": "The deploy finished."}))])],
+            true,
+        );
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        let services = Services::start(&h2);
+        let mut notes = Vec::new();
+        for _ in 0..300 {
+            notes.extend(h2.inbox.drain().into_iter().map(|m| m.text()));
+            if notes.len() >= 2 {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(notes.iter().any(|n| n.starts_with("[EVENT HOOK RESULT]") && n.ends_with("The deploy finished.")), "{wire:?}: {notes:?}");
+        assert!(notes.iter().any(|n| n.ends_with("The backup finished.")), "{wire:?}: {notes:?}");
+        let body = s2.requests()[0].to_string();
+        assert!(body.contains("[EVENT HOOK \u{2014} EXECUTE]"), "{wire:?}: история работника из базы");
+        assert!(body.contains(&serde_json::to_string(agent_loop::INTERRUPTED_TOOL_CALL).unwrap()[1..60]), "{wire:?}: {body}");
+        let state = |id: String| {
+            let pool = pool.clone();
+            async move { sqlx::query_as::<_, (String, Option<String>)>("select status, last_error_stage from runtime.execute_resolve_runs where run_id = $1").bind(id).fetch_one(&pool).await.unwrap() }
+        };
+        assert_eq!(state(run_id.clone()).await.0, "completed_notified", "{wire:?}");
+        assert_eq!(state("hook:old:1".into()).await.0, "completed_notified", "{wire:?}");
+        assert_eq!(state("hook:old:2".into()).await, ("failed".to_string(), Some("invalid_restart_checkpoint".to_string())), "{wire:?}");
+        let terminal: Option<String> = sqlx::query_scalar("select terminal_status from agent.recovery_owners where recovery_class = 'execute_resolve_worker' and owner_id = $1").bind(&run_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(terminal.as_deref(), Some("completed_notified"), "{wire:?}");
+        services.stop(&h2).await;
+    }
+}
+
 /// П3е-2: ящик в базе — весть, пришедшая, когда хода нет, и не взятая до
 /// остановки, после перезапуска доходит новым ходом и закрывается.
 #[tokio::test]

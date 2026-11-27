@@ -389,6 +389,34 @@ Rows holding model reasoning (thinking and redacted-thinking items) are withheld
 - PRIMARY KEY `conversation_id` (`agent_todo_snapshots_pkey`)
 - PRIMARY KEY `agent_identity` (`agent_todo_snapshots_pkey`)
 
+## `runtime.execute_resolve_runs`
+
+| column | type | nullable | default |
+|---|---|---|---|
+| `run_id` | text | no |  |
+| `worker_kind` | text | no |  |
+| `source_ref` | text | no |  |
+| `lane_key` | text | no |  |
+| `status` | text | no |  |
+| `terminal_decision` | text | yes |  |
+| `terminal_message` | text | yes |  |
+| `handoff_message_id` | text | yes |  |
+| `last_error_stage` | text | yes |  |
+| `last_error_message` | text | yes |  |
+| `metadata_json` | jsonb | no | `'{}'::jsonb` |
+| `created_at` | timestamp with time zone | no | `now()` |
+| `updated_at` | timestamp with time zone | no | `now()` |
+| `worker_generation` | bigint | no | `0` |
+| `worker_phase` | text | yes |  |
+| `worker_agent_id` | text | yes |  |
+| `worker_started_at` | timestamp with time zone | yes |  |
+| `execute_message_id` | text | yes |  |
+| `resolve_message_id` | text | yes |  |
+
+- PRIMARY KEY `run_id` (`execute_resolve_runs_pkey`)
+- UNIQUE `worker_kind` (`execute_resolve_runs_source_unique`)
+- UNIQUE `source_ref` (`execute_resolve_runs_source_unique`)
+
 ## `runtime.search_documents`
 
 | column | type | nullable | default |

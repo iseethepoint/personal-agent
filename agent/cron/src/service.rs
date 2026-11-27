@@ -398,7 +398,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                 if let Some(rec) = w.active(worker::EXECUTE_CLASS, &r.run_id).await? {
                     if let (Some(cp), Some(job)) = (rec.interrupted().await?, self.core.store.job(&r.job_id).await?) {
                         let (prefix, mut history) = rec.load().await?;
-                        let resolve = cp.class.as_deref() == Some(worker::RESOLVE_CLASS);
+                        let resolve = worker::resolve_phase(&cp);
                         agent_loop::close_interrupted(&mut history);
                         if !resolve {
                             history.push(Message { role: Role::Developer, content: vec![Part::Text { text: worker::CONTINUES_AFTER_RESTART.to_string() }] });
@@ -408,7 +408,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                         // Своё: остаток срока исполнения — от начала прогона, не меньше секунды.
                         let spent = (now - r.started_at_utc.unwrap_or(now)) / 1000;
                         let left = (timeout - spent).max(1);
-                        let recording = worker::Recording { record: rec, run_id: r.run_id.clone() };
+                        let recording = worker::Recording::cron(rec, r.run_id.clone());
                         self.launch(r.run_id.clone(), job, r.attempt, timeout, Some(left), prefix, worker::Begin::Resume { history, resolve, timed_out: r.timed_out }, Some(recording));
                         continue;
                     }
@@ -422,6 +422,53 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             if let Some(w) = &self.workers {
                 w.terminal(worker::EXECUTE_CLASS, &r.run_id, "failed").await?;
             }
+        }
+        self.recover_hooks().await
+    }
+
+    /// Незакрытые прогоны наблюдателей после перезапуска (`execute_resolve`
+    /// ядра): `notify_pending` — итог доставляется снова
+    /// (`notify_pending_replay.rs`); не взятый работником — берётся заново;
+    /// взятый, с незакрытым владельцем `execute_resolve_worker` и точкой
+    /// `before_inference` — продолжается с записанного; прочие — `failed` со
+    /// стадией `invalid_restart_checkpoint` («fail execute-resolve recovery
+    /// owner», «invalid restart checkpoint» ядра).
+    async fn recover_hooks(&self) -> Result<(), String> {
+        let parts = Arc::new(self.clone_parts());
+        for hr in self.core.store.hook_runs_open().await? {
+            let text = |k: &str| hr.metadata[k].as_str().unwrap_or_default().to_string();
+            let (first, resolve) = (text("execute"), text("resolve"));
+            if hr.status == "notify_pending" {
+                self.inbox.push(Message { role: Role::Developer, content: vec![Part::Text { text: crate::hooks::result_text(hr.terminal_message.as_deref().unwrap_or_default()) }] }).await;
+                self.core.store.hook_run_notified(&hr.run_id).await?;
+                if let Some(w) = &self.workers {
+                    w.terminal(worker::HOOK_CLASS, &hr.run_id, "completed_notified").await?;
+                }
+                continue;
+            }
+            let p = parts.clone();
+            let id = hr.run_id.clone();
+            if hr.worker_agent_id.is_none() {
+                let handle = tokio::spawn(async move { p.claim_hook(id, first, resolve).await });
+                self.core.running.lock().unwrap().insert(hr.run_id, handle);
+                continue;
+            }
+            if let Some(w) = &self.workers {
+                if let Some(rec) = w.active(worker::HOOK_CLASS, &hr.run_id).await? {
+                    if let Some(cp) = rec.interrupted().await? {
+                        let (prefix, mut history) = rec.load().await?;
+                        agent_loop::close_interrupted(&mut history);
+                        rec.record(&history).await?;
+                        let begin = worker::Begin::Resume { history, resolve: worker::resolve_phase(&cp), timed_out: false };
+                        let recording = worker::Recording::hook(rec, hr.run_id.clone());
+                        let handle = tokio::spawn(async move { p.run_hook(id, prefix, begin, resolve, Some(recording)).await });
+                        self.core.running.lock().unwrap().insert(hr.run_id, handle);
+                        continue;
+                    }
+                }
+                w.terminal(worker::HOOK_CLASS, &hr.run_id, "failed").await?;
+            }
+            self.core.store.hook_run_fail(&hr.run_id, "invalid_restart_checkpoint", "invalid restart checkpoint").await?;
         }
         Ok(())
     }
@@ -470,32 +517,38 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         }
     }
 
-    /// Работник срабатывания наблюдателя: итог — сразу в ящик.
+    /// Работник срабатывания наблюдателя: прогон `event_hook` в
+    /// `runtime.execute_resolve_runs`, работник берёт его новым поколением;
+    /// итог — в ящик.
     fn wake(&self, w: crate::hooks::Wake) {
         let run_id = format!("hook:{}:{}", w.def.id, w.inv.invocation_id);
-        let provider = self.provider.clone();
-        let tools = self.tools.clone();
-        let system = crate::hooks::worker_system(&self.system);
-        let spill = self.spill_dir.clone();
-        let inbox = self.inbox.clone();
-        let core = self.core.clone();
+        let first = crate::hooks::execute_message(&w, &run_id);
+        let resolve = crate::hooks::resolve_message(&w, &run_id);
+        let meta = json!({"execute": first, "resolve": resolve});
+        let store = self.core.store.clone();
+        let (lane, source) = (w.def.id.clone(), w.inv.invocation_id.clone());
+        let me = self.clone_parts();
         let id = run_id.clone();
         let handle = tokio::spawn(async move {
-            let first = crate::hooks::execute_message(&w, &id);
-            let kind = worker::Kind::Hook { resolve: crate::hooks::resolve_message(&w, &id) };
-            let prefix = agent_loop::Prefix { system: system.clone(), tools: tools.upfront_specs() };
-            let out = worker::run(&*provider, &*provider, &prefix, &tools, &spill, worker::Begin::Fresh(first), None, kind, |_, _| {}, None).await;
-            match out.signal {
-                Some(Signal::Notify { message, .. }) => inbox.push(Message {
-                    role: Role::Developer,
-                    content: vec![Part::Text { text: crate::hooks::result_text(&message) }],
-                }).await,
-                Some(Signal::Quiet) => {}
-                None => eprintln!("hook run {id}: no terminal decision ({})", out.error.unwrap_or_default()),
+            if let Err(e) = store.hook_run_insert(&id, &source, &lane, &meta).await {
+                eprintln!("hook run {id}: {e}");
+                return;
             }
-            core.wake();
+            me.claim_hook(id, first, resolve).await;
         });
         self.core.running.lock().unwrap().insert(run_id, handle);
+    }
+
+    fn clone_parts(&self) -> HookParts<P> {
+        HookParts {
+            core: self.core.clone(),
+            provider: self.provider.clone(),
+            tools: self.tools.clone(),
+            system: crate::hooks::worker_system(&self.system),
+            spill: self.spill_dir.clone(),
+            inbox: self.inbox.clone(),
+            workers: self.workers.clone(),
+        }
     }
 
     /// Пульс: системное задание `heartbeat` раз в 30 минут и шаблон
@@ -595,7 +648,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                 let agent_id = format!("cron-worker:{run_id}");
                 let record = w.begin(worker::EXECUTE_CLASS, &run_id, &agent_id, &prefix).await?;
                 self.core.store.set_worker(&run_id, &agent_id).await?;
-                Some(worker::Recording { record, run_id: run_id.clone() })
+                Some(worker::Recording::cron(record, run_id.clone()))
             }
             None => None,
         };
@@ -644,6 +697,92 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             self.core.store.outbox_delivered(&key, now).await?;
         }
         Ok(())
+    }
+}
+
+/// Всё, что нужно работнику наблюдателя в фоне.
+struct HookParts<P> {
+    core: Arc<Core>,
+    provider: Arc<P>,
+    tools: Arc<Tools>,
+    system: String,
+    spill: PathBuf,
+    inbox: Inbox,
+    workers: Option<Arc<dyn agent_loop::WorkerStore>>,
+}
+
+impl<P: Provider + Send + Sync + 'static> HookParts<P> {
+    fn prefix(&self) -> agent_loop::Prefix {
+        agent_loop::Prefix { system: self.system.clone(), tools: self.tools.upfront_specs() }
+    }
+
+    /// Взять прогон новым работником и прогнать с начала. Своё: id
+    /// работника — `hook-worker:<run_id>:<поколение>`.
+    async fn claim_hook(&self, run_id: String, first: String, resolve: String) {
+        let store = &self.core.store;
+        let agent_id = format!("hook-worker:{run_id}:{}", self.core.now());
+        match store.hook_run_claim(&run_id, &agent_id, &format!("{run_id}:execute"), &format!("{run_id}:resolve")).await {
+            Ok(true) => {}
+            Ok(false) => return,
+            Err(e) => {
+                eprintln!("hook run {run_id}: {e}");
+                return;
+            }
+        }
+        let prefix = self.prefix();
+        let recording = match &self.workers {
+            Some(w) => match w.begin(worker::HOOK_CLASS, &run_id, &agent_id, &prefix).await {
+                Ok(record) => Some(worker::Recording::hook(record, run_id.clone())),
+                Err(e) => {
+                    eprintln!("hook run {run_id}: {e}");
+                    None
+                }
+            },
+            None => None,
+        };
+        self.run_hook(run_id, prefix, worker::Begin::Fresh(first), resolve, recording).await;
+    }
+
+    /// Прогнать работника и записать итог.
+    async fn run_hook(&self, run_id: String, prefix: agent_loop::Prefix, begin: worker::Begin, resolve: String, recording: Option<worker::Recording>) {
+        let store = self.core.store.clone();
+        let phase_run = run_id.clone();
+        let on_phase = move |p: &'static str, _: bool| {
+            let store = store.clone();
+            let run = phase_run.clone();
+            tokio::spawn(async move {
+                let _ = store.hook_run_phase(&run, p).await;
+            });
+        };
+        let kind = worker::Kind::Hook { resolve };
+        let out = worker::run(&*self.provider, &*self.provider, &prefix, &self.tools, &self.spill, begin, None, kind, on_phase, recording).await;
+        let store = &self.core.store;
+        let (settled, status) = match out.signal {
+            Some(Signal::Notify { message, .. }) => {
+                let r = async {
+                    store.hook_run_decide(&run_id, "notify_main_agent", Some(&message)).await?;
+                    self.inbox.push(Message { role: Role::Developer, content: vec![Part::Text { text: crate::hooks::result_text(&message) }] }).await;
+                    store.hook_run_notified(&run_id).await
+                }
+                .await;
+                (r, "completed_notified")
+            }
+            Some(Signal::Quiet) => (store.hook_run_decide(&run_id, "nothing_to_do", None).await, "completed_noop"),
+            None => {
+                let err = out.error.unwrap_or_else(|| "no terminal decision".into());
+                eprintln!("hook run {run_id}: no terminal decision ({err})");
+                (store.hook_run_fail(&run_id, "resolve", &err).await, "failed")
+            }
+        };
+        if let Err(e) = settled {
+            eprintln!("hook run {run_id}: {e}");
+        }
+        if let Some(w) = &self.workers {
+            if let Err(e) = w.terminal(worker::HOOK_CLASS, &run_id, status).await {
+                eprintln!("hook run {run_id}: {e}");
+            }
+        }
+        self.core.wake();
     }
 }
 

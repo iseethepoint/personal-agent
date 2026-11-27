@@ -14,11 +14,16 @@
 
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use serde_json::Value;
 use sqlx::Row;
 
 use crate::schedule::Schedule;
 
-const MIGRATIONS: [&str; 2] = [include_str!("../migrations/0001_scheduler.sql"), include_str!("../migrations/0002_runtime_hooks.sql")];
+const MIGRATIONS: [&str; 3] = [
+    include_str!("../migrations/0001_scheduler.sql"),
+    include_str!("../migrations/0002_runtime_hooks.sql"),
+    include_str!("../migrations/0003_execute_resolve.sql"),
+];
 
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -552,5 +557,119 @@ impl Store {
         .await
         .map_err(db)?;
         Ok(())
+    }
+}
+
+/// Прогон наблюдателя (`runtime.execute_resolve_runs`).
+#[derive(Debug, Clone)]
+pub struct HookRun {
+    pub run_id: String,
+    pub status: String,
+    pub terminal_message: Option<String>,
+    pub worker_agent_id: Option<String>,
+    pub metadata: Value,
+}
+
+/// Прогоны наблюдателей — запросы ядра (около `0x18c4fcf`…`0x18c6d27`):
+/// заведение `insert … values ($1, $2, $3, $4, 'pending', $5) on conflict
+/// (worker_kind, source_ref) do update …`, взятие работником `set
+/// worker_generation = worker_generation + 1, worker_phase = 'execute',
+/// worker_agent_id = $2, worker_started_at = now(), execute_message_id = $3,
+/// resolve_message_id = $4 … where … status = 'pending' and worker_agent_id
+/// is null`, фаза `set worker_phase = $5`, решение `set terminal_decision =
+/// $2, terminal_message = $3, worker_phase = 'resolve'`, `notify_pending` →
+/// `completed_notified`, `completed_noop`, `failed` с `last_error_stage`.
+impl Store {
+    pub async fn hook_run_insert(&self, run_id: &str, source_ref: &str, lane_key: &str, metadata: &Value) -> Result<()> {
+        sqlx::query(
+            "insert into runtime.execute_resolve_runs as existing (run_id, worker_kind, source_ref, lane_key, status, metadata_json) values ($1, 'event_hook', $2, $3, 'pending', $4) \
+             on conflict (worker_kind, source_ref) do nothing",
+        )
+        .bind(run_id)
+        .bind(source_ref)
+        .bind(lane_key)
+        .bind(metadata)
+        .execute(&self.pool)
+        .await
+        .map_err(db)?;
+        Ok(())
+    }
+
+    /// Взять прогон работником; `false` — уже взят или закрыт.
+    pub async fn hook_run_claim(&self, run_id: &str, agent_id: &str, execute_message_id: &str, resolve_message_id: &str) -> Result<bool> {
+        let n = sqlx::query(
+            "update runtime.execute_resolve_runs set worker_generation = worker_generation + 1, worker_phase = 'execute', worker_agent_id = $2, worker_started_at = now(), \
+             execute_message_id = $3, resolve_message_id = $4, updated_at = now() where run_id = $1 and status = 'pending' and worker_agent_id is null",
+        )
+        .bind(run_id)
+        .bind(agent_id)
+        .bind(execute_message_id)
+        .bind(resolve_message_id)
+        .execute(&self.pool)
+        .await
+        .map_err(db)?
+        .rows_affected();
+        Ok(n == 1)
+    }
+
+    pub async fn hook_run_phase(&self, run_id: &str, phase: &str) -> Result<()> {
+        sqlx::query("update runtime.execute_resolve_runs set worker_phase = $2, updated_at = now() where run_id = $1 and status = 'pending'").bind(run_id).bind(phase).execute(&self.pool).await.map_err(db)?;
+        Ok(())
+    }
+
+    /// Решение работника: `notify_main_agent` → `notify_pending`,
+    /// `nothing_to_do` → `completed_noop`.
+    pub async fn hook_run_decide(&self, run_id: &str, decision: &str, message: Option<&str>) -> Result<()> {
+        let status = if decision == "notify_main_agent" { "notify_pending" } else { "completed_noop" };
+        sqlx::query(
+            "update runtime.execute_resolve_runs set terminal_decision = $2, terminal_message = $3, worker_phase = 'resolve', status = $4, \
+             handoff_message_id = case when $4 = 'notify_pending' then run_id || ':handoff' else handoff_message_id end, updated_at = now() where run_id = $1 and status = 'pending'",
+        )
+        .bind(run_id)
+        .bind(decision)
+        .bind(message)
+        .bind(status)
+        .execute(&self.pool)
+        .await
+        .map_err(db)?;
+        Ok(())
+    }
+
+    pub async fn hook_run_notified(&self, run_id: &str) -> Result<()> {
+        sqlx::query("update runtime.execute_resolve_runs set status = 'completed_notified', last_error_stage = null, last_error_message = null, updated_at = now() where run_id = $1 and status = 'notify_pending'")
+            .bind(run_id)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(())
+    }
+
+    pub async fn hook_run_fail(&self, run_id: &str, stage: &str, message: &str) -> Result<()> {
+        sqlx::query("update runtime.execute_resolve_runs set status = 'failed', last_error_stage = $2, last_error_message = $3, updated_at = now() where run_id = $1 and status in ('pending', 'notify_pending')")
+            .bind(run_id)
+            .bind(stage)
+            .bind(message)
+            .execute(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(())
+    }
+
+    /// Незакрытые прогоны наблюдателей (`pending`, `notify_pending`).
+    pub async fn hook_runs_open(&self) -> Result<Vec<HookRun>> {
+        let rows = sqlx::query("select run_id, status, terminal_message, worker_agent_id, metadata_json from runtime.execute_resolve_runs where worker_kind = 'event_hook' and status in ('pending', 'notify_pending') order by created_at, run_id")
+            .fetch_all(&self.pool)
+            .await
+            .map_err(db)?;
+        Ok(rows
+            .iter()
+            .map(|r| HookRun {
+                run_id: r.get("run_id"),
+                status: r.get("status"),
+                terminal_message: r.get("terminal_message"),
+                worker_agent_id: r.get("worker_agent_id"),
+                metadata: r.get("metadata_json"),
+            })
+            .collect())
     }
 }
