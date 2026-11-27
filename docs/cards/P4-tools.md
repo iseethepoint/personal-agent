@@ -71,7 +71,7 @@
 
 ## П4е — расписания и наблюдатели
 
-Ветка `e/P4f-cron`, после П3д.
+Два среза (по предложению инженера 27.11): П4е-1 — расписания (пункты 1–3, 5), ветка `e/P4f1-cron`; П4е-2 — наблюдатели и `HEARTBEAT.md` (пункт 4), ветка `e/P4f2-hooks`, после «Ок» на П4е-1.
 
 1. Форма — `hatch-cron`, `hatch-cron-core` (`source-files.txt:2220-2297`), `hatch-db-scheduler` (`:4880-…`); таблицы `scheduler.jobs`, `scheduler.job_runs`, `scheduler.cron_mutations`, `scheduler.delivery_outbox` (`sql.txt:310,4431,4591,4594,4623`) — схема и запросы по SQL muse, Postgres из П4д.
 2. Инструменты `cron.add/list/view/update/remove/run/runs/status/stop` (`P/hatch-agent/prompts/blocks/shared/environment/scheduled_work.md:1`, `strings-all.txt:59588,59594`) и `hooks.list/add/update/remove/dry_run/enable/disable/run/logs/view` (`hooks.md:1`, `source-files.txt:5988-5989`, `runtime.event_hook_admissions` `sql.txt:908`) — описания из ядра, с правками П10.
