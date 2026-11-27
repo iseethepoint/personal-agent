@@ -26,7 +26,7 @@ use std::path::PathBuf;
 
 use agent_model::{
     Message, Part, Provider, Purpose, Registry, RegistryError, Request, Resolved, Role, Settings,
-    ToolChoice,
+    StopReason, ToolChoice,
 };
 
 use crate::prompt::Conversation;
@@ -38,6 +38,7 @@ pub const SYSTEM_MD: &str = include_str!("../../../prompts/compaction/system.md"
 pub const SUMMARIZATION_MD: &str = include_str!("../../../prompts/compaction/summarization.md");
 pub const SUMMARY_RULES_MD: &str = include_str!("../../../prompts/compaction/summary_rules.md");
 pub const MEMORY_FLUSH_PROMPT_MD: &str = include_str!("../../../prompts/compaction/memory_flush_prompt.md");
+pub const OUTPUT_CAP_FEEDBACK_MD: &str = include_str!("../../../prompts/compaction/output_cap_feedback.md");
 
 /// Порог периодического сброса памяти в токенах (по умолчанию ядра).
 pub const PERIODIC_THRESHOLD_TOKENS: u64 = 50_000;
@@ -89,10 +90,29 @@ pub fn summarization_prompt() -> String {
     personal(SUMMARIZATION_MD).replace("{summary_rules}", personal(SUMMARY_RULES_MD).trim_end())
 }
 
+/// Просьба о сжатии по частям: `segmented_summarization.md` с указанием о
+/// состоянии (и `segmented_state_over_cap.md`, если прошлое состояние длиннее
+/// цели), целевыми длинами и `summary_rules.md`.
+pub fn segmented_prompt(limits: &crate::segmented::Limits, previous_state: Option<&str>) -> String {
+    use crate::segmented::*;
+    let mut state = personal(SEGMENTED_STATE_MD).trim_end().to_string();
+    if previous_state.is_some_and(|s| tokens(s) > limits.state_target) {
+        state.push(' ');
+        state.push_str(personal(SEGMENTED_STATE_OVER_CAP_MD).trim_end());
+    }
+    personal(SEGMENTED_SUMMARIZATION_MD)
+        .replace("{state_instruction}", &state)
+        .replace("{segment_target_tokens}", &limits.segment_target.to_string())
+        .replace("{state_target_tokens}", &limits.state_target.to_string())
+        .replace("{summary_rules}", personal(SUMMARY_RULES_MD).trim_end())
+}
+
 /// Порог и модели сжатия для выбранной главной модели.
 pub struct Plan<'r> {
     /// `compaction_trigger` весов главной модели.
     pub trigger: u64,
+    /// Окно главной модели — от него пределы сжатия по частям.
+    pub window: u64,
     pub flush: Resolved<'r>,
     pub compaction: Resolved<'r>,
 }
@@ -107,6 +127,7 @@ impl<'r> Plan<'r> {
         };
         Ok(Plan {
             trigger: get(Purpose::Main)?.weights.compaction_trigger,
+            window: get(Purpose::Main)?.weights.context_window,
             flush: get(Purpose::MemoryFlush)?,
             compaction: get(Purpose::Compaction)?,
         })
@@ -125,6 +146,10 @@ pub struct Compactor<'a, F, C> {
     pub today: Option<(String, String)>,
     /// Всё уже сброшено периодическим сбросом (`periodic_flush_covered`).
     pub flush_covered: bool,
+    /// Сжатие по частям (`hatch_segmented_compaction`) и окно модели для
+    /// его пределов.
+    pub segmented: bool,
+    pub window: Option<u64>,
 }
 
 impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
@@ -145,16 +170,7 @@ impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
         }
 
         // 2. Сводка старой части.
-        let mut messages = conv.history[..cut].to_vec();
-        messages.push(Message { role: Role::User, content: vec![Part::Text { text: summarization_prompt() }] });
-        let req = Request {
-            system: personal(SYSTEM_MD),
-            messages,
-            // Описания нужны: в старой части есть вызовы инструментов.
-            tools: conv.prefix.tools.clone(),
-            settings: Settings { tool_choice: ToolChoice::None, ..Default::default() },
-        };
-        let summary = self.compaction.complete(&req).await.map_err(TurnError::Model)?.text();
+        let summary = if self.segmented { self.segmented_summary(conv, cut).await? } else { self.plain_summary(conv, cut).await? };
         if summary.trim().is_empty() {
             // Строка muse, `strings-all.txt:188356`.
             return Err(TurnError::Compaction("compaction summary cannot be empty".into()));
@@ -172,6 +188,67 @@ impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
 }
 
 impl<'a, F: Provider, C: Provider> Compactor<'a, F, C> {
+    fn request(&self, conv: &Conversation, messages: Vec<Message>) -> Request {
+        Request {
+            system: personal(SYSTEM_MD),
+            messages,
+            // Описания нужны: в старой части есть вызовы инструментов.
+            tools: conv.prefix.tools.clone(),
+            settings: Settings { tool_choice: ToolChoice::None, ..Default::default() },
+        }
+    }
+
+    /// Сводка одним куском; упор в предел ответа — одно замечание
+    /// `output_cap_feedback.md` (`compaction_output_token_cap_feedback`).
+    async fn plain_summary(&self, conv: &Conversation, cut: usize) -> Result<String, TurnError> {
+        let mut messages = conv.history[..cut].to_vec();
+        messages.push(Message { role: Role::User, content: vec![Part::Text { text: summarization_prompt() }] });
+        let resp = self.compaction.complete(&self.request(conv, messages.clone())).await.map_err(TurnError::Model)?;
+        if resp.stop_reason != StopReason::MaxTokens {
+            return Ok(resp.text());
+        }
+        messages.push(Message { role: Role::Assistant, content: vec![Part::Text { text: resp.text() }] });
+        messages.push(Message { role: Role::User, content: vec![Part::Text { text: personal(OUTPUT_CAP_FEEDBACK_MD).trim_end().to_string() }] });
+        Ok(self.compaction.complete(&self.request(conv, messages)).await.map_err(TurnError::Model)?.text())
+    }
+
+    /// Сводка по частям (`segmented.rs`): прошлая сводка остаётся в начале
+    /// истории, модель пишет новую часть и состояние; ответ без состояния,
+    /// длиннее жёстких пределов или упёршийся в предел ответа — одно
+    /// замечание `segmented_output_cap_feedback.md`, потом обрезка; старые
+    /// части сверх бюджета удаляются.
+    async fn segmented_summary(&self, conv: &Conversation, cut: usize) -> Result<String, TurnError> {
+        use crate::segmented::*;
+        let limits = Limits::for_window(self.window);
+        let old = conv.history.first().map(|m| m.text()).and_then(|t| t.strip_prefix(SUMMARY_HEADER).map(Summary::parse)).unwrap_or_default();
+        let mut messages = conv.history[..cut].to_vec();
+        messages.push(Message { role: Role::User, content: vec![Part::Text { text: segmented_prompt(&limits, old.state.as_deref()) }] });
+        let resp = self.compaction.complete(&self.request(conv, messages.clone())).await.map_err(TurnError::Model)?;
+        let (mut segment, mut state) = parse_reply(&resp.text());
+        let bad = |seg: &Option<String>, st: &Option<String>| seg.is_none() || st.is_none() || over_limits(seg.as_deref().unwrap_or(""), st.as_deref().unwrap_or(""), &limits);
+        if resp.stop_reason == StopReason::MaxTokens || bad(&segment, &state) {
+            eprintln!("compaction_segmented_reply_feedback");
+            messages.push(Message { role: Role::Assistant, content: vec![Part::Text { text: resp.text() }] });
+            let feedback = personal(SEGMENTED_OUTPUT_CAP_FEEDBACK_MD)
+                .replace("{segment_target_tokens}", &limits.segment_target.to_string())
+                .replace("{state_target_tokens}", &limits.state_target.to_string());
+            messages.push(Message { role: Role::User, content: vec![Part::Text { text: feedback.trim_end().to_string() }] });
+            let again = self.compaction.complete(&self.request(conv, messages)).await.map_err(TurnError::Model)?;
+            (segment, state) = parse_reply(&again.text());
+        }
+        let Some(segment) = segment.filter(|s| !s.is_empty()) else { return Ok(String::new()) };
+        // Состояния нет — остаётся прошлое (`segmented_state_missing`).
+        let state = state.or(old.state.clone());
+        let (seg_cut, state_cut) = (cut_to(&segment, limits.segment_limit), state.as_deref().map(|s| cut_to(s, limits.state_limit)));
+        if seg_cut != segment || state_cut.as_deref() != state.as_deref() {
+            eprintln!("segmented compaction reply over its hard limits; cut to fit");
+        }
+        let mut next = Summary { segments: old.segments, state: state_cut };
+        next.segments.push(seg_cut);
+        next.trim(limits.block);
+        Ok(next.render())
+    }
+
     /// Ход сброса памяти на копии истории; в разговор не идёт.
     pub async fn flush(&self, conv: &Conversation) -> Result<(), TurnError> {
         let mut scratch = conv.history.clone();

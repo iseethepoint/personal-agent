@@ -547,3 +547,24 @@
 - отложенный итог пишется, только когда проверка включена (без неё между работником и итогом шага нет);
 - проверка, оборванная перезапуском, начинается заново с той же категорией (прогон `verification` в `runtime.execute_resolve_runs` не продолжается);
 - путь проверяющего после перезапуска — история работника из базы.
+
+## Сжатие по частям (П3ж-5)
+
+Тексты muse как есть (метки `personal-muse-only` / `group-muse-only` → `personal-only` / `group-only`): `compaction/segmented_summarization.md`, `segmented_state.md`, `segmented_state_over_cap.md` (из `hatch-compaction/prompts/compact/`), `segmented_output_cap_feedback.md`, `output_cap_feedback.md` (из `hatch-agent/prompts/compact/`). Пометка «Older summaries were removed here to save space. Recover what happened in this span from saved memories, including the daily notes under `~/memory/`, or from conversation history.» — строка ядра `0xb3a3ca`.
+
+Числа — декомпиляцией ядра (Ghidra 12.1.4, без анализа, адреса — виртуальные при базе 0):
+- подготовка `0xccdb910`: пять пределов от окна модели W — W/10, (W/10)·2/5, min(W/50, 6000)/2, (W/10)·4/5, min(W/50, 6000); без окна — 0x6a40, 0x2a80, 0xaa0, 0x5500, 0x1540 (= те же формулы при W = 272 000);
+- сборка просьбы `0xf1f67e0`: `{state_target_tokens}` — (W/10)·2/5, `{segment_target_tokens}` — min(W/50, 6000)/2; `segmented_state_over_cap.md` через пробел, если прошлое состояние (байты·2/7) длиннее цели;
+- проверка ответа `0x974df76` (`segmented_block_limit`, `segmented_state_missing`): часть длиннее min(W/50, 6000) или состояние длиннее (W/10)·4/5 → замечание (`compaction_segmented_reply_feedback`);
+- обрезка `0xcdadad0` («segmented compaction reply over its hard limits; cut to fit», поля `segment_limit_tokens`, `state_limit_tokens`) — по тем же пределам;
+- вырезание старых частей `0xf205ab0`: пока отрисованные части длиннее W/10, удаляется самая старая (после пометки), новейшая остаётся; на месте удалённых — пометка;
+- отрисовка `0xf203ed0`: `<segment from="…" to="…">\n…\n</segment>\n\n`, затем `<current_state>\n…\n</current_state>`; разбор `0xf204200` принимает разделы `New segment` / `Current state` и блоки `<new_segment>` / `<current_state>`.
+
+Устройство: прошлая сводка остаётся в начале истории; модель пишет новую часть и состояние; включатель `[compaction] segmented` (у muse — флаг `hatch_segmented_compaction`); окно — `context_window` весов главной модели. Обычное сжатие при упоре в предел ответа — одно замечание `output_cap_feedback.md` (`compaction_output_token_cap_feedback`).
+
+Своё:
+- `from` / `to` у частей не пишутся (в ядре они необязательны; откуда берутся значения, не видно; у сообщений Hamlet нет времени);
+- замечание — одно (в ядре есть `feedback_retry_exhausted`, число попыток не видно);
+- новой части нет и после замечания — сводка пуста, сжатие не идёт («compaction summary cannot be empty»); состояния нет — остаётся прошлое;
+- включатель по умолчанию включён (значение флага у muse не видно);
+- `no_tools.md`, `recent_conversation.md`, `chat_worker_conversation.md` не взяты: первый — для запроса без инструментов (у нас описания идут с `tool_choice: none`), второй и третий — для побочных чатов.
