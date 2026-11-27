@@ -17,7 +17,7 @@
 
 Ветка `e/P4a-files`.
 
-1. `muse.read`, `muse.write`, `muse.edit` — форма `file_io*` (`source-files.txt:1571-1579`), `edit.rs`, `edit_matching.rs` (`:1552-1553`).
+1. Пути — как у muse: относительный от `~`, абсолютный любой («or any absolute path»); своего сторожа папок нет (правка ревизора 27.11). `muse.read`, `muse.write`, `muse.edit` — форма `file_io*` (`source-files.txt:1571-1579`), `edit.rs`, `edit_matching.rs` (`:1552-1553`).
 2. `muse.read` с `offset` и пределом — так, чтобы им читался файл большого вывода из П3а («Use read with path=… offset=… to continue»); единица `offset` должна совпасть с той, что пишет spill.
 3. Правка заменой: точное совпадение, иначе понятная ошибка (форма `edit_matching`); несколько совпадений — ошибка.
 4. Перевод документов в текст (`file_io/document_convert.rs`, `:1573`) — только если в разборе видно, чем muse это делает; иначе — отложить и назвать.
