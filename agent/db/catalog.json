@@ -2441,6 +2441,188 @@
       "columns": [
         {
           "comment": null,
+          "default": null,
+          "name": "run_id",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "worker_kind",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "source_ref",
+          "nullable": false,
+          "position": 3,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "lane_key",
+          "nullable": false,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "status",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "terminal_decision",
+          "nullable": true,
+          "position": 6,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "terminal_message",
+          "nullable": true,
+          "position": 7,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "handoff_message_id",
+          "nullable": true,
+          "position": 8,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_error_stage",
+          "nullable": true,
+          "position": 9,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "last_error_message",
+          "nullable": true,
+          "position": 10,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "'{}'::jsonb",
+          "name": "metadata_json",
+          "nullable": false,
+          "position": 11,
+          "type": "jsonb"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "created_at",
+          "nullable": false,
+          "position": 12,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "updated_at",
+          "nullable": false,
+          "position": 13,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": "0",
+          "name": "worker_generation",
+          "nullable": false,
+          "position": 14,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "worker_phase",
+          "nullable": true,
+          "position": 15,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "worker_agent_id",
+          "nullable": true,
+          "position": 16,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "worker_started_at",
+          "nullable": true,
+          "position": 17,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "execute_message_id",
+          "nullable": true,
+          "position": 18,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "resolve_message_id",
+          "nullable": true,
+          "position": 19,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "run_id",
+          "name": "execute_resolve_runs_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        },
+        {
+          "column": "worker_kind",
+          "name": "execute_resolve_runs_source_unique",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "source_ref",
+          "name": "execute_resolve_runs_source_unique",
+          "position": 2,
+          "references": null,
+          "type": "UNIQUE"
+        }
+      ],
+      "name": "execute_resolve_runs",
+      "schema": "runtime"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
           "default": "nextval('runtime.search_documents_search_document_id_seq'::regclass)",
           "name": "search_document_id",
           "nullable": false,

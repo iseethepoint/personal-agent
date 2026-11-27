@@ -339,3 +339,26 @@
 - свидетельства для итога после перезапуска — по записанной истории; вышел ли срок — по `worker_execution_timed_out`;
 - `agent.recovery_owner_terminal_events` не взята;
 - наблюдатели (у muse — `runtime.execute_resolve_runs`, класс `execute_resolve_worker`), вызовы `workflow` и окна браузера — часть 2в.
+
+## Прогоны наблюдателей и их перезапуск (П3е-5, часть 2в)
+
+Текстов для модели нет. Таблица `runtime.execute_resolve_runs` — `agent/cron/migrations/0003_execute_resolve.sql` по каталогу ядра. Запросы — форма ядра (около `0x18c4fcf`…`0x18c6d27`):
+- срабатывание наблюдателя — прогон `worker_kind = 'event_hook'`, `source_ref` — срабатывание, `lane_key` — наблюдатель;
+- работник берёт прогон новым поколением (`worker_generation + 1`, `worker_agent_id`, `execute_message_id`, `resolve_message_id`);
+- решение — `terminal_decision`; дальше `notify_pending` → `completed_notified`, либо `completed_noop`, либо `failed` с `last_error_stage`.
+
+Работник — владелец восстановления класса ядра `execute_resolve_worker`, точки обеих фаз — с этим классом. Таблица добавлена в каталог `hamlet.db` (30 таблиц).
+
+При старте (`execute_resolve_worker/notify_pending_replay.rs`, «fail execute-resolve recovery owner», «invalid restart checkpoint» ядра):
+- `notify_pending` — итог доставляется снова;
+- не взятый работником — берётся заново;
+- взятый, с незакрытым владельцем и точкой `before_inference`, продолжается с записанного. Вызовы без результата закрываются, фаза — по имени хода;
+- прочие — `failed` со стадией `invalid_restart_checkpoint`.
+
+Своё:
+- id работника — `hook-worker:<run_id>:<мс>`;
+- `metadata_json` — `{"execute", "resolve"}`: тексты фаз, по ним прогон берётся заново;
+- решение и `notify_pending` пишутся одним запросом;
+- `handoff_message_id` — `<run_id>:handoff`;
+- фаза оборванного хода — по суффиксу имени хода `:resolve`;
+- заметки о продолжении у наблюдателя нет: текста ядра для `execute_resolve` в разборе не видно.

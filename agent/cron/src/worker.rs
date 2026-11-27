@@ -303,6 +303,8 @@ pub struct Outcome {
 /// ядра (`scheduler_cron_execute`, `scheduler_cron_resolve`).
 pub const EXECUTE_CLASS: &str = "scheduler_cron_execute";
 pub const RESOLVE_CLASS: &str = "scheduler_cron_resolve";
+/// Класс владельца восстановления работника наблюдателя — значение ядра.
+pub const HOOK_CLASS: &str = "execute_resolve_worker";
 
 /// Прогон после перезапуска продолжается с записанного — текст ядра
 /// («continue scheduler recovery owner», около `0x2a4cf45`).
@@ -323,6 +325,25 @@ pub enum Begin {
 pub struct Recording {
     pub record: Arc<dyn agent_loop::ChildRecord>,
     pub run_id: String,
+    /// `recovery_class` точек фаз исполнения и итога.
+    pub classes: (&'static str, &'static str),
+}
+
+impl Recording {
+    /// Работник прогона расписания.
+    pub fn cron(record: Arc<dyn agent_loop::ChildRecord>, run_id: String) -> Recording {
+        Recording { record, run_id, classes: (EXECUTE_CLASS, RESOLVE_CLASS) }
+    }
+
+    /// Работник прогона наблюдателя: класс один на обе фазы.
+    pub fn hook(record: Arc<dyn agent_loop::ChildRecord>, run_id: String) -> Recording {
+        Recording { record, run_id, classes: (HOOK_CLASS, HOOK_CLASS) }
+    }
+}
+
+/// Фаза итога: имя хода в точке кончается на `:resolve`.
+pub fn resolve_phase(cp: &agent_loop::Checkpoint) -> bool {
+    cp.message_id.ends_with(":resolve")
 }
 
 impl Recording {
@@ -362,7 +383,7 @@ pub async fn run<P: Provider>(
     let mut evidence = Evidence::default();
     if !resolve_only {
         if let Some(r) = &recording {
-            r.checkpoint(Some(EXECUTE_CLASS), turn_name("execute").as_deref()).await;
+            r.checkpoint(Some(r.classes.0), turn_name("execute").as_deref()).await;
         }
         let mut turn = Turn::from_prefix(provider, tools, prefix, spill_dir);
         turn.record = record.clone();
@@ -431,7 +452,7 @@ pub async fn run<P: Provider>(
     };
     terminal.add(NotifyMainAgent(resolution.clone()));
     if let Some(r) = &recording {
-        r.checkpoint(Some(RESOLVE_CLASS), turn_name("resolve").as_deref()).await;
+        r.checkpoint(Some(r.classes.1), turn_name("resolve").as_deref()).await;
     }
     let mut turn = Turn::new(resolver, &terminal, prefix.system.clone(), spill_dir);
     turn.terminal = vec![quiet_name.into(), NOTIFY_MAIN_AGENT.into()];
