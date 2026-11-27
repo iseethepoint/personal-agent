@@ -23,8 +23,8 @@ pub mod config;
 pub mod daemon;
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
-use std::time::Duration;
 
 use agent_browser::browsers::Browsers;
 use agent_cron::{Clock, Core, Scheduler};
@@ -120,16 +120,14 @@ impl Parts {
     }
 }
 
-/// Как собрать: часы и шаг такта служб (у muse такт будят наблюдатель
-/// файлов и срок ближайшего прогона; у нас — ровный такт `agent_cron::TICK`).
+/// Как собрать: часы службы (в тестах — поддельные).
 pub struct Options {
     pub clock: Arc<dyn Clock>,
-    pub tick: Duration,
 }
 
 impl Default for Options {
     fn default() -> Self {
-        Options { clock: Arc::new(agent_cron::SystemClock), tick: agent_cron::TICK }
+        Options { clock: Arc::new(agent_cron::SystemClock) }
     }
 }
 
@@ -281,16 +279,34 @@ impl Hamlet {
         let cron_plan = agent_cron::Plan::from_registry(&reg, sel).map_err(|e| e.to_string())?;
         let mut scheduler = Scheduler::new(core, Arc::new(provider(&cron_plan.worker)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)), system.clone(), Arc::new(with_workflows(parts.base(None)?)), spill_dir.clone(), inbox.clone());
         scheduler.resolver(Arc::new(provider(&cron_plan.resolve)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)));
+        // Сверка памяти — когда наблюдатель файлов увидел правку файла
+        // памяти (и на первом такте). Своё: если векторы не дозаполнились,
+        // сверка повторится на следующем такте.
+        // Пути событий бывают каноническими (`/private/var/…` на macOS).
+        let homes = [home_dir.clone(), home_dir.canonicalize().unwrap_or_else(|_| home_dir.clone())];
+        let dirty = scheduler.watch(&home_dir, move |p| homes.iter().any(|h| p.strip_prefix(h).is_ok_and(agent_memory::is_memory_path)))?;
         let (mhome, mstore, memb) = (home_dir.clone(), memory.clone(), embedder.clone());
         scheduler.background(Arc::new(move || {
-            let (h, s, e) = (mhome.clone(), mstore.clone(), memb.clone());
-            Box::pin(async move { agent_memory::reindex(&h, &s, e.as_deref()).await.map(|_| ()) })
+            let (h, s, e, dirty) = (mhome.clone(), mstore.clone(), memb.clone(), dirty.clone());
+            Box::pin(async move {
+                if dirty.swap(false, Ordering::SeqCst) {
+                    let r = agent_memory::reindex(&h, &s, e.as_deref()).await?;
+                    if r.embed_error.is_some() {
+                        dirty.store(true, Ordering::SeqCst);
+                    }
+                }
+                Ok(None)
+            })
         }));
-        // Уборщик корзины — фоновая работа службы (`recoverable_trash_reaper`).
+        // Уборщик корзины — фоновая работа службы (`recoverable_trash_reaper`);
+        // будится к ближайшему сроку истечения.
         let reaper = parts.trash.clone();
         scheduler.background(Arc::new(move || {
             let t = reaper.clone();
-            Box::pin(async move { tokio::task::spawn_blocking(move || t.reap()).await.map_err(|e| e.to_string())?.map(|_| ()) })
+            Box::pin(async move {
+                let next = tokio::task::spawn_blocking(move || t.reap().and_then(|_| t.next_expiry())).await.map_err(|e| e.to_string())??;
+                Ok(next.map(|d| d.timestamp_millis()))
+            })
         }));
 
         Ok(Hamlet {

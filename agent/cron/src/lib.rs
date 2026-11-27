@@ -14,7 +14,7 @@ pub mod worker;
 pub use clock::{Clock, FakeClock, SystemClock};
 pub use schedule::Schedule;
 pub use hooks::{namespace_description as hooks_namespace, tools as hook_tools, HookTool};
-pub use service::{handoff, Plan, has_instructions, Background, Core, Scheduler, HEARTBEAT_ID, HEARTBEAT_TEMPLATE, TICK};
+pub use service::{handoff, Plan, has_instructions, Background, Core, Scheduler, HEARTBEAT_ID, HEARTBEAT_TEMPLATE};
 pub use store::{Definition, Job, Run, Store};
 pub use tools::{namespace_description as cron_namespace, tools, CronTool};
 pub use worker::{resolution_specs, worker_message, Kind, Outcome, Signal, NOTHING_TO_REPORT, NOTIFY_MAIN_AGENT};

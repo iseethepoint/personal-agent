@@ -155,6 +155,16 @@ impl Trash {
         Ok(n)
     }
 
+    /// Ближайший срок истечения активной записи — к нему будить уборщика.
+    pub fn next_expiry(&self) -> Result<Option<DateTime<Utc>>, String> {
+        Ok(self
+            .entries()?
+            .into_iter()
+            .filter(|(_, i)| i.status == "active")
+            .filter_map(|(_, i)| DateTime::parse_from_rfc3339(&i.expiry_date).ok().map(|t| t.with_timezone(&Utc)))
+            .min())
+    }
+
     pub fn put(&self, raw: &str) -> Result<String, String> {
         if raw.trim().is_empty() {
             return Err("path is required for trash action `put`".into());

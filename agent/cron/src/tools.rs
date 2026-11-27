@@ -192,6 +192,10 @@ impl Tool for CronTool {
                 Op::Runs => self.runs(&args).await,
                 Op::Stop => self.stop(&args).await,
             }?;
+            // Правка расписаний меняет ближайший срок.
+            if !matches!(self.op, Op::Status | Op::List | Op::View | Op::Runs) {
+                self.core.wake();
+            }
             let text = serde_json::to_string_pretty(&out).unwrap_or_default();
             Ok(vec![ToolResultPart::Text { text }])
         })

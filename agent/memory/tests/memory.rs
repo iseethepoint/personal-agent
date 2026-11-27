@@ -458,3 +458,15 @@ async fn search_sees_files_after_background_maintenance() {
     let r: Value = serde_json::from_str(&call_now(&t, "hamlet.memory_search", json!({"queries": ["Pushok"]})).await.unwrap()).unwrap();
     assert_eq!(paths(&r), ["MEMORY.md#L3"]);
 }
+
+/// П4л-8: какие пути будят сверку памяти — те же, что сверяет `reindex`.
+#[test]
+fn memory_paths_for_the_file_watcher() {
+    use std::path::Path;
+    for yes in ["MEMORY.md", "memory", "memory/2027-01-15.md", "memory/a/b.md", "side-chats/c1/MEMORY.md", "side-chats/c1/memory/x.md"] {
+        assert!(agent_memory::is_memory_path(Path::new(yes)), "{yes}");
+    }
+    for no in ["workspace/notes.md", "memory/x.txt", "memory/.tmp.md", "HEARTBEAT.md", "side-chats/c1/notes.md", ".spill/MEMORY.md"] {
+        assert!(!agent_memory::is_memory_path(Path::new(no)), "{no}");
+    }
+}

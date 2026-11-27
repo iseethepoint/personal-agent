@@ -430,6 +430,17 @@ impl Store {
     /// Эскалации активных целей со сроком в `(after, until]`, по сроку —
     /// выборка `goals.upcoming_escalations` muse (sql.txt:4314) с верхней
     /// границей такта.
+    /// Ближайший срок эскалации активной цели позже `after_ms`.
+    pub async fn next_escalation_after(&self, after_ms: i64) -> Result<Option<i64>> {
+        let at: Option<chrono::DateTime<chrono::Utc>> =
+            sqlx::query_scalar("select min(escalation_due_at) from goals.goals where escalation_due_at is not null and escalation_due_at > $1 and status = 'active'")
+                .bind(ts(after_ms))
+                .fetch_one(&self.pool)
+                .await
+                .map_err(db)?;
+        Ok(at.map(|t| t.timestamp_millis()))
+    }
+
     pub async fn due_escalations(&self, after_ms: i64, until_ms: i64) -> Result<Vec<Goal>> {
         let rows = sqlx::query(&format!(
             "select {GOAL_COLUMNS} from goals.goals where escalation_due_at is not null and escalation_due_at > $1 and escalation_due_at <= $2 and status = 'active' order by escalation_due_at asc"

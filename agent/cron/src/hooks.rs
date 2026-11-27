@@ -422,6 +422,14 @@ pub async fn poll(core: &Core) -> Result<(), String> {
     Ok(())
 }
 
+/// Срок ближайшего опроса включённого наблюдателя (ещё не опрошенный —
+/// сейчас).
+pub async fn next_poll_at(core: &Core) -> Result<Option<i64>, String> {
+    let now = core.now();
+    let next = core.next_poll.lock().unwrap().clone();
+    Ok(list_defs(core).await?.iter().filter(|d| d.enabled).map(|d| next.get(&d.id).copied().unwrap_or(now)).min())
+}
+
 /// Задание работнику — фаза исполнения.
 pub fn execute_message(w: &Wake, run_id: &str) -> String {
     let event = json!({
@@ -561,6 +569,8 @@ impl Tool for HookTool {
     fn call(&self, args: Value) -> ToolFuture<'_> {
         Box::pin(async move {
             let out = self.dispatch(&args).await.map_err(ToolError::Failed)?;
+            // Правка наблюдателя меняет срок опроса.
+            self.core.wake();
             Ok(vec![ToolResultPart::Text { text: serde_json::to_string_pretty(&out).unwrap_or_default() }])
         })
     }

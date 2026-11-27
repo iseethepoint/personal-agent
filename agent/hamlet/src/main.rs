@@ -36,7 +36,7 @@ async fn main() {
             std::process::exit(1);
         }
     };
-    let services = Services::start(&h, opts.tick);
+    let services = Services::start(&h);
     let (tx, rx) = mpsc::channel(16);
     let (out_tx, mut out_rx) = mpsc::unbounded_channel();
     tokio::spawn(async move {

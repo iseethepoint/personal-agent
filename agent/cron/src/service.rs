@@ -2,16 +2,24 @@
 //! прогоны из очереди, итоги главному агенту. Форма — `scheduler loop` muse
 //! (`strings-all.txt:223125-224100`: admission, reconcile, delivery outbox).
 //!
-//! Своё: у muse такт будят наблюдатель файлов и срок ближайшего прогона;
-//! здесь — ровный такт `TICK` (сверка памяти идёт на нём же, потому что
-//! наблюдателя файлов у нас нет).
+//! Такт будят, как у muse, срок ближайшего дела и события:
+//! - срок: прогон задания, опрос наблюдателя, эскалация цели или срок,
+//!   который вернула фоновая работа;
+//! - события: правка расписаний и наблюдателей, конец прогона, наблюдатель
+//!   файлов (`notify` 8.2.0, `notify::inotify` — `strings-all.txt:344927`;
+//!   «file watcher error» — `:17841`, `:21857`).
+//!
+//! Ровного такта нет.
+//!
+//! Своё (в разборе не видно): какие события будят; наблюдатель смотрит
+//! только то, что задаёт сборка (у Hamlet — файлы памяти); без сроков
+//! служба спит до события.
 
 use std::collections::HashMap;
 use std::future::Future;
 use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use agent_loop::{Inbox, Tools};
 use agent_model::{Message, Part, Provider, Role};
@@ -52,15 +60,14 @@ fn truncate_heartbeat(text: &str) -> String {
     format!("HEARTBEAT.md exceeds 100000 characters. This message includes only the first 100000 characters; read ~/HEARTBEAT.md for the rest of the contents.\n\n{head}")
 }
 
-/// Ровный такт службы. Своё (см. заголовок).
-pub const TICK: Duration = Duration::from_secs(15);
-
 /// Срок исполнения по умолчанию: у повторяющихся — 3600 с, у разовых —
 /// 86400 с; потолок — 86400 с (описание `timeout_secs` muse).
 pub const RECURRING_TIMEOUT_SECS: i64 = 3600;
 pub const MAX_TIMEOUT_SECS: i64 = 86400;
 
-pub type Background = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<(), String>> + Send>> + Send + Sync>;
+/// Фоновая работа такта; возвращает срок, к которому её разбудить снова
+/// (`None` — только по событию).
+pub type Background = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = Result<Option<i64>, String>> + Send>> + Send + Sync>;
 
 /// Общее для службы и инструментов `cron.*`.
 pub struct Core {
@@ -81,6 +88,8 @@ pub struct Core {
     pub goals: Option<agent_goals::Store>,
     /// Будильник эскалаций: сроки до этой отметки уже разобраны.
     pub(crate) escalations_through: Mutex<i64>,
+    /// Будит такт службы раньше срока.
+    pub(crate) waker: tokio::sync::Notify,
 }
 
 impl Core {
@@ -119,7 +128,13 @@ impl Core {
             wakes: Mutex::new(Vec::new()),
             goals,
             escalations_through: Mutex::new(started),
+            waker: tokio::sync::Notify::new(),
         })
+    }
+
+    /// Разбудить такт службы: что-то изменилось раньше ближайшего срока.
+    pub fn wake(&self) {
+        self.waker.notify_one();
     }
 
     /// Блок `[GOAL CONTEXT]` для задания цели — `goal_context.md` muse с
@@ -233,6 +248,10 @@ pub struct Scheduler<P> {
     spill_dir: PathBuf,
     inbox: Inbox,
     background: Vec<Background>,
+    /// Сроки, которые вернули фоновые работы на последнем такте.
+    background_due: Mutex<Vec<i64>>,
+    /// Живые наблюдатели файлов.
+    watchers: Vec<notify::RecommendedWatcher>,
 }
 
 fn new_run_id(job_id: &str, scheduled_for: i64, attempt: i32) -> String {
@@ -241,7 +260,18 @@ fn new_run_id(job_id: &str, scheduled_for: i64, attempt: i32) -> String {
 
 impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
     pub fn new(core: Arc<Core>, provider: Arc<P>, system: impl Into<String>, tools: Arc<Tools>, spill_dir: impl Into<PathBuf>, inbox: Inbox) -> Self {
-        Scheduler { core, resolver: provider.clone(), provider, system: system.into(), tools, spill_dir: spill_dir.into(), inbox, background: Vec::new() }
+        Scheduler {
+            core,
+            resolver: provider.clone(),
+            provider,
+            system: system.into(),
+            tools,
+            spill_dir: spill_dir.into(),
+            inbox,
+            background: Vec::new(),
+            background_due: Mutex::new(Vec::new()),
+            watchers: Vec::new(),
+        }
     }
 
     /// Модель фазы итога (`Plan::resolve`); без вызова — та же, что у
@@ -251,10 +281,30 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         self
     }
 
-    /// Фоновая работа на каждом такте (сверка памяти).
+    /// Фоновая работа на каждом такте (сверка памяти, уборщик корзины).
     pub fn background(&mut self, f: Background) -> &mut Self {
         self.background.push(f);
         self
+    }
+
+    /// Наблюдать папку `root`: изменение файла, для которого `filter`
+    /// отвечает «да», поднимает флаг и будит такт. Флаг сначала поднят.
+    pub fn watch(&mut self, root: &std::path::Path, filter: impl Fn(&std::path::Path) -> bool + Send + Sync + 'static) -> Result<Arc<std::sync::atomic::AtomicBool>, String> {
+        use notify::Watcher;
+        let flag = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let (f, core) = (flag.clone(), self.core.clone());
+        let mut w = notify::recommended_watcher(move |ev: notify::Result<notify::Event>| match ev {
+            Ok(ev) if ev.paths.iter().any(|p| filter(p)) => {
+                f.store(true, std::sync::atomic::Ordering::SeqCst);
+                core.wake();
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("file watcher error: {e}"),
+        })
+        .map_err(|e| format!("file watcher backend error: {e}"))?;
+        w.watch(root, notify::RecursiveMode::Recursive).map_err(|e| format!("file watcher backend error: {e}"))?;
+        self.watchers.push(w);
+        Ok(flag)
     }
 
     pub fn core(&self) -> &Arc<Core> {
@@ -263,9 +313,11 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
 
     /// Один такт.
     pub async fn tick(&self) -> Result<(), String> {
+        let mut due = Vec::new();
         for b in &self.background {
-            b().await?;
+            due.extend(b().await?);
         }
+        *self.background_due.lock().unwrap() = due;
         crate::hooks::poll(&self.core).await?;
         let wakes: Vec<_> = self.core.wakes.lock().unwrap().drain(..).collect();
         for w in wakes {
@@ -336,7 +388,21 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         Ok(())
     }
 
-    /// Ровный такт до конца процесса.
+    /// Ближайший срок: прогон задания, опрос наблюдателя, эскалация цели,
+    /// срок фоновой работы. `None` — сроков нет, ждать события.
+    pub async fn next_wake(&self) -> Result<Option<i64>, String> {
+        let mut due: Vec<i64> = self.background_due.lock().unwrap().clone();
+        due.extend(self.core.store.next_due().await?);
+        due.extend(crate::hooks::next_poll_at(&self.core).await?);
+        if let Some(goals) = &self.core.goals {
+            let after = *self.core.escalations_through.lock().unwrap();
+            due.extend(goals.next_escalation_after(after).await?);
+        }
+        Ok(due.into_iter().min())
+    }
+
+    /// Такты до конца процесса: перед первым — восстановление прогонов и
+    /// пульс; между тактами — сон до ближайшего срока или до события.
     pub async fn run_forever(&self) {
         if let Err(e) = self.recover().await {
             eprintln!("scheduler recovery: {e}");
@@ -345,10 +411,24 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             eprintln!("scheduler heartbeat: {e}");
         }
         loop {
+            let woken = self.core.waker.notified();
             if let Err(e) = self.tick().await {
                 eprintln!("scheduler tick: {e}");
             }
-            tokio::time::sleep(TICK).await;
+            let next = match self.next_wake().await {
+                Ok(n) => n,
+                Err(e) => {
+                    eprintln!("scheduler wake: {e}");
+                    None
+                }
+            };
+            match next {
+                Some(at) => tokio::select! {
+                    _ = self.core.clock.sleep_until(at) => {}
+                    _ = woken => {}
+                },
+                None => woken.await,
+            }
         }
     }
 
@@ -360,6 +440,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
         let system = crate::hooks::worker_system(&self.system);
         let spill = self.spill_dir.clone();
         let inbox = self.inbox.clone();
+        let core = self.core.clone();
         let id = run_id.clone();
         let handle = tokio::spawn(async move {
             let first = crate::hooks::execute_message(&w, &id);
@@ -373,6 +454,7 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
                 Some(Signal::Quiet) => {}
                 None => eprintln!("hook run {id}: no terminal decision ({})", out.error.unwrap_or_default()),
             }
+            core.wake();
         });
         self.core.running.lock().unwrap().insert(run_id, handle);
     }
@@ -489,6 +571,8 @@ impl<P: Provider + Send + Sync + 'static> Scheduler<P> {
             if let Err(e) = settle_run(&core, &job, &id, attempt, timeout, out).await {
                 eprintln!("scheduler run {id}: {e}");
             }
+            // Итог в ящик и повтор — на следующем такте.
+            core.wake();
         });
         self.core.running.lock().unwrap().insert(run_id, handle);
         Ok(())
