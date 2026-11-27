@@ -1,0 +1,18 @@
+[package]
+name = "agent-research"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+agent-loop = { path = "../loop" }
+agent-model = { path = "../model" }
+agent-tools = { path = "../tools" }
+agent-browser = { path = "../browser" }
+serde_json = "1"
+tokio = { version = "1", features = ["fs", "sync", "time", "rt"] }
+futures-util = { version = "0.3", default-features = false }
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }

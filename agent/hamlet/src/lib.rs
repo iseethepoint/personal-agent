@@ -46,6 +46,8 @@ pub struct Hamlet {
     pub transcript: Transcript,
     pub scheduler: Arc<Scheduler<AnyProvider>>,
     pub browsers: Arc<Browsers<AnyProvider>>,
+    /// Глубокое исследование (`browser_deep_research`).
+    pub research: Arc<agent_research::DeepResearch<AnyProvider>>,
     pub compaction: (Arc<AnyProvider>, Arc<AnyProvider>, u64),
     pub timezone: Option<String>,
     pub clock: Arc<dyn Clock>,
@@ -186,6 +188,19 @@ impl Hamlet {
         let (browse, windows) = browsers.tools();
         tools.add(browse);
         tools.add(windows);
+        // Исследователь — особый подагент главного агента: модель сессии,
+        // веб-индекс, своё окно, `research_notes`, `finish_research`.
+        let research_clock = clock.clone();
+        let research = Arc::new(agent_research::DeepResearch {
+            subagents: subagents.clone(),
+            web: WebTools::new(parts.web.search.clone(), Blocklist::load(&parts.web.blocklist, &parts.web_root)?),
+            home: home_dir.clone(),
+            chromium: Some(t.browser.chromium.clone().map(|p| dir.path(&p)).or_else(agent_browser::chromium::find).unwrap_or_default()),
+            headless: t.browser.headless,
+            now: Arc::new(move || research_clock.now_ms()),
+            deadline: agent_research::DEADLINE,
+        });
+        tools.add(research.tool());
         let tools = Arc::new(tools);
         let prefix = Prefix::assemble(&system, &home_dir, &tools);
 
@@ -215,6 +230,7 @@ impl Hamlet {
             transcript,
             scheduler: Arc::new(scheduler),
             browsers,
+            research,
             compaction,
             timezone: t.agent.timezone.clone(),
             clock,

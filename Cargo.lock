@@ -61,6 +61,7 @@ dependencies = [
  "agent-loop",
  "agent-memory",
  "agent-model",
+ "agent-research",
  "agent-tools",
  "chrono",
  "libc",
@@ -106,6 +107,20 @@ dependencies = [
  "thiserror",
  "tokio",
  "toml",
+]
+
+[[package]]
+name = "agent-research"
+version = "0.1.0"
+dependencies = [
+ "agent-browser",
+ "agent-loop",
+ "agent-model",
+ "agent-tools",
+ "chrono",
+ "futures-util",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
