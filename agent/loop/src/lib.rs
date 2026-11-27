@@ -8,5 +8,5 @@ pub mod turn;
 pub use spill::SPILL_THRESHOLD_BYTES;
 pub use tool::{Tool, ToolError, ToolFuture, Tools};
 pub use turn::{
-    forced_tool_choice, Turn, TurnError, MODEL_RETRIES, OUTPUT_TOKEN_CAP_NOTICE, SUBMIT_RESULT, TOOL_TIMEOUT,
+    forced_tool_choice, Turn, TurnError, MODEL_RETRIES, OUTPUT_TOKEN_CAP_NOTICE, SUBMIT_RESULT, THINKING_ONLY_NOTICE, TOOL_TIMEOUT,
 };

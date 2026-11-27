@@ -30,6 +30,11 @@ pub const MODEL_RETRIES: u32 = 1;
 /// (`session/output_token_cap_retry_notice.md`, `strings-all.txt:54780`).
 pub const OUTPUT_TOKEN_CAP_NOTICE: &str = "Your previous response reached the output limit before it finished, so none of it took effect: no reply was sent and no tool call ran. Do not repeat it the same way. If you were writing out a long value, such as file contents, encoded data or a long ID, do not type it by hand: have a command or script read it from the file or the earlier output and pass it on. Otherwise make the response much shorter, or split the work into smaller steps. Continue the task now.";
 
+/// Вставка после ответа из одного мышления — «thinking-only retry notice»
+/// muse (`strings-all.txt:54778`, ядро 0x6b1026), вариант личного muse
+/// (`personal-muse-only`: «sent to the user»).
+pub const THINKING_ONLY_NOTICE: &str = "Your previous response ended after reasoning only, with no reply and no tool call, so nothing was sent to the user and nothing ran. Text inside reasoning is never executed or shown, including a tool call written there. Continue now: make the tool call you intended as a real tool call, or write your reply.";
+
 /// Инструмент ответа в заданной форме (`output_contract.rs`,
 /// `strings-all.txt:235518`).
 pub const SUBMIT_RESULT: &str = "submit_result";
@@ -201,7 +206,9 @@ impl<'a, P: Provider> Turn<'a, P> {
     /// повтор — только пока владелец ничего не увидел («before visible
     /// output»): при ошибке поставщика «можно повторить», при сбое разбора
     /// потока, при неверном имени инструмента, после упора в предел ответа
-    /// (с вставкой «Internal retry notice»). После видимого текста ошибка
+    /// (с вставкой «Internal retry notice»), после ответа из одного
+    /// мышления (с вставкой «thinking-only retry notice»). Если у ошибки
+    /// есть `retry_after_ms` — перед повтором ждём столько. После видимого текста ошибка
     /// не повторяется, увиденное остаётся в истории («preserving partial
     /// assistant output without retry»).
     async fn infer(
@@ -232,6 +239,11 @@ impl<'a, P: Provider> Turn<'a, P> {
                 Err(e) => {
                     let repeatable = e.retryable || e.kind == ProviderErrorKind::Decode;
                     if repeatable && can_retry {
+                        // Срок повтора называет сервер (`retry-after`); нет его —
+                        // повтор сразу.
+                        if let Some(ms) = e.retry_after_ms {
+                            tokio::time::sleep(Duration::from_millis(ms)).await;
+                        }
                         attempt += 1;
                         continue;
                     }
@@ -246,10 +258,17 @@ impl<'a, P: Provider> Turn<'a, P> {
                         attempt += 1;
                         continue;
                     }
-                    if can_retry && resp.stop_reason == StopReason::MaxTokens {
+                    let notice = if resp.stop_reason == StopReason::MaxTokens {
+                        Some(OUTPUT_TOKEN_CAP_NOTICE)
+                    } else if thinking_only(&resp) {
+                        Some(THINKING_ONLY_NOTICE)
+                    } else {
+                        None
+                    };
+                    if let (true, Some(text)) = (can_retry, notice) {
                         history.push(Message {
                             role: Role::Developer,
-                            content: vec![Part::Text { text: OUTPUT_TOKEN_CAP_NOTICE.into() }],
+                            content: vec![Part::Text { text: text.into() }],
                         });
                         attempt += 1;
                         continue;
@@ -289,6 +308,15 @@ impl<'a, P: Provider> Turn<'a, P> {
             Ok(Ok(content)) => spill::bound(id, content, &self.spill_dir).await,
         }
     }
+}
+
+/// Ответ из одного мышления: ни текста, ни вызовов.
+fn thinking_only(resp: &Response) -> bool {
+    resp.content.iter().any(|p| matches!(p, Part::Thinking { .. } | Part::RedactedThinking { .. }))
+        && !resp
+            .content
+            .iter()
+            .any(|p| matches!(p, Part::ToolCall { .. }) || matches!(p, Part::Text { text } if !text.trim().is_empty()))
 }
 
 /// Имя вызова, которое не может быть именем инструмента: пустое, длиннее

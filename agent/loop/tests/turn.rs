@@ -5,7 +5,7 @@ mod common;
 
 use std::time::{Duration, Instant};
 
-use agent_loop::{Turn, TurnError, OUTPUT_TOKEN_CAP_NOTICE, SPILL_THRESHOLD_BYTES, SUBMIT_RESULT};
+use agent_loop::{Turn, TurnError, OUTPUT_TOKEN_CAP_NOTICE, SPILL_THRESHOLD_BYTES, SUBMIT_RESULT, THINKING_ONLY_NOTICE};
 use agent_model::{Message, Part, Role, ToolResultPart};
 use common::{model, temp_dir, tools, Step, Wire};
 use serde_json::{json, Value};
@@ -307,3 +307,41 @@ async fn contract_not_forced(wire: Wire) {
 }
 both!(contract_not_forced);
 
+
+async fn retry_waits_for_retry_after(wire: Wire) {
+    // Сервер велел ждать 0.4 с — повтор не раньше.
+    let (server, p) = model(wire, vec![Step::RetryAfter(429, "0.4"), Step::Text("ok")], false);
+    let t = tools();
+    let turn = Turn::new(&p, &t, "s", temp_dir("retry_after"));
+    let mut h = user("x");
+    let started = Instant::now();
+    assert_eq!(turn.run(&mut h, &mut |_: &str| {}).await.unwrap().text(), "ok");
+    assert!(started.elapsed() >= Duration::from_millis(400), "{:?}", started.elapsed());
+    assert_eq!(server.requests().len(), 2);
+
+    // Без retry-after — повтор сразу.
+    let (server, p) = model(wire, vec![Step::Status(429), Step::Text("ok")], false);
+    let turn = Turn::new(&p, &t, "s", temp_dir("retry_after"));
+    let mut h = user("x");
+    let started = Instant::now();
+    assert_eq!(turn.run(&mut h, &mut |_: &str| {}).await.unwrap().text(), "ok");
+    assert!(started.elapsed() < Duration::from_millis(300), "{:?}", started.elapsed());
+    assert_eq!(server.requests().len(), 2);
+}
+both!(retry_waits_for_retry_after);
+
+async fn retry_after_thinking_only(wire: Wire) {
+    let (server, p) = model(wire, vec![Step::ThinkingOnly("думаю, но молчу"), Step::Text("ok")], false);
+    let t = tools();
+    let turn = Turn::new(&p, &t, "s", temp_dir("thinking_only"));
+    let mut h = user("x");
+    assert_eq!(turn.run(&mut h, &mut |_: &str| {}).await.unwrap().text(), "ok");
+    let reqs = server.requests();
+    assert_eq!(reqs.len(), 2);
+    assert!(!reqs[0].to_string().contains("ended after reasoning only"));
+    assert!(reqs[1].to_string().contains("ended after reasoning only"));
+    // Ответ из одного мышления в историю не идёт; идёт вставка.
+    assert_eq!(h.len(), 3);
+    assert_eq!((h[1].role, h[1].text()), (Role::Developer, THINKING_ONLY_NOTICE.to_string()));
+}
+both!(retry_after_thinking_only);

@@ -37,6 +37,10 @@ pub enum Step {
     MaxTokensInCall(&'static str, &'static str),
     /// Код ошибки HTTP.
     Status(u16),
+    /// Код ошибки HTTP с заголовком `retry-after` (секунды).
+    RetryAfter(u16, &'static str),
+    /// Только мышление: ни текста, ни вызовов.
+    ThinkingOnly(&'static str),
     /// Поток оборвался после видимого текста.
     CutAfterText(&'static str),
     /// Данные потока не разбираются, текста ещё нет.
@@ -97,9 +101,16 @@ fn anthropic_body(step: &Step) -> (u16, &'static str, String) {
             ev.extend(call_block(0, id, name, "{\"text\": \"aaaa"));
             ev.extend(stop("max_tokens"));
         }
-        Step::Status(code) => {
+        Step::Status(code) | Step::RetryAfter(code, _) => {
             let body = json!({"type": "error", "error": {"type": "api_error", "message": "boom"}});
             return (*code, "application/json", body.to_string());
+        }
+        Step::ThinkingOnly(t) => {
+            ev.push(json!({"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}}));
+            ev.push(json!({"type": "content_block_delta", "index": 0, "delta": {"type": "thinking_delta", "thinking": t}}));
+            ev.push(json!({"type": "content_block_delta", "index": 0, "delta": {"type": "signature_delta", "signature": "sig"}}));
+            ev.push(json!({"type": "content_block_stop", "index": 0}));
+            ev.extend(stop("end_turn"));
         }
         Step::CutAfterText(t) => {
             ev.extend(text_block(0, t));
@@ -148,9 +159,13 @@ fn openai_body(step: &Step) -> (u16, &'static str, String) {
             ev.push(call(0, id, name, "{\"text\": \"aaaa"));
             ev.extend(end("length"));
         }
-        Step::Status(code) => {
+        Step::Status(code) | Step::RetryAfter(code, _) => {
             let body = json!({"error": {"message": "boom", "type": "server_error"}});
             return (*code, "application/json", body.to_string());
+        }
+        Step::ThinkingOnly(t) => {
+            ev.push(chunk(json!({"role": "assistant", "reasoning_content": t}), Value::Null));
+            ev.extend(end("stop"));
         }
         Step::CutAfterText(t) => {
             ev.extend(text(t));
@@ -202,8 +217,12 @@ impl Server {
                     Wire::Anthropic => anthropic_body(&step),
                     Wire::OpenaiCompat => openai_body(&step),
                 };
+                let extra = match &step {
+                    Step::RetryAfter(_, secs) => format!("retry-after: {secs}\r\n"),
+                    _ => String::new(),
+                };
                 let head = format!(
-                    "HTTP/1.1 {status} X\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    "HTTP/1.1 {status} X\r\ncontent-type: {ctype}\r\ncontent-length: {}\r\n{extra}connection: close\r\n\r\n",
                     body.len()
                 );
                 let _ = stream.write_all(head.as_bytes());
@@ -246,7 +265,7 @@ pub fn model(wire: Wire, steps: Vec<Step>, forced: bool) -> (Server, AnyProvider
             )
         }
         Wire::OpenaiCompat => AnyProvider::OpenaiCompat(
-            OpenaiCompatProvider::new("qwen3:8b", OpenaiCompatFacts::default(), format!("{}/v1", server.base_url), None)
+            OpenaiCompatProvider::new("qwen3:8b", OpenaiCompatFacts { reasoning: true, ..Default::default() }, format!("{}/v1", server.base_url), None)
                 .unwrap(),
         ),
     };
