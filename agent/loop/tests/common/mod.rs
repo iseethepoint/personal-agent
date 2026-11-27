@@ -53,6 +53,10 @@ pub enum Step {
     Rejected(u16, &'static str),
     /// Ответа нет: сервер молчит (обрыв перезапуском посреди вызова модели).
     Hang,
+    /// Ответ только запросу, в теле которого есть эта строка: когда модель
+    /// зовут несколько агентов сразу, ответ достаётся своему агенту, а не
+    /// тому, чей запрос пришёл раньше.
+    When(&'static str, Box<Step>),
 }
 
 fn sse(events: &[Value]) -> String {
@@ -130,6 +134,7 @@ fn anthropic_body(step: &Step) -> (u16, &'static str, String) {
         }
         Step::Garbage => return (200, "text/event-stream", "data: {не json\n\n".into()),
         Step::Hang => unreachable!("Hang не отвечает"),
+        Step::When(..) => unreachable!("When разворачивает сервер"),
     }
     (200, "text/event-stream", sse(&ev))
 }
@@ -190,6 +195,7 @@ fn openai_body(step: &Step) -> (u16, &'static str, String) {
         }
         Step::Garbage => return (200, "text/event-stream", "data: {не json\n\n".into()),
         Step::Hang => unreachable!("Hang не отвечает"),
+        Step::When(..) => unreachable!("When разворачивает сервер"),
     }
     let mut body = sse(&ev);
     body.push_str("data: [DONE]\n\n");
@@ -209,7 +215,8 @@ impl Server {
         let requests = Arc::new(Mutex::new(Vec::new()));
         let seen = requests.clone();
         std::thread::spawn(move || {
-            for step in steps {
+            let mut pending = steps;
+            while !pending.is_empty() {
                 let Ok((mut stream, _)) = listener.accept() else { return };
                 let mut reader = BufReader::new(stream.try_clone().unwrap());
                 let mut line = String::new();
@@ -230,6 +237,20 @@ impl Server {
                 }
                 let mut raw = vec![0u8; len];
                 reader.read_exact(&mut raw).unwrap();
+                // Первый ответ по очереди, который подходит запросу: `When` —
+                // только своему; остальные — любому.
+                let body_text = String::from_utf8_lossy(&raw);
+                let i = pending
+                    .iter()
+                    .position(|s| match s {
+                        Step::When(key, _) => body_text.contains(key),
+                        _ => true,
+                    })
+                    .unwrap_or(0);
+                let step = match pending.remove(i) {
+                    Step::When(_, inner) => *inner,
+                    s => s,
+                };
                 seen.lock().unwrap().push((SEQ.fetch_add(1, Ordering::SeqCst), serde_json::from_slice(&raw).unwrap_or(Value::Null)));
                 if matches!(step, Step::Hang) {
                     std::thread::sleep(std::time::Duration::from_secs(600));
