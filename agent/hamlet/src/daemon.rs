@@ -18,6 +18,11 @@ use tokio::task::JoinHandle;
 
 use crate::Hamlet;
 
+/// Команда очистки разговора и тексты ядра.
+pub const CLEAR_COMMAND: &str = "/clear";
+pub const CLEAR_BOUNDARY: &str = "Conversation history before this boundary was cleared.";
+pub const CLEARED: &str = "Conversation cleared.";
+
 /// Запущенные службы; останавливаются вместе с программой.
 pub struct Services {
     handles: Vec<JoinHandle<()>>,
@@ -212,18 +217,29 @@ impl Hamlet {
         // Строка владельца сразу подаётся в ящик (`submission_kind = 'user'`)
         // — и во время хода: ход берёт её между шагами, а после остановки она
         // ждёт в базе.
+        // `/clear` идёт в цикл между ходами; строки после неё ждут, пока
+        // очистка не пройдёт.
         let inbox = self.inbox.clone();
         let (done_tx, mut done) = tokio::sync::oneshot::channel::<()>();
+        let (clear_tx, mut clears) = mpsc::unbounded_channel::<tokio::sync::oneshot::Sender<()>>();
         let reader = tokio::spawn(async move {
             while let Some(line) = lines.recv().await {
+                if line.trim() == CLEAR_COMMAND {
+                    let (ack, wait) = tokio::sync::oneshot::channel();
+                    if clear_tx.send(ack).is_err() {
+                        break;
+                    }
+                    let _ = wait.await;
+                    continue;
+                }
                 inbox.push_user(Message { role: Role::User, content: vec![Part::Text { text: line }] }).await;
             }
             let _ = done_tx.send(());
         });
         let mut closed = false;
         // После перезапуска: история кончается не ответом модели — ход
-        // продолжается сразу.
-        let mut resume = conv.history.last().is_some_and(|m| m.role != Role::Assistant);
+        // продолжается сразу. Граница очистки — не оборванный ход.
+        let mut resume = conv.history.last().is_some_and(|m| m.role != Role::Assistant && m.text() != CLEAR_BOUNDARY);
         loop {
             if !resume {
                 if closed {
@@ -233,6 +249,12 @@ impl Hamlet {
                 } else {
                     tokio::select! {
                         biased;
+                        Some(ack) = clears.recv() => {
+                            let reply = self.clear(&mut conv).await.unwrap_or_else(|e| format!("[ошибка истории] {e}"));
+                            let _ = out.send(reply);
+                            let _ = ack.send(());
+                            continue;
+                        }
                         _ = self.inbox.wait() => {}
                         _ = &mut done => {
                             closed = true;
@@ -261,6 +283,29 @@ impl Hamlet {
             }
         }
         reader.abort();
+    }
+
+    /// Очистка разговора (`/clear`) — как у muse (`conversation_clear.rs`):
+    /// только между ходами («clear_conversation requires an idle root
+    /// session»); не взятые строки владельца отменяются; старый разговор
+    /// сбрасывается в память в фоне («background pre-clear memory flush
+    /// finished / failed after conversation clear»); история начинается с
+    /// границы «Conversation history before this boundary was cleared.»;
+    /// ответ — «Conversation cleared.» (`chat.command.conversation_cleared`).
+    pub async fn clear(self: &Arc<Self>, conv: &mut Conversation) -> Result<String, String> {
+        self.inbox.supersede_user().await?;
+        let old = conv.clone();
+        let boundary = Message { role: Role::Developer, content: vec![Part::Text { text: CLEAR_BOUNDARY.into() }] };
+        self.history.clear(&boundary).await?;
+        conv.clear(boundary);
+        let h = self.clone();
+        tokio::spawn(async move {
+            match h.compactor(false).flush(&old).await {
+                Ok(()) => eprintln!("background pre-clear memory flush finished"),
+                Err(e) => eprintln!("background pre-clear memory flush failed after conversation clear: {e}"),
+            }
+        });
+        Ok(CLEARED.into())
     }
 
     /// Периодический сброс памяти между ходами: со времени прошлого
