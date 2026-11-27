@@ -1,7 +1,9 @@
 //! П5-1: тексты главного разговора — блоки ядра `blocks/user_chat/*.md`
-//! (101 имя: 88 основных, 9 вариантов с `@` и 4 `environment/*`) и 18
-//! `P/hatch-agent/prompts/blocks/chat/*.md`; шаблоны домашних файлов —
-//! тела шаблонов ядра (`prompts/SOURCES.md`, раздел П5-1).
+//! (101 имя: 88 основных, 9 вариантов с `@` и 4 `environment/*`), 18
+//! `P/hatch-agent/prompts/blocks/chat/*.md` и (часть 2) 29 блоков ядра
+//! `blocks/chat`, 9 `blocks/shared`, 2 `session`, 6 `blocks/subagents` для
+//! сборки главного текста; шаблоны домашних файлов — тела шаблонов ядра
+//! (`prompts/SOURCES.md`, раздел П5-1).
 
 use std::path::PathBuf;
 
@@ -113,30 +115,93 @@ const USER_CHAT: [&str; 101] = [
     "working_with_tools.md",
 ];
 
-const CHAT: [&str; 18] = [
+const CHAT: [&str; 47] = [
+    "contextual_awareness.md",
+    "cron_created_acknowledgement.md",
+    "date_batch_check_available.md",
     "date_grounding_developer_message.md",
     "date_time_awareness_head.md",
+    "date_validation_opener.md",
+    "date_validation_rest.md",
+    "filesystem.md",
+    "filesystem_memory.md",
+    "filesystem_workspace.md",
     "grounding.md",
     "helpfulness_reminder.md",
     "how_you_work.md",
     "identifier_standing_rule.md",
     "identifier_validation.md",
+    "keeping_track_of_active_work.md",
+    "keeping_track_of_active_work@without_todo_list.md",
+    "managing_context_chat_history.md",
+    "managing_context_opener.md",
+    "managing_context_retention.md",
     "memory_recall.md",
     "offer_options.md",
     "ownership_principle.md",
+    "personalization.md",
     "plain_language_head.md",
     "prompt_injection_defense.md",
+    "response_formatting.md",
+    "response_formatting_citations.md",
+    "response_formatting_link_labels.md",
+    "response_formatting_links.md",
+    "response_formatting_markdown.md",
+    "response_formatting_message_breaks.md",
+    "runtime_files_list.md",
+    "safety_oversight.md",
     "security_authority.md",
     "security_sensitive_actions.md",
     "security_social_engineering.md",
+    "system_prompt_copy_file.md",
     "time_tag_after_input.md",
+    "timezones_save.md",
+    "tool_rules_deep_research.md",
     "who_you_are.md",
     "who_you_work_for.md",
+    "workspace_files.md",
+    "writing_style.md",
+    "writing_style_brevity.md",
+    "writing_style_follow_ups.md",
+];
+
+/// П5-1, часть 2: блоки ядра, которые нужны сборке главного текста.
+const SHARED: [&str; 10] = [
+    "environment/browser.md",
+    "environment/computer.md",
+    "environment/runtime.md",
+    "environment/tracking.md",
+    "environment/user_goals.md",
+    "managing_context_body.md",
+    "safety_hard_stops.md",
+    "safety_self_modification.md",
+    "safety_sensitive_attributes.md",
+    "who_built_you.md",
+];
+
+const SESSION: [&str; 2] = [
+    "subagents_doctrine.md",
+    "subagents_status.md",
+];
+
+const SUBAGENTS: [&str; 6] = [
+    "chat/after_spawn_clause.md",
+    "chat/overload_consequence.md",
+    "chat/responsive_clause.md",
+    "inherited_context/fanout_bullet.md",
+    "inherited_context/task_content_bullet.md",
+    "inherited_context/transcript_fact.md",
 ];
 
 #[test]
 fn every_core_block_is_present() {
-    for (dir, names) in [("prompts/user_chat", &USER_CHAT[..]), ("prompts/chat", &CHAT[..])] {
+    for (dir, names) in [
+        ("prompts/user_chat", &USER_CHAT[..]),
+        ("prompts/chat", &CHAT[..]),
+        ("prompts/shared", &SHARED[..]),
+        ("prompts/session", &SESSION[..]),
+        ("prompts/subagents", &SUBAGENTS[..]),
+    ] {
         for n in names {
             let p = root().join(dir).join(n);
             let t = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
@@ -163,9 +228,11 @@ fn walk(dir: &std::path::Path) -> Vec<PathBuf> {
 /// Варианты `@…` — при своём основном блоке.
 #[test]
 fn variants_have_their_base() {
-    for n in USER_CHAT.iter().filter(|n| n.contains('@')) {
-        let base = format!("{}.md", n.split('@').next().unwrap());
-        assert!(USER_CHAT.contains(&base.as_str()), "{n} без {base}");
+    for list in [&USER_CHAT[..], &CHAT[..]] {
+        for n in list.iter().filter(|n| n.contains('@')) {
+            let base = format!("{}.md", n.split('@').next().unwrap());
+            assert!(list.contains(&base.as_str()), "{n} без {base}");
+        }
     }
 }
 
@@ -179,6 +246,9 @@ fn home_templates_are_core_templates() {
     assert!(read("IDENTITY.md").starts_with("# IDENTITY.md\n\n_Fill this in as you figure out who you are._"));
     assert!(read("USER.md").starts_with("# USER.md\n\n_What you know about the person you're helping."));
     assert_eq!(read("MEMORY.md"), "# MEMORY.md\n\n<!-- Your curated long-term memory: durable facts, preferences, and commitments. Keep it tight: promote what lasts here, and leave raw day-to-day detail in your daily notes. -->\n\n## Facts\n\n## Preferences\n\n## Commitments\n");
+    // `HEARTBEAT.md` — шаблон ядра `0xbc8667` как есть.
+    assert_eq!(read("HEARTBEAT.md"), agent_cron::HEARTBEAT_TEMPLATE);
+    assert_eq!(read("HEARTBEAT.md"), "# HEARTBEAT.md\n\n_Recurring checks for your heartbeat worker. Add one per line, and the next tick picks them up._\n");
     for n in ["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "MEMORY.md"] {
         assert!(!read(n).starts_with("---"), "{n}: шапка YAML не снята");
     }

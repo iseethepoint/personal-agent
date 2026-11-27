@@ -7,8 +7,13 @@
 //! `0x2cc9b77`–`0x2ccbae2`; тексты — `prompts/tool_search/`).
 //!
 //! Функции отложенного пространства не уходят модели, пока пространство не
-//! загружено; в начале подсказки — блок «Loading Tools» и список
-//! пространств с маркером. Пространство загружено, пока схемы из его
+//! загружено. Само пространство уходит в списке инструментов запроса
+//! заглушкой: краткое описание с маркером в начале, без пробела (форма ядра:
+//! `strings-all.txt:332137` «[deferred: use tool_search to discover
+//! functions]Drive the user's live app UI…»; маркеры — `templates.txt:2253`).
+//! В системном тексте — только правила, блок «Loading Tools»
+//! (`blocks/user_chat/loading_tools.md`, `0x7a9c33`, часть
+//! `client-tool-loading-only`). Пространство загружено, пока схемы из его
 //! загрузки лежат в контексте («a namespace counts as loaded while the full
 //! schemas from its load are still in your context») — поэтому загруженное
 //! вычисляется по истории разговора: после сжатия оно снова отложено. Вызов
@@ -17,8 +22,9 @@
 //!
 //! Своё (в разборе нет):
 //! - какие пространства отложены — решает сборка (`Tools::defer`);
-//! - вид строки списка: «- `имя` маркер: краткое описание»; блок — после
-//!   системного текста;
+//! - заглушка — инструмент с именем пространства и пустой схемой параметров
+//!   (у поставщиков с плоским списком функций иначе её не передать), в конце
+//!   списка; вызов заглушки — как любого неизвестного инструмента;
 //! - вид схем в ответе: описание пространства, затем по функции —
 //!   заголовок, описание и JSON Schema;
 //! - загруженные функции добавляются и в список инструментов запроса (в
@@ -37,7 +43,7 @@ use crate::tool::Tools;
 pub const LOAD_TOOL: &str = "tool_search.load_tool_namespace";
 
 const TEXTS_JSON: &str = include_str!("../../../prompts/tool_search/tools.json");
-const LOADING_TOOLS: &str = include_str!("../../../prompts/tool_search/loading_tools.md");
+const LOADING_TOOLS: &str = include_str!("../../../prompts/user_chat/loading_tools.md");
 
 static TEXTS: LazyLock<Value> = LazyLock::new(|| serde_json::from_str(TEXTS_JSON).expect("prompts/tool_search/tools.json"));
 
@@ -92,17 +98,31 @@ impl Tools {
         self.deferred.iter().find(|n| n.name == ns)
     }
 
-    /// Блок начала подсказки: «Loading Tools» и список отложенных пространств.
+    /// Блок системного текста «Loading Tools» — правила, без списка
+    /// пространств; метки `client-tool-loading-only` снимаются (Hamlet
+    /// грузит инструменты сам), строки, где были только метки, уходят.
     pub fn loading_block(&self) -> Option<String> {
         if self.deferred.is_empty() {
             return None;
         }
-        let stub = text("markers", "stub");
-        let head = LOADING_TOOLS
-            .replace("{deferred_stub_marker}", &stub)
+        let text = LOADING_TOOLS
+            .replace("{deferred_stub_marker}", &text("markers", "stub"))
             .replace("{deferred_function_marker}", &text("markers", "function"));
-        let lines: Vec<String> = self.deferred.iter().map(|n| format!("- `{}` {stub}: {}", n.name, n.summary.trim())).collect();
-        Some(format!("{}\n\n{}", head.trim_end(), lines.join("\n")))
+        let lines: Vec<&str> = text.lines().filter(|l| !l.trim_start().starts_with("<!-- client-tool-loading-only:")).collect();
+        Some(personal(lines.join("\n").trim_end()))
+    }
+
+    /// Заглушки отложенных пространств для списка инструментов запроса.
+    pub(crate) fn stub_specs(&self) -> Vec<ToolSpec> {
+        let stub = text("markers", "stub");
+        self.deferred
+            .iter()
+            .map(|n| ToolSpec {
+                name: n.name.clone(),
+                description: format!("{stub}{}", n.summary.trim()),
+                input_schema: json!({"type": "object", "properties": {}}),
+            })
+            .collect()
     }
 
     /// Загруженное по истории разговора.

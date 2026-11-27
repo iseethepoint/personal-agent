@@ -87,8 +87,10 @@ impl Tools {
     }
 
     /// Описания, которые уходят модели сразу: без функций отложенных
-    /// пространств.
+    /// пространств, с заглушками самих пространств в конце (`tool_search.rs`).
     pub fn upfront_specs(&self) -> Vec<ToolSpec> {
-        self.specs().into_iter().filter(|s| self.namespace_of(&s.name).is_none()).collect()
+        let mut out: Vec<ToolSpec> = self.specs().into_iter().filter(|s| self.namespace_of(&s.name).is_none()).collect();
+        out.extend(self.stub_specs());
+        out
     }
 }

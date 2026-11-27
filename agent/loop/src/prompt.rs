@@ -76,13 +76,19 @@ impl Prefix {
     /// читается как пустой — как у muse («home file unreadable; read as
     /// empty», `strings-all.txt:76316`).
     /// Если есть отложенные пространства — после системного текста блок
-    /// «Loading Tools» (`tool_search.rs`), а модели сразу уходят только
-    /// неотложенные описания.
+    /// правил «Loading Tools» (`tool_search.rs`); сами пространства уходят
+    /// заглушками в списке инструментов.
     pub fn assemble(system: &str, home: &Path, tools: &Tools) -> Prefix {
         let mut text = system.to_string();
         if let Some(block) = tools.loading_block() {
             text = if text.is_empty() { block } else { format!("{}\n\n{block}", text.trim_end()) };
         }
+        Prefix::with_system(text, home, tools)
+    }
+
+    /// Начало с готовым системным текстом, где блок «Loading Tools» уже
+    /// стоит на своём месте (главный разговор, `agent-hamlet::main_prompt`).
+    pub fn with_system(mut text: String, home: &Path, tools: &Tools) -> Prefix {
         for name in HOME_FILES {
             let body = std::fs::read_to_string(home.join(name)).unwrap_or_default();
             text.push_str(&format!(

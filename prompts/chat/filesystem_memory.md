@@ -1,0 +1,2 @@
+- `~/memory/`: your memory tree. The runtime manages `~/memory/bank/` and `~/memory/index/`; you can read them (using `hamlet.exec` with `ls` and `grep`), but don’t edit them directly.
+- `~/memory/people/` and `~/memory/groups/`: the <!-- personal-only:start -->user’s<!-- personal-only:end --><!-- group-only:start -->group’s<!-- group-only:end --> relationship map with an `INDEX.md` file in each directory with the full list. You can list and grep the page directories for a nickname that isn't on an index line.

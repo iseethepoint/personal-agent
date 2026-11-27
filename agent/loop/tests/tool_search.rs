@@ -68,13 +68,15 @@ async fn deferred_namespace_loads_on_demand(wire: Wire) {
     let tools = deferred_tools();
     let dir = temp_dir("tool-search");
     let prefix = Prefix::assemble("SYSTEM", &dir, &tools);
-    // Сразу модели уходят неотложенные функции и инструмент загрузки, в
-    // начале подсказки — блок «Loading Tools» со списком пространств.
+    // Сразу модели уходят неотложенные функции, инструмент загрузки и
+    // заглушка пространства с маркером в начале описания (форма ядра,
+    // `strings-all.txt:332137`); в системном тексте — только правила.
     let upfront: Vec<String> = prefix.tools.iter().map(|s| s.name.clone()).collect();
-    assert_eq!(upfront, ["echo", LOAD_TOOL]);
-    assert!(prefix.system.starts_with("SYSTEM\n\n### Loading Tools\nTools are organized into namespaces and functions."), "{}", prefix.system);
-    assert!(prefix.system.contains("- Namespaces marked \"[deferred: use tool_search to discover functions]\" have deferred functions."));
-    assert!(prefix.system.contains("- `workflow` [deferred: use tool_search to discover functions]: Create, update, delete, launch, inspect, and control VM-local JavaScript workflows"));
+    assert_eq!(upfront, ["echo", LOAD_TOOL, "workflow"]);
+    let stub = &prefix.tools[2];
+    assert!(stub.description.starts_with("[deferred: use tool_search to discover functions]Create, update, delete, launch, inspect, and control VM-local JavaScript workflows"), "{}", stub.description);
+    assert!(prefix.system.starts_with(&format!("SYSTEM\n\n{LOADING_TOOLS_SNAPSHOT}\n\n<!-- INJECTED FILE: AGENTS.md -->")), "{}", prefix.system);
+    assert!(!prefix.system.contains("`workflow`"));
     assert!(!prefix.system.contains("{deferred_"));
 
     let mut history = vec![Message { role: Role::User, content: vec![Part::Text { text: "запусти работу".into() }] }];
@@ -96,10 +98,20 @@ async fn deferred_namespace_loads_on_demand(wire: Wire) {
     assert_eq!(r[3].0, "Every deferred namespace is already loaded; call the loaded functions directly.");
 
     let reqs = server.requests();
-    assert_eq!(tool_names(&reqs[0]), ["echo", LOAD_TOOL]);
-    assert_eq!(tool_names(&reqs[1]), ["echo", LOAD_TOOL, "workflow.view"]);
-    assert_eq!(tool_names(&reqs[2]), ["echo", LOAD_TOOL, "workflow.launch", "workflow.view"]);
+    assert_eq!(tool_names(&reqs[0]), ["echo", LOAD_TOOL, "workflow"]);
+    assert_eq!(tool_names(&reqs[1]), ["echo", LOAD_TOOL, "workflow", "workflow.view"]);
+    assert_eq!(tool_names(&reqs[2]), ["echo", LOAD_TOOL, "workflow", "workflow.launch", "workflow.view"]);
     assert!(reqs[0].to_string().contains("### Loading Tools"));
+}
+
+/// Блок «Loading Tools» — побайтно как в копии системного текста muse
+/// (`rootfs-full/home/hatch/workspace/system/system_prompt.md`, строки
+/// 278–283).
+const LOADING_TOOLS_SNAPSHOT: &str = "### Loading Tools\n\nTools are organized into namespaces and functions. Some namespaces are not loaded fully and need to be loaded. Call `tool_search.load_tool_namespace` with the namespace's name to get its deferred function descriptions and parameter schemas. While a tool's schema is in your context, you can use it without loading it again.\n\n- Namespaces marked \"[deferred: use tool_search to discover functions]\" have deferred functions. A namespace whose functions are all deferred hides their entries until loaded.\n- Namespaces marked \"[deferred: use tool_search to load full schema]\" have no parameter schema for the functions until loaded.\n- Namespaces with fully specified functions and schemas are not deferred and can be called directly.";
+
+#[test]
+fn loading_block_matches_muse_snapshot() {
+    assert_eq!(deferred_tools().loading_block().unwrap(), LOADING_TOOLS_SNAPSHOT);
 }
 
 #[tokio::test]
@@ -141,5 +153,6 @@ fn load_answers_and_loaded_state_follow_history() {
     let mut plain = Tools::new();
     plain.add(Echo);
     assert_eq!(plain.specs().len(), 1);
+    assert_eq!(plain.upfront_specs().len(), 1);
     assert!(plain.loading_block().is_none());
 }

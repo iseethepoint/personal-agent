@@ -24,6 +24,7 @@
 
 pub mod config;
 pub mod daemon;
+pub mod main_prompt;
 pub use agent_loop::roles;
 
 use std::path::{Path, PathBuf};
@@ -357,7 +358,16 @@ impl Hamlet {
             .defer("tracking", &agent_goals::namespace_description(agent_goals::Ns::Tracking))
             .defer("workflow", &agent_workflows::tools::namespace_description());
         let tools = Arc::new(roles::Role::get("foreground_root").apply(tools));
-        let prefix = Prefix::assemble(&system, &home_dir, &tools);
+        // Главный разговор: системный текст из блоков muse (`main_prompt`),
+        // его копия — в рабочей папке, как пишет muse при старте
+        // (`system_prompt_copy.rs`).
+        let main_text = main_prompt::main_system(&tools, &system);
+        let copy = home_dir.join(main_prompt::COPY_PATH);
+        if let Some(parent) = copy.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        std::fs::write(&copy, &main_text).map_err(|e| format!("{}: {e}", copy.display()))?;
+        let prefix = Prefix::with_system(main_text, &home_dir, &tools);
         // Сброс памяти — набор роли `memory_flush`.
         let flush_tools = roles::Role::get("memory_flush").apply((*tools).clone());
 
