@@ -100,8 +100,9 @@ async fn goal_with_subgoal_and_entries_through_turn() {
         let child = &results(&h)[0];
         let cid = child["goal_id"].as_str().unwrap().to_string();
         assert_eq!(child["parent_goal_id"], pid.as_str(), "{wire:?}");
-        // Описание пространства — при `create`.
-        assert!(server.requests()[0].to_string().contains("Durable goals the user is working toward."));
+        // Описание пространства — при загрузке пространства, не в `create`.
+        assert!(!server.requests()[0].to_string().contains("Durable goals the user is working toward."));
+        assert!(agent_goals::namespace_description(agent_goals::Ns::UserGoal).contains("Durable goals the user is working toward."));
 
         let (_s, h) = turn(
             &g,

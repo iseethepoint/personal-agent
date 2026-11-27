@@ -38,15 +38,21 @@ impl Prefix {
     /// описания инструментов из реестра. Нечитаемый или отсутствующий файл
     /// читается как пустой — как у muse («home file unreadable; read as
     /// empty», `strings-all.txt:76316`).
+    /// Если есть отложенные пространства — после системного текста блок
+    /// «Loading Tools» (`tool_search.rs`), а модели сразу уходят только
+    /// неотложенные описания.
     pub fn assemble(system: &str, home: &Path, tools: &Tools) -> Prefix {
         let mut text = system.to_string();
+        if let Some(block) = tools.loading_block() {
+            text = if text.is_empty() { block } else { format!("{}\n\n{block}", text.trim_end()) };
+        }
         for name in HOME_FILES {
             let body = std::fs::read_to_string(home.join(name)).unwrap_or_default();
             text.push_str(&format!(
                 "\n\n<!-- INJECTED FILE: {name} -->\n\n{body}\n\n<!-- END INJECTED FILE: {name} -->"
             ));
         }
-        Prefix { system: text, tools: tools.specs() }
+        Prefix { system: text, tools: tools.upfront_specs() }
     }
 }
 

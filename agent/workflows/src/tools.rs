@@ -6,10 +6,9 @@
 //! тоже принимаются (`strings-all.txt:75970`).
 //!
 //! Описание пространства и договор написания сценария
-//! (`prompts/workflows/workflow_namespace.md`) у muse приходят при загрузке
-//! пространства; поиска инструментов у нас нет — договор прикреплён к
-//! инструментам, чьи поля на него ссылаются («authored per the contract in
-//! this tool's description»): `create`, `update`, `launch`, `launch_async`.
+//! (`prompts/workflows/workflow_namespace.md`) уходят при загрузке
+//! пространства (`tool_search.load_tool_namespace`), как у muse
+//! (`namespace_description`).
 //! Своё: у поля `limit` инструмента `list_runs` описания в разборе нет.
 
 use std::sync::{Arc, LazyLock};
@@ -169,10 +168,7 @@ fn out(head: &str, v: &Value) -> Vec<ToolResultPart> {
 
 impl<P: Provider + Send + Sync + 'static> Tool for WorkflowTool<P> {
     fn spec(&self) -> ToolSpec {
-        let mut description = text("tools", self.op.name());
-        if matches!(self.op, Op::Create | Op::Update | Op::Launch | Op::LaunchAsync) {
-            description = format!("{description}\n\n{}", personal(NAMESPACE).trim_end());
-        }
+        let description = text("tools", self.op.name());
         ToolSpec { name: self.op.name().into(), description, input_schema: self.schema() }
     }
 
@@ -218,4 +214,10 @@ impl<P: Provider + Send + Sync + 'static> Tool for WorkflowTool<P> {
             Ok(out(&head, &v))
         })
     }
+}
+
+/// Описание пространства `workflow` с договором написания сценария — уходит
+/// при его загрузке.
+pub fn namespace_description() -> String {
+    personal(NAMESPACE)
 }

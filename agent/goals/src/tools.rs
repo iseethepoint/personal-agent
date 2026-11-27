@@ -4,8 +4,8 @@
 //! которые ведёт агент, source `assistant_tracking`); имена —
 //! `strings-all.txt:69508-69530`. Описания, поля, ответы и ошибки — тексты
 //! ядра (`prompts/goals/tools.json`, правки — `prompts/SOURCES.md`).
-//! Описание пространства (`namespace`) прикреплено к `*.create`: поиска
-//! инструментов у нас пока нет (как у `cron.add`).
+//! Описание пространства (`namespace`) уходит при загрузке пространства
+//! (`tool_search.load_tool_namespace`, `namespace_description`).
 //!
 //! Не взяты (их служб у Hamlet нет): общие цели (`host_muse`,
 //! `expected_revision`, задачи), `watch` / `requested` / `connection_id` /
@@ -342,10 +342,7 @@ impl<P> GoalTool<P> {
 impl<P: Provider + Send + Sync + 'static> Tool for GoalTool<P> {
     fn spec(&self) -> ToolSpec {
         let ns = self.ns.prefix();
-        let mut description = lookup(&[ns, "tools", self.op.name(), "description"]);
-        if self.op == Op::Create {
-            description = format!("{}\n\n{}", description.trim_end(), lookup(&[ns, "namespace"]).trim_end());
-        }
+        let description = lookup(&[ns, "tools", self.op.name(), "description"]);
         ToolSpec { name: format!("{ns}.{}", self.op.name()), description, input_schema: self.schema() }
     }
 
@@ -718,4 +715,10 @@ impl<P: Provider + Send + Sync + 'static> GoalTool<P> {
         let _ = tokio::fs::remove_file(file).await;
         Ok(json!({"briefing_id": b.briefing_id, "goal_id": b.goal_id, "deleted": true}))
     }
+}
+
+/// Полное описание пространства `user_goal` или `tracking` — уходит при
+/// его загрузке.
+pub fn namespace_description(ns: Ns) -> String {
+    lookup(&[ns.prefix(), "namespace"])
 }

@@ -2,9 +2,8 @@
 //! описания полей `CronArgs`, ответы и ошибки — тексты ядра;
 //! `prompts/cron/tools.json`, правки — в `prompts/SOURCES.md`).
 //!
-//! Описание пространства `cron` (`prompts/cron/cron_namespace.md`) у muse
-//! отдаёт поиск инструментов (`tool_search`); его у нас нет — описание
-//! прикреплено к `cron.add`. Своё.
+//! Описание пространства `cron` (`prompts/cron/cron_namespace.md`) уходит
+//! при загрузке пространства (`tool_search.load_tool_namespace`), как у muse.
 //!
 //! Не делаются (их служб у Hamlet нет): `delivery`, `connection_id`,
 //! `execution`, `predicted_connector_permissions`, `confirmation`,
@@ -175,10 +174,7 @@ impl CronTool {
 
 impl Tool for CronTool {
     fn spec(&self) -> ToolSpec {
-        let mut description = text("tools", self.op.name());
-        if self.op == Op::Add {
-            description = format!("{description}\n\n{}", personal(NAMESPACE).trim_end());
-        }
+        let description = text("tools", self.op.name());
         ToolSpec { name: self.op.name().into(), description, input_schema: self.schema() }
     }
 
@@ -574,4 +570,9 @@ fn merge(a: &mut Value, b: Value) {
     if let (Some(a), Value::Object(b)) = (a.as_object_mut(), b) {
         a.extend(b);
     }
+}
+
+/// Полное описание пространства `cron` — уходит при его загрузке.
+pub fn namespace_description() -> String {
+    personal(NAMESPACE)
 }

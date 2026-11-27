@@ -30,9 +30,12 @@ pub trait Tool: Send + Sync {
 }
 
 /// Реестр: имя → инструмент. Описания модели уходят в порядке добавления.
+/// Функции отложенных пространств (`defer`) уходят модели только после
+/// загрузки (`tool_search.rs`).
 #[derive(Default, Clone)]
 pub struct Tools {
     list: Vec<(String, Arc<dyn Tool>)>,
+    pub(crate) deferred: Vec<crate::tool_search::Namespace>,
 }
 
 impl Tools {
@@ -55,7 +58,19 @@ impl Tools {
         self.list.iter().find(|(n, _)| n == name).map(|(_, t)| t)
     }
 
+    /// Все описания, вместе с `tool_search.load_tool_namespace`, если есть
+    /// отложенные пространства.
     pub fn specs(&self) -> Vec<ToolSpec> {
-        self.list.iter().map(|(_, t)| t.spec()).collect()
+        let mut v: Vec<ToolSpec> = self.list.iter().map(|(_, t)| t.spec()).collect();
+        if !self.deferred.is_empty() {
+            v.push(crate::tool_search::load_spec());
+        }
+        v
+    }
+
+    /// Описания, которые уходят модели сразу: без функций отложенных
+    /// пространств.
+    pub fn upfront_specs(&self) -> Vec<ToolSpec> {
+        self.specs().into_iter().filter(|s| self.namespace_of(&s.name).is_none()).collect()
     }
 }

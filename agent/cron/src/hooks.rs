@@ -550,11 +550,7 @@ impl Tool for HookTool {
                 required.push("id");
             }
         }
-        let mut description = text("tools", self.op.name());
-        if self.op == Op::Add {
-            // Описание пространства `hooks` — к `hooks.add`, как у `cron.add`.
-            description = format!("{description}\n\n{}", personal(TEXTS["namespace"].as_str().unwrap_or_default()).trim_end());
-        }
+        let description = text("tools", self.op.name());
         ToolSpec {
             name: self.op.name().into(),
             description,
@@ -767,3 +763,9 @@ impl HookTool {
 /// Своя запись `next_poll`: срок следующего опроса каждого наблюдателя
 /// (`HookPollSchedule` у muse держит `scheduled_at_ms`).
 pub type PollSchedule = std::sync::Mutex<HashMap<String, i64>>;
+
+/// Полное описание пространства `hooks` — уходит при его загрузке
+/// (`tool_search.load_tool_namespace`).
+pub fn namespace_description() -> String {
+    personal(TEXTS["namespace"].as_str().unwrap_or_default())
+}
