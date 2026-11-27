@@ -65,7 +65,7 @@ fn cluster() -> &'static Cluster {
             .arg("-D")
             .arg(dir.join("data"))
             .arg("-o")
-            .arg(format!("-c listen_addresses=127.0.0.1 -p {port} -c unix_socket_directories='' -c fsync=off"))
+            .arg(format!("-c listen_addresses=127.0.0.1 -p {port} -c unix_socket_directories='' -c fsync=off -c max_connections=400"))
             .arg("-l")
             .arg(dir.join("log"))
             .args(["-w", "start"])

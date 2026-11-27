@@ -84,7 +84,7 @@ impl Hamlet {
     /// (его вести закроются по итогу), иначе он считается законченным: вести —
     /// `completed`, точка — `idle`. Возвращает имя хода для продолжения.
     pub async fn recover(&self, conv: &mut Conversation) -> Result<Option<String>, String> {
-        let interrupted = self.history.interrupted().await?;
+        let interrupted = self.history.interrupted().await?.map(|c| c.message_id);
         self.history.abort_orphaned(interrupted.as_deref()).await?;
         if conv.close_interrupted() > 0 {
             self.history.sync(&conv.history, conv.last_volatile()).await?;
@@ -94,7 +94,7 @@ impl Hamlet {
             return Ok(Some(id));
         }
         self.inbox.complete(&id, true).await?;
-        self.history.checkpoint(Some(crate::ROOT_RECOVERY_CLASS), None).await?;
+        self.history.checkpoint(Some(crate::ROOT_RECOVERY_CLASS), None, None).await?;
         Ok(None)
     }
 
@@ -120,7 +120,7 @@ impl Hamlet {
         self.history.sync(&conv.history, conv.last_volatile()).await?;
         self.inbox.attach(&ids, &turn_id).await?;
         // Точка перезапуска: ход идёт.
-        self.history.checkpoint(Some(crate::ROOT_RECOVERY_CLASS), Some(&turn_id)).await?;
+        self.history.checkpoint(Some(crate::ROOT_RECOVERY_CLASS), None, Some(&turn_id)).await?;
         let mut t = Turn::from_prefix(&*self.main, &self.tools, &conv.prefix, self.spill_dir.clone());
         t.inbox = Some(self.inbox.clone());
         t.transcript = Some(self.transcript.clone());
@@ -133,7 +133,7 @@ impl Hamlet {
             eprintln!("mailbox complete: {e}");
         }
         // Точка перезапуска: между ходами.
-        if let Err(e) = self.history.checkpoint(Some(crate::ROOT_RECOVERY_CLASS), None).await {
+        if let Err(e) = self.history.checkpoint(Some(crate::ROOT_RECOVERY_CLASS), None, None).await {
             eprintln!("restart checkpoint: {e}");
         }
         let resp = result.map_err(|e| e.to_string())?;

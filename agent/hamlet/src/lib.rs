@@ -298,6 +298,10 @@ impl Hamlet {
         let cron_plan = agent_cron::Plan::from_registry(&reg, sel).map_err(|e| e.to_string())?;
         let mut scheduler = Scheduler::new(core, Arc::new(provider(&cron_plan.worker)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)), system.clone(), Arc::new(with_workflows(parts.base(None)?)), spill_dir.clone(), inbox.clone());
         scheduler.resolver(Arc::new(provider(&cron_plan.resolve)?.with_first_chunk(CRON_FIRST_CHUNK_TIMEOUT)));
+        // Работники расписаний — в базе: прогон, оборванный перезапуском,
+        // продолжается с записанного (`recovery_owners` muse).
+        let workers_clock = clock.clone();
+        scheduler.workers(Arc::new(agent_history::AgentWorkers::new(&history_store, &cron_plan.worker.option.id, Arc::new(move || workers_clock.now_ms()))));
         // Сверка памяти — когда наблюдатель файлов увидел правку файла
         // памяти (и на первом такте). Своё: если векторы не дозаполнились,
         // сверка повторится на следующем такте.

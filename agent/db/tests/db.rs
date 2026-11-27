@@ -55,7 +55,7 @@ async fn catalog_matches_database() {
     for (p, s) in &files {
         assert_eq!(&std::fs::read_to_string(p).unwrap(), s, "{}", p.display());
     }
-    assert_eq!(live.tables.len(), 28);
+    assert_eq!(live.tables.len(), 29);
     let entries = live.tables.iter().find(|t| t.schema == "memory" && t.name == "entries").unwrap();
     assert_eq!(entries.columns[0].default.as_deref(), Some("nextval('memory.entries_memory_entry_id_seq'::regclass)"));
     assert!(live.schema_md().contains("\n## `scheduler.jobs`\n"));

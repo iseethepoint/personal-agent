@@ -778,6 +778,100 @@
         {
           "comment": null,
           "default": null,
+          "name": "recovery_class",
+          "nullable": false,
+          "position": 1,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "owner_id",
+          "nullable": false,
+          "position": 2,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "1",
+          "name": "generation",
+          "nullable": false,
+          "position": 3,
+          "type": "bigint"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "agent_id",
+          "nullable": false,
+          "position": 4,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "message_id",
+          "nullable": false,
+          "position": 5,
+          "type": "text"
+        },
+        {
+          "comment": null,
+          "default": "now()",
+          "name": "active_at",
+          "nullable": false,
+          "position": 6,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "terminal_at",
+          "nullable": true,
+          "position": 7,
+          "type": "timestamp with time zone"
+        },
+        {
+          "comment": null,
+          "default": null,
+          "name": "terminal_status",
+          "nullable": true,
+          "position": 8,
+          "type": "text"
+        }
+      ],
+      "comment": null,
+      "constraints": [
+        {
+          "column": "agent_id",
+          "name": "recovery_owners_agent_id_key",
+          "position": 1,
+          "references": null,
+          "type": "UNIQUE"
+        },
+        {
+          "column": "recovery_class",
+          "name": "recovery_owners_pkey",
+          "position": 1,
+          "references": null,
+          "type": "PRIMARY KEY"
+        },
+        {
+          "column": "owner_id",
+          "name": "recovery_owners_pkey",
+          "position": 2,
+          "references": null,
+          "type": "PRIMARY KEY"
+        }
+      ],
+      "name": "recovery_owners",
+      "schema": "agent"
+    },
+    {
+      "columns": [
+        {
+          "comment": null,
+          "default": null,
           "name": "agent_id",
           "nullable": false,
           "position": 1,

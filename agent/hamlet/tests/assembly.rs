@@ -609,6 +609,84 @@ async fn subagents_survive_restart() {
     }
 }
 
+/// П3е-5: прогон расписания, оборванный перезапуском посреди команды
+/// работника, продолжается с записанного: вызов без результата закрыт
+/// текстом ядра, за ним — заметка ядра «the run continues from what it
+/// already recorded», итог доходит главному агенту; владелец
+/// восстановления закрыт итогом прогона.
+#[tokio::test]
+async fn cron_run_continues_after_restart() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s1, _p) = model(wire, vec![Step::Calls(vec![("x1", "hamlet.exec", json!({"command": "sleep 30"}))])], true);
+        let s1 = Arc::new(s1);
+        let dir = agent_dir("cron-restart", wire, &s1);
+        let (d, server) = (dir.clone(), s1.clone());
+        let run_id = std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let run_id = rt.block_on(async {
+                let h1 = build(&d, FakeClock::at(t0())).await;
+                let job = json!({"id": "count", "enabled": true, "mode": "task", "title": "Count", "body": "Count the files in the workspace.",
+                    "schedule": {"kind": "runonce", "at": "2027-02-01T08:00", "timezone": "UTC", "timing": "exact"}});
+                h1.tools.get("cron.add").unwrap().call(job).await.unwrap();
+                let queued = h1.tools.get("cron.run").unwrap().call(json!({"id": "count"})).await.unwrap();
+                let run_id = serde_json::from_str::<serde_json::Value>(&match &queued[0] {
+                    agent_model::ToolResultPart::Text { text } => text.clone(),
+                    p => panic!("{p:?}"),
+                })
+                .unwrap()["run_id"]
+                    .as_str()
+                    .unwrap()
+                    .to_string();
+                let _services = Services::start(&h1);
+                while server.requests().is_empty() {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                run_id
+            });
+            drop(rt);
+            run_id
+        })
+        .join()
+        .unwrap();
+
+        let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
+        let (class, owner): (Option<String>, Option<String>) =
+            sqlx::query_as("select recovery_class, recovery_owner_id from agent.runtime_restart_checkpoints where agent_id = $1").bind(format!("cron-worker:{run_id}")).fetch_one(&pool).await.unwrap();
+        assert_eq!((class.as_deref(), owner.as_deref()), (Some("scheduler_cron_execute"), Some(run_id.as_str())), "{wire:?}");
+
+        let (s2, _p) = model(
+            wire,
+            vec![
+                Step::Text("There are 3 files."),
+                Step::Calls(vec![("n1", "hamlet.notify_main_agent", json!({"outcome": "succeeded", "message": "The workspace has 3 files."}))]),
+            ],
+            true,
+        );
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        let services = Services::start(&h2);
+        let mut notes = Vec::new();
+        for _ in 0..300 {
+            notes.extend(h2.inbox.drain().into_iter().map(|m| m.text()));
+            if !notes.is_empty() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        assert!(notes.iter().any(|n| n.contains("The workspace has 3 files.")), "{wire:?}: {notes:?}");
+        let body = s2.requests()[0].to_string();
+        assert!(body.contains("Count the files in the workspace."), "{wire:?}: история работника из базы");
+        assert!(body.contains(&serde_json::to_string(agent_loop::INTERRUPTED_TOOL_CALL).unwrap()[1..60]), "{wire:?}: {body}");
+        assert!(body.contains(&agent_cron::worker::CONTINUES_AFTER_RESTART[..60]), "{wire:?}: {body}");
+        let status: String = sqlx::query_scalar("select status::text from scheduler.job_runs where run_id = $1").bind(&run_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(status, "succeeded", "{wire:?}");
+        let terminal: Option<String> = sqlx::query_scalar("select terminal_status from agent.recovery_owners where recovery_class = 'scheduler_cron_execute' and owner_id = $1").bind(&run_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(terminal.as_deref(), Some("succeeded"), "{wire:?}");
+        services.stop(&h2).await;
+    }
+}
+
 /// П3е-2: ящик в базе — весть, пришедшая, когда хода нет, и не взятая до
 /// остановки, после перезапуска доходит новым ходом и закрывается.
 #[tokio::test]
