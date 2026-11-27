@@ -205,6 +205,17 @@ async fn blocklisted_urls_are_not_opened() {
         let err = call(&tools, "browser.open", json!({"url_id": url})).await.unwrap_err();
         assert!(err.contains("is on the URL blocklist. Nothing was opened."), "{url}: {err}");
     }
+    // Настоящая маска из списка muse: «*.instagram-login.page» закрывает
+    // сам домен и его поддомены, соседний домен открыт.
+    let cfg = config();
+    let bl = Blocklist::load(&cfg.blocklist, &repo_root()).unwrap();
+    assert!(bl.blocks("https://instagram-login.page/"));
+    assert!(bl.blocks("https://secure.instagram-login.page/login"));
+    assert!(bl.blocks("https://a.b.instagram-login.page/"));
+    assert!(!bl.blocks("https://instagram-login.pages.dev/"));
+    assert!(!bl.blocks("https://notinstagram-login.page/"));
+    let err = call(&tools, "browser.open", json!({"url_id": "https://secure.instagram-login.page/login"})).await.unwrap_err();
+    assert!(err.contains("is on the URL blocklist"), "{err}");
     assert!(fc.seen.lock().unwrap().is_empty(), "до поставщика не дошло");
     assert!(call(&tools, "browser.open", json!({"url_id": "https://example.org/rust"})).await.is_ok());
 }

@@ -111,8 +111,8 @@ impl Blocklist {
         Ok(Blocklist { domains, patterns })
     }
 
-    /// Адрес в списке: хост целиком, `*.`-маска на хост или его родителя,
-    /// или шаблон по хосту.
+    /// Адрес в списке: хост целиком; маска `*.X` закрывает X и все его
+    /// поддомены; или шаблон по хосту.
     pub fn blocks(&self, url: &str) -> bool {
         let Some(host) = reqwest::Url::parse(url).ok().and_then(|u| u.host_str().map(|h| h.to_lowercase())) else {
             return false;
