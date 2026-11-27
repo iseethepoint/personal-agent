@@ -135,10 +135,12 @@ async fn cron_add_through_turn_saves_copy_and_reports_next_run() {
         let copy = std::fs::read_to_string(c.home.join("workspace/cron.d/hourly/water__interval@1h.md")).unwrap();
         assert!(copy.starts_with("---\nid: water\n"), "{copy}");
         assert!(copy.ends_with("Remind the owner to drink water.\n"), "{copy}");
-        // Описание пространства `cron` — при `cron.add`.
+        // Описание пространства `cron` — не в `cron.add`, а при загрузке
+        // пространства (`agent_cron::cron_namespace`).
         let req = &main.requests()[0];
         assert!(tool_names(req).contains(&"cron.add".to_string()));
-        assert!(req.to_string().contains("Manage saved scheduled jobs through the cron tools."));
+        assert!(!req.to_string().contains("Manage saved scheduled jobs through the cron tools."));
+        assert!(agent_cron::cron_namespace().contains("Manage saved scheduled jobs through the cron tools."));
     }
 }
 

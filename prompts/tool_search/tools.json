@@ -1,0 +1,30 @@
+{
+ "tool": {
+  "name": "tool_search.load_tool_namespace",
+  "description": "Load all function descriptions and parameter schemas for one or more tool namespaces. Use when a namespace or one of its functions is marked deferred and its full interface is not already in context. Call this with the namespace names in `paths` and it returns the full function interfaces, after which those functions are callable normally. A namespace counts as loaded while the full interfaces from its load are still in your context: call its functions directly rather than loading it again. Functions whose full schemas are provided up front are already callable without loading.\n\nThis tool is only for the tool namespaces listed in the tool list: that list is the complete loadable set, so never attempt to load a name that is not on it. Skills and connector docs are not tool namespaces — capabilities from connected accounts and apps (email, calendar, retailer accounts, music, and similar) have connector docs; discover those with hamlet.connector_search and skills with hamlet.skill_search, never with this tool.",
+  "paths": "Load all function schemas for one or more deferred tool namespaces before calling their functions for the first time."
+ },
+ "markers": {
+  "stub": "[deferred: use tool_search to discover functions]",
+  "function": "[deferred: use tool_search to load full schema]"
+ },
+ "texts": {
+  "loaded": "Loaded {n} function(s). Full schemas:",
+  "loaded_missing": "Loaded missing schemas from {n} function(s). Full schemas:",
+  "all_available": "All functions in the matched namespaces are already available.",
+  "already_loaded": "These tool namespaces are already loaded. You can directly call their functions without loading the namespace again: {names}",
+  "every_loaded": "Every deferred namespace is already loaded; call the loaded functions directly.",
+  "unavailable": "(Some requested namespaces or tools were unavailable.)",
+  "autoload": "tool {name} is deferred and was not yet loaded. Its full schema follows and it is NOW LOADED: retry the call with arguments matching this schema.",
+  "hint_loaded": "Call already-loaded functions directly: a namespace counts as loaded while the full schemas from its load are still in your context, and namespaces that are not deferred need no load at all.",
+  "hint_connectors": "Provider integrations such as calendar, email, and retailer accounts have connector docs: discover them with hamlet.connector_search."
+ },
+ "summaries": {
+  "cron": "Scheduled work that runs while <!-- personal-only:start -->the user is<!-- personal-only:end --><!-- group-only:start -->members are<!-- group-only:end --> away: create, update, list, inspect, and remove cron jobs, run one now, and read past run history. Reach for this for reminders, recurring checks, and anything <!-- personal-only:start -->the user wants<!-- personal-only:end --><!-- group-only:start -->members want<!-- group-only:end --> done at a set time or on a repeating schedule.",
+  "hooks": "Event-driven automations that fire when something arrives rather than on a clock: create, inspect, enable or disable, and remove hooks, dry-run or run one, and read its logs. Cron fires on the clock; a hook fires on the event.",
+  "user_goal": "Durable goals the <!-- personal-only:start -->user<!-- personal-only:end --><!-- group-only:start -->group<!-- group-only:end --> is working toward: create, update, log activity entries, search, list, and close them. Reach for this when <!-- personal-only:start -->the user shares<!-- personal-only:end --><!-- group-only:start -->members share<!-- group-only:end --> an enduring aspiration, a commitment with a timeframe, progress, or a setback, even when they never say \"goal\", not for fleeting todos or one-time reminders.",
+  "tracking": "Track concrete plans, commitments, and outcomes the <!-- personal-only:start -->user<!-- personal-only:end --><!-- group-only:start -->group<!-- group-only:end --> cares about beyond the immediate conversation: reservations, deliveries, reminders, trips, and ongoing projects. Use this namespace when interacting with an existing tracked item: find it, log progress, correct its details, close it when the responsibility ends, or reopen it when <!-- personal-only:start -->the user<!-- personal-only:end --><!-- group-only:start -->a member<!-- group-only:end --> explicitly restarts it. Call set_status with completed in the same turn when evidence shows the outcome is resolved, including a delivery received or a cancellation. Logging an activity does not close the item. Create an item when the commitment becomes concrete, even without an explicit request to track it. Associate work with its item before scheduling a call or other background mechanism. Attach work serving an existing <!-- personal-only:start -->user<!-- personal-only:end --><!-- group-only:start -->group<!-- group-only:end --> goal to that goal instead of creating a new tracked item.",
+  "tool_search": "Load deferred tool namespaces and their full function schemas.",
+  "workflow": "Create, update, delete, launch, inspect, and control VM-local JavaScript workflows that orchestrate child agents: repeatable multi-agent automation, sweeps, audits, and long-trajectory tasks where the plan should live in deterministic code."
+ }
+}

@@ -237,6 +237,17 @@ impl Hamlet {
             deadline: agent_research::DEADLINE,
         });
         tools.add(research.tool());
+        // Отложенные пространства главного агента (`tool_loading =
+        // "deferred"` у muse): функции уходят модели после
+        // `tool_search.load_tool_namespace`, полное описание — при загрузке.
+        // Своё: какие пространства отложены (полного списка в разборе нет) —
+        // те, у кого есть полное описание пространства.
+        tools
+            .defer("cron", &agent_cron::cron_namespace())
+            .defer("hooks", &agent_cron::hooks_namespace())
+            .defer("user_goal", &agent_goals::namespace_description(agent_goals::Ns::UserGoal))
+            .defer("tracking", &agent_goals::namespace_description(agent_goals::Ns::Tracking))
+            .defer("workflow", &agent_workflows::tools::namespace_description());
         let tools = Arc::new(tools);
         let prefix = Prefix::assemble(&system, &home_dir, &tools);
 

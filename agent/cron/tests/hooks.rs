@@ -206,7 +206,9 @@ async fn hooks_through_turn_add_and_dry_run() {
         // Все наблюдённые значения нулевые, срабатываний ещё не было.
         assert!(dry["observation_note"].as_str().unwrap().starts_with("Every value this dry run observed is zero or empty"));
         assert!(dry["wake_note"].as_str().unwrap().starts_with("This hook has never produced a wake"));
-        assert!(main.requests()[0].to_string().contains("Create and manage event hooks"));
+        // Описание пространства `hooks` — при загрузке пространства, не в `hooks.add`.
+        assert!(!main.requests()[0].to_string().contains("Create and manage event hooks"));
+        assert!(agent_cron::hooks_namespace().contains("Create and manage event hooks"));
     }
 }
 

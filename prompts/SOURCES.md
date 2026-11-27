@@ -134,3 +134,17 @@
 | `workflows/execution_files.md` | ядро: «## Workflow execution files» (`strings-all.txt:308503-308546`, `templates.txt:4053`) | «download, or see in Library» → «or download» (Library нет); «the accepted Idea or user outcome» → «the user outcome»; «chat, a native product surface, a schedule, a connector action, or a web artifact» → «chat, a schedule, or a connector action»; «such as a Space source tree or scheduler storage» → «such as scheduler storage» |
 
 Обвязка сценария `agent/workflows/src/harness.js` — текст ядра (`strings-all.txt:42448-42858`); в дампе нет строк короче четырёх знаков, закрывающие `  }` верхнего уровня возвращены. Подставляемые куски подсказки шага — тексты ядра: `{{RESULT_CONTRACT}}` (оба варианта), пример `ok` без схемы. Своё в коде (`agent/workflows/src/lib.rs`, шапка): пример `ok` для шага со схемой; блок `## Workflow execution files` идёт после задачи; текст передачи итога главному агенту (`[Workflow Result] run_id: …` и квитанция ядра «Workflow `…` completed.» и т. п.); прослойка `prelude.js`.
+
+## Загрузка пространств инструментов (П4л-3)
+
+| Файл | Исходник | Правки |
+|---|---|---|
+| `tool_search/loading_tools.md` | ядро: `blocks/user_chat/loading_tools.md` (`strings-all.txt:59570-59576`), часть `client-tool-loading-only` | метки `client-tool-loading-only` сняты; часть `provider-tool-search-only` (встроенный поиск инструментов Anthropic) не взята; `{deferred_stub_marker}`, `{deferred_function_marker}` подставляет код |
+| `tool_search/tools.json` | ядро: описание `tool_search.load_tool_namespace` и поле `paths` (около `0xa10827`, `0xa109da`), маркеры (`0x9d9b51`), ответы загрузки (`0x6daf7e`, `0x990e85`, `0x96daa7`), ответ на вызов незагруженной функции (`0x99117a`), краткие описания пространств `cron`, `hooks`, `user_goal`, `tracking`, `workflow`, `tool_search` (`0x2cc9b77`–`0x2ccbae2`) | `muse.connector_search`, `muse.skill_search` → `hamlet.*` (П10); из подсказки «unavailable» убрано «Built-in presentation tools, including shopping cards, are available in their tool namespaces.» (карточек покупок нет); `{n}`, `{names}`, `{name}` — места аргументов шаблонов ядра |
+
+Своё (код `agent/loop/src/tool_search.rs`): какие пространства отложены у главного агента (`cron`, `hooks`, `user_goal`, `tracking`, `workflow` — у кого есть полное описание пространства; полного списка в разборе нет); вид строки списка пространств и место блока — после системного текста; вид схем в ответе загрузки; загруженные функции добавляются в конец списка инструментов запроса; какой текст ответа загрузки в каком случае.
+
+## Разборы ядра без перенесённых текстов
+
+- Нижний предел частоты расписаний («Please choose a cron interval of at least … interval is too frequent. Nothing was saved.», шаблон `0x437836`): функция `0xfdfd850` (машина async, вызывается из `0xfe014d7`, `0xfe05afc`). Предел `r13` = clamp(значение политики `r14`, 60, 3600) (`0xfdfe4c8`–`0xfdfe4e1`); запрошенное (`0x40(%rbx)`) ≥ max(предел, 300) — принято (`0xfdfe4f4`–`0xfdfe50e`); отказ — только когда флаг политики (`0x50(%rbx)`, итог вызова `0xfd597f0`) и запрошенное < предела (`0xfdfe514`–`0xfdfe51f`). Без политики `r13` = 60 и отказа нет. У Hamlet политики нет — отказа нет, как у muse без неё (решение ревизора, П4л-2).
+- Предел вызовов workflow («workflow agent call limit exceeded: max {} calls per run», шаблон `0x3d426a`): сравнение в `0x277a4dfa` (и у ссылок `0x277a6c6d`, `0x277ada15`) — счётчик (`xadd 0x84`, минус `0x80`, +1) против поля `0x88` состояния, взятого через thread-local; где поле заполняется — не найдено (П4л-2).

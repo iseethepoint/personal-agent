@@ -105,7 +105,7 @@ async fn build(dir: &Path, clock: FakeClock) -> Arc<Hamlet> {
 
 /// Полный список инструментов главного агента — красный, если что-то не
 /// подключено.
-const MAIN_TOOLS: [&str; 85] = [
+const MAIN_TOOLS: [&str; 86] = [
     "browser.browse", "browser.find", "browser.lookup_citation_url", "browser.open", "browser.search", "browser.windows", "browser_deep_research",
     "cron.add", "cron.list", "cron.remove", "cron.run", "cron.runs", "cron.status", "cron.stop", "cron.update", "cron.view",
     "forget.confirm", "forget.plan",
@@ -114,6 +114,7 @@ const MAIN_TOOLS: [&str; 85] = [
     "process.clear", "process.kill", "process.list", "process.log", "process.poll", "process.send_keys", "process.write",
     "subagent.close", "subagent.list", "subagent.resume", "subagent.send", "subagent.spawn",
     "todo.write",
+    "tool_search.load_tool_namespace",
     "tracking.create", "tracking.create_entry", "tracking.delete", "tracking.delete_entry", "tracking.get", "tracking.list", "tracking.search", "tracking.set_status", "tracking.update", "tracking.update_entry",
     "user_goal.create", "user_goal.create_entry", "user_goal.delete", "user_goal.delete_briefing", "user_goal.delete_entry", "user_goal.get", "user_goal.list", "user_goal.search", "user_goal.set_status", "user_goal.update", "user_goal.update_entry",
     "workflow.create", "workflow.delete", "workflow.launch", "workflow.launch_async", "workflow.list", "workflow.list_runs", "workflow.pause",
@@ -134,6 +135,19 @@ async fn main_agent_registry_has_every_tool() {
         }
     }
     assert!(forbidden(&h.prefix.system).is_none(), "начало подсказки");
+    // Отложенные пространства: их функции не уходят модели сразу, в начале
+    // подсказки — список пространств с маркером; полное описание — при загрузке.
+    let upfront: Vec<&str> = h.prefix.tools.iter().map(|s| s.name.as_str()).collect();
+    for ns in ["cron.", "hooks.", "user_goal.", "tracking.", "workflow."] {
+        assert!(!upfront.iter().any(|n| n.starts_with(ns)), "{ns} отложено");
+        let line = format!("- `{}` [deferred: use tool_search to discover functions]: ", ns.trim_end_matches('.'));
+        assert!(h.prefix.system.contains(&line), "{line}");
+    }
+    assert!(upfront.contains(&"tool_search.load_tool_namespace") && upfront.contains(&"hamlet.exec") && upfront.contains(&"subagent.spawn"));
+    let cron_add = h.tools.specs().into_iter().find(|s| s.name == "cron.add").unwrap();
+    assert!(!cron_add.description.contains("## "), "описание пространства не прикреплено к cron.add");
+    let loaded = h.tools.load(&json!({"paths": ["cron"]}), &h.tools.loaded(&[]));
+    assert!(loaded.starts_with("Loaded 9 function(s). Full schemas:\n\n## cron\n"), "{}", &loaded[..200]);
     // Описание браузера и начало подсказки — от папки агента.
     assert!(h.prefix.system.starts_with("You are Hamlet, a test agent."));
     assert!(h.prefix.system.contains("<!-- INJECTED FILE: MEMORY.md -->") && h.prefix.system.contains("coffee without sugar"));
@@ -153,6 +167,8 @@ async fn conversation_writes_searches_schedules_and_wakes_on_handoff() {
             vec![
                 Step::Calls(vec![("w1", "hamlet.write", json!({"path": "workspace/notes.md", "content": "Buy coffee beans.\n"}))]),
                 Step::Calls(vec![("m1", "hamlet.memory_search", json!({"queries": ["coffee"]}))]),
+                // Пространство `cron` отложено — сначала загрузка.
+                Step::Calls(vec![("l1", "tool_search.load_tool_namespace", json!({"paths": ["cron"]}))]),
                 Step::Calls(vec![("c1", "cron.add", job)]),
                 Step::Text("Done."),
                 // Работник расписания: исполнение и итог.
@@ -183,7 +199,8 @@ async fn conversation_writes_searches_schedules_and_wakes_on_handoff() {
         let reqs = server.requests();
         assert!(reqs[0].to_string().contains("You are Hamlet, a test agent.") && reqs[0].to_string().contains("Current date and time: 2027-01-15T08:00:00Z"), "{wire:?}: начало и изменчивое");
         assert!(reqs[2].to_string().contains("coffee without sugar"), "{wire:?}: поиск в памяти нашёл MEMORY.md");
-        assert!(reqs[3].to_string().contains("next_run_in"), "{wire:?}: расписание заведено");
+        assert!(reqs[3].to_string().contains("Loaded 9 function(s). Full schemas:"), "{wire:?}: пространство cron загружено");
+        assert!(reqs[4].to_string().contains("next_run_in"), "{wire:?}: расписание заведено");
 
         // Срок наступил — такт служб запускает работника, весть даёт новый ход.
         clock.advance_secs(6 * 60);

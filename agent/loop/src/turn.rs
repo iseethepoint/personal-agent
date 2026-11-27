@@ -18,6 +18,7 @@ use crate::prompt::Prefix;
 use crate::subagents::{Inbox, Transcript};
 use crate::spill;
 use crate::tool::{ToolError, Tools};
+use crate::tool_search::{Loaded, LOAD_TOOL};
 
 /// Срок на один инструмент — 180 с (`JARVIS_TOOL_DISPATCH_TIMEOUT_MS`,
 /// ядро 0x26a6bf00; опись, таблица 4.2).
@@ -111,7 +112,7 @@ impl<'a, P: Provider> Turn<'a, P> {
             provider,
             tools,
             system: system.into(),
-            tool_specs: tools.specs(),
+            tool_specs: tools.upfront_specs(),
             settings: Settings::default(),
             spill_dir: spill_dir.into(),
             tool_timeout: TOOL_TIMEOUT,
@@ -201,7 +202,12 @@ impl<'a, P: Provider> Turn<'a, P> {
             if let Some(inbox) = &self.inbox {
                 history.extend(inbox.drain());
             }
-            let resp = self.infer(history, on_text, tools, settings).await?;
+            // Загруженные функции отложенных пространств — в конец списка
+            // (`tool_search.rs`).
+            let loaded = self.tools.loaded(history);
+            let mut req_tools = tools.to_vec();
+            req_tools.extend(self.tools.loaded_specs(&loaded).into_iter().filter(|s| !tools.iter().any(|t| t.name == s.name)));
+            let resp = self.infer(history, on_text, &req_tools, settings).await?;
             let calls: Vec<(String, String, Value)> = resp
                 .content
                 .iter()
@@ -249,7 +255,7 @@ impl<'a, P: Provider> Turn<'a, P> {
             }
             let names: Vec<String> = calls.iter().map(|c| c.1.clone()).collect();
             let args: Vec<Value> = calls.iter().map(|c| c.2.clone()).collect();
-            let results = join_all(calls.into_iter().map(|(id, name, args)| self.dispatch(id, name, args))).await;
+            let results = join_all(calls.into_iter().map(|(id, name, args)| self.dispatch(id, name, args, &loaded))).await;
             let ended = results.iter().zip(&names).any(|(r, n)| {
                 self.terminal.contains(n) && matches!(r, Part::ToolResult { is_error: false, .. })
             });
@@ -360,7 +366,15 @@ impl<'a, P: Provider> Turn<'a, P> {
         }
     }
 
-    async fn dispatch(&self, id: String, name: String, args: Value) -> Part {
+    async fn dispatch(&self, id: String, name: String, args: Value, loaded: &Loaded) -> Part {
+        if name == LOAD_TOOL && self.tools.has_deferred() {
+            let text = self.tools.load(&args, loaded);
+            return Part::ToolResult { call_id: id, content: vec![ToolResultPart::Text { text }], is_error: false };
+        }
+        if self.tools.needs_load(loaded, &name) {
+            let text = self.tools.autoload_text(&name);
+            return Part::ToolResult { call_id: id, content: vec![ToolResultPart::Text { text }], is_error: true };
+        }
         let (content, is_error) = match self.execute(&id, &name, args).await {
             Ok(content) => (content, false),
             Err(text) => (vec![ToolResultPart::Text { text }], true),
