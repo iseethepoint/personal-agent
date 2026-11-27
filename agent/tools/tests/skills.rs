@@ -93,6 +93,9 @@ async fn search_finds_system_and_custom() {
     let r = call(&f.tools, "hamlet.skill_search", json!({"queries": ["quantum chromodynamics"]})).await.unwrap();
     assert!(names(&r, 0).is_empty());
     assert!(r["note"].as_str().unwrap().starts_with("No matching skill was found."));
+    // Слова сводятся к основе (токенизатор крейта `bm25`): «itineraries» находит «itinerary».
+    let r = call(&f.tools, "hamlet.skill_search", json!({"queries": ["itineraries"]})).await.unwrap();
+    assert_eq!(names(&r, 0), vec!["trip_planning"]);
     // regex — по имени, описанию и тексту SKILL.md.
     let r = call(&f.tools, "hamlet.skill_search", json!({"queries": ["AIRLINES"], "mode": "regex"})).await.unwrap();
     assert_eq!(names(&r, 0), vec!["flight_booking"]);

@@ -115,13 +115,17 @@ impl Tool for Read {
                 let data_base64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
                 return Ok(vec![ToolResultPart::Image(Image { media_type: media_type.into(), data_base64 })]);
             }
-            if DOCUMENTS.contains(&ext.as_str()) {
-                return Err(ToolError::Failed(format!(
-                    "converting .{ext} documents to Markdown is not available yet"
-                )));
-            }
-            let body = String::from_utf8(bytes)
-                .map_err(|_| ToolError::Failed(format!("{} is not UTF-8 text", path.display())))?;
+            let body = match document(&ext) {
+                Some(format) => {
+                    let shown = path.display().to_string();
+                    tokio::task::spawn_blocking(move || anydoc::to_markdown_bytes(&bytes, format))
+                        .await
+                        .map_err(|e| ToolError::Failed(e.to_string()))?
+                        .map_err(|e| ToolError::Failed(format!("failed to convert {shown} to Markdown: {e}")))?
+                }
+                None => String::from_utf8(bytes)
+                    .map_err(|_| ToolError::Failed(format!("{} is not UTF-8 text", path.display())))?,
+            };
             let offset = args.get("offset").and_then(Value::as_u64).unwrap_or(1).max(1) as usize;
             let limit = args.get("limit").and_then(Value::as_u64).map(|n| n as usize);
             self.0.read.lock().unwrap().insert(key(&path));
@@ -130,7 +134,14 @@ impl Tool for Read {
     }
 }
 
-const DOCUMENTS: [&str; 12] = ["pdf", "doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp", "epub", "rtf"];
+/// Документы переводит в GFM крейт `anydoc` 0.1.7, как у muse
+/// (`source-files.txt:51-70`); формат — по расширению (`Format::from_extension`).
+/// Своё: CSV читается как текст (в описании `read` документами названы
+/// PDF, Word, Excel, PowerPoint, OpenDocument, EPUB, RTF); текст ошибки
+/// перевода.
+fn document(ext: &str) -> Option<anydoc::Format> {
+    anydoc::Format::from_extension(ext).filter(|f| *f != anydoc::Format::Csv)
+}
 
 fn image_type(ext: &str) -> Option<&'static str> {
     match ext {
@@ -344,9 +355,10 @@ const DIFF_MAX: usize = 4000;
 
 /// Ближайшее к `old` место файла — по форме muse: окна из целых строк
 /// числом, как в `old`; грубый отсев по гистограмме байтов и разнице длин
-/// (нижняя граница расстояния), затем похожесть 1 − расстояние/длина
-/// большего (у muse её считает внешняя функция 0x29aded88 — здесь
-/// расстояние Левенштейна по байтам). Ниже порога — ничего.
+/// (нижняя граница расстояния в байтах), затем похожесть
+/// `strsim::normalized_levenshtein` (у muse — функция по указателю
+/// 0x29aded88 → 0x288522c0: обе пустые — 1.0, иначе 1 − расстояние / число
+/// знаков большей; крейт `strsim-0.11.1`). Ниже порога — ничего.
 fn closest_match(body: &str, old: &str) -> Option<String> {
     let starts: Vec<usize> = std::iter::once(0).chain(body.match_indices('\n').map(|(i, _)| i + 1)).collect();
     let n = old.trim_end_matches('\n').matches('\n').count() + 1;
@@ -367,13 +379,15 @@ fn closest_match(body: &str, old: &str) -> Option<String> {
             h[b as usize] -= 1;
         }
         let hist: i64 = h.iter().map(|c| c.abs()).sum();
-        let lb = ((hist / 2) as usize).max(w.len().abs_diff(ob.len()));
+        // Правка одного знака меняет не больше 4 байт: нижняя граница
+        // расстояния в знаках — байтовая / 4; число знаков — не больше байтов.
+        let lb = ((hist / 2) as usize).max(w.len().abs_diff(ob.len())).div_ceil(4);
         let longest = w.len().max(ob.len()).max(1);
         let upper = 1.0 - lb as f64 / longest as f64 + EPS;
         if best.is_some_and(|(s, _, _)| s > upper) {
             continue;
         }
-        let sim = 1.0 - levenshtein(w, ob) as f64 / longest as f64;
+        let sim = strsim::normalized_levenshtein(&body[a..end], old);
         if best.is_none_or(|(s, _, _)| sim > s + EPS) {
             best = Some((sim, a, end));
         }
@@ -390,7 +404,7 @@ fn closest_match(body: &str, old: &str) -> Option<String> {
     // Текст muse — строка ядра 0x93eedb; четвёртое поле (после chars) в
     // разборе не видно — здесь это строки.
     Some(format!(
-        "closest match: similarity {sim:.2} (threshold {CLOSEST_MATCH_THRESHOLD:.2}), chars {c0}..{c1}, lines {l0}-{l1}\n\nsnippet:\n{snippet}\nold_text vs closest match:\n--- old_text\n+++ closest match\n@@\n{diff}"
+        "closest match: similarity {sim:.2} (threshold {CLOSEST_MATCH_THRESHOLD:.2}), chars {c0}..{c1}, lines {l0}-{l1}\n\nsnippet:\n{snippet}\nold_text vs closest match:\n--- old_text\n+++ closest match\n{diff}"
     ))
 }
 
@@ -405,42 +419,11 @@ fn cut(s: &str, max: usize, tail: &str) -> String {
     format!("{}{tail}", &s[..i])
 }
 
-fn levenshtein(a: &[u8], b: &[u8]) -> usize {
-    let mut prev: Vec<usize> = (0..=b.len()).collect();
-    let mut cur = vec![0; b.len() + 1];
-    for (i, &x) in a.iter().enumerate() {
-        cur[0] = i + 1;
-        for (j, &y) in b.iter().enumerate() {
-            cur[j + 1] = (prev[j] + usize::from(x != y)).min(prev[j + 1] + 1).min(cur[j] + 1);
-        }
-        std::mem::swap(&mut prev, &mut cur);
-    }
-    prev[b.len()]
-}
-
-/// Построчный diff: «-» — только в old_text, «+» — только в найденном, « » — общее.
+/// Блоки построчного diff — `similar` 2.7.0, как у muse (`udiff.rs`,
+/// заголовок блока «@@ -»; строки ядра «--- old_text», «+++ closest match»
+/// пишет вызывающий).
 fn line_diff(old: &str, new: &str) -> String {
-    let a: Vec<&str> = old.lines().collect();
-    let b: Vec<&str> = new.lines().collect();
-    let mut lcs = vec![vec![0usize; b.len() + 1]; a.len() + 1];
-    for i in (0..a.len()).rev() {
-        for j in (0..b.len()).rev() {
-            lcs[i][j] = if a[i] == b[j] { lcs[i + 1][j + 1] + 1 } else { lcs[i + 1][j].max(lcs[i][j + 1]) };
-        }
-    }
-    let (mut i, mut j, mut out) = (0, 0, String::new());
-    while i < a.len() || j < b.len() {
-        if i < a.len() && j < b.len() && a[i] == b[j] {
-            out.push_str(&format!(" {}\n", a[i]));
-            i += 1;
-            j += 1;
-        } else if i < a.len() && (j == b.len() || lcs[i + 1][j] >= lcs[i][j + 1]) {
-            out.push_str(&format!("-{}\n", a[i]));
-            i += 1;
-        } else {
-            out.push_str(&format!("+{}\n", b[j]));
-            j += 1;
-        }
-    }
-    out
+    let d = similar::TextDiff::from_lines(old, new);
+    let u = d.unified_diff();
+    u.iter_hunks().map(|h| h.to_string()).collect()
 }
