@@ -212,6 +212,8 @@ pub trait SubagentStore: Send + Sync {
     fn status<'a>(&'a self, id: &'a str, status: Status, result: Option<&'a str>) -> MailboxFuture<'a, ()>;
     /// Хранилище подагентов подагента `parent` — на глубину ниже.
     fn nested(&self, parent: &str) -> Arc<dyn SubagentStore>;
+    /// Ящик подагента `id` (`agent.message_mailbox` по его `agent_id`).
+    fn mailbox(&self, id: &str) -> Arc<dyn Mailbox>;
 }
 
 impl Inbox {
@@ -222,9 +224,14 @@ impl Inbox {
     /// Ящик с хранилищем; непринятые до перезапуска вести — снова в очереди.
     pub async fn persistent(store: Arc<dyn Mailbox>) -> Result<Self, String> {
         let pending = store.pending().await?;
+        Ok(Self::with(store, pending))
+    }
+
+    /// Ящик с хранилищем и уже поднятыми непринятыми вестями.
+    pub fn with(store: Arc<dyn Mailbox>, pending: Vec<(String, Message)>) -> Self {
         let inbox = Inbox { store: Some(store), ..Default::default() };
         inbox.queue.lock().unwrap().extend(pending.into_iter().map(|(id, m)| (Some(id), m)));
-        Ok(inbox)
+        inbox
     }
 
     /// Положить заметку для родителя (итог подагента, итог фоновой команды).
@@ -431,6 +438,8 @@ struct Start {
     first: Option<Input>,
     status: Status,
     result: Option<String>,
+    /// Вести ящика подагента, не взятые до перезапуска.
+    pending: Vec<(String, Message)>,
 }
 
 struct Inner<P> {
@@ -631,6 +640,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
             first: Some(Input::Message(first_message(task, self.inner.depth, self.inner.deeper.get().is_some()))),
             status: Status::Running,
             result: None,
+            pending: Vec::new(),
         });
         self.inner.agents.lock().unwrap().push(agent);
         id
@@ -656,7 +666,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
     /// хранилищем — история, точка перезапуска и состояние в базе.
     /// Подагенты одного подагента — следующая глубина; `None`, если глубже
     /// заводить нельзя.
-    fn nested(&self) -> Option<Subagents<P>> {
+    fn nested(&self, inbox: Inbox) -> Option<Subagents<P>> {
         let (tools, prefix) = self.inner.deeper.get()?.clone();
         Some(Subagents {
             inner: Arc::new(Inner {
@@ -664,7 +674,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 tools,
                 prefix,
                 spill_dir: self.inner.spill_dir.clone(),
-                inbox: Inbox::new(),
+                inbox,
                 parent: Transcript::new(),
                 agents: Mutex::new(Vec::new()),
                 next: self.inner.next.clone(),
@@ -689,8 +699,13 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         let (task, after, fresh) = (s.task.clone(), s.after, s.fresh);
         let (mut state, mut record) = (s.state, s.record);
         // Свои подагенты: их инструменты — к общему набору, их итоги — в свой
-        // ящик, который ход забирает между шагами.
-        let nested = self.nested();
+        // ящик, который ход забирает между шагами. С хранилищем ящик — в
+        // `agent.message_mailbox` под id подагента, как у корня.
+        let inbox = match self.inner.store.get() {
+            Some(st) => Inbox::with(st.mailbox(&s.id), s.pending),
+            None => Inbox::new(),
+        };
+        let nested = self.nested(inbox);
         let tools = match &nested {
             Some(n) => {
                 let mut t = (*self.inner.tools).clone();
@@ -719,7 +734,10 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 // ящике (ход забирает его сам).
                 let input = match &own {
                     Some(n) if rx.is_empty() && !n.inner.inbox.is_empty() => Input::Resume,
+                    // Сначала очередь работы: иначе продолжение после
+                    // перезапуска осталось бы в ней и дало лишний ход.
                     Some(n) => tokio::select! {
+                        biased;
                         i = rx.recv() => match i { Some(i) => i, None => break },
                         _ = n.inner.inbox.wait() => Input::Resume,
                     },
@@ -757,12 +775,20 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 let mut turn = Turn::from_prefix(&*inner.provider, &tools, prefix, inner.spill_dir.clone());
                 turn.on_step = watch.clone();
                 turn.inbox = own.as_ref().map(|n| n.inner.inbox.clone());
+                turn.turn_id = Some(turn_id.clone());
                 turn.record = record.clone().map(|r| r as Arc<dyn crate::turn::Record>);
                 let mut quiet = |_: &str| {};
                 let outcome = tokio::select! {
                     r = turn.run(history, &mut quiet) => Some(r),
                     _ = stop.notified() => None,
                 };
+                // Вести ящика, взятые ходом, закрываются по его итогу (как у
+                // корня); прерванный ход их уже записал в историю.
+                if let Some(n) = &own {
+                    if let Err(e) = n.inner.inbox.complete(&turn_id, !matches!(outcome, Some(Err(_)))).await {
+                        eprintln!("mailbox complete: {e}");
+                    }
+                }
                 let Some(outcome) = outcome else {
                     // Прервано `send` с `interrupt`: новая работа уже в очереди.
                     close_dangling_calls(history);
@@ -822,6 +848,12 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                     first: None,
                     status: sv.status,
                     result: sv.result.clone(),
+                    // Ящик подагента: итоги его подагентов, не взятые до
+                    // перезапуска, — снова в очереди.
+                    pending: match self.inner.deeper.get() {
+                        Some(_) => store.mailbox(&sv.id).pending().await?,
+                        None => Vec::new(),
+                    },
                 };
                 if !sv.completed {
                     if !sv.finish_hook && record.interrupted().await?.is_some() {

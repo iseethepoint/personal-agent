@@ -601,6 +601,7 @@
 - подагент глубины 1 наследует разговор родителя, глубины 2 — изолирован («Any subagents you spawn deeper than 1 start in isolated mode», `subagent_history_inheritance_inherited.md`): без копии разговора, без заметки «Above is the conversation history…», блок родителя — `…_isolated.md`;
 - итог внука — в ящик его родителя («Your sub-agents will announce their results back to you automatically (not to your parent agent)», `subagent_spawning.md`): ход подагента забирает его между шагами; кончился ход — итог будит подагента новым ходом, его ответ снова уходит корню (отсюда `…_depth_one_coordinator.md`: «restate the full synthesized deliverable»);
 - `scope` у `subagent.list` / `subagent.send`: `direct` — свои дети, `descendants` — всё поддерево (описания полей — строки ядра);
+- ящик есть у каждого агента (`agent.message_mailbox` по `agent_id`): итог внука — весть `notice` в ящике подагента; ход подагента берёт её (`attached` за своим ходом `<id>:turn:<n>`), по итогу хода — `completed`; принятые и не взятые до перезапуска вести поднимаются при старте и доходят до подагента;
 - в базе: `agents.depth` и `subagent_spawns.child_depth` — 2, `parent_agent_id` — подагент; после перезапуска дерево собирается по `subagent_spawns.parent_agent_id`, внук с точкой `before_inference` продолжает ход.
 
 Своё:
@@ -610,4 +611,4 @@
 - в записи поддерева `subagent.list` — поле `parent_agent_id` (имя — по столбцу `subagent_spawns`);
 - `subagent.close` останавливает и подагентов закрытого (в разборе не видно);
 - таблица `agent_ancestors` ядра не взята: поддерево читается из памяти, после перезапуска — из `subagent_spawns`;
-- ящик подагента — в памяти: итог внука, не взятый подагентом до перезапуска, не восстанавливается (у корня ящик — в базе).
+- `routing_scope` вести в ящике подагента — `root`, как у корня (значения ядра для подагентов не видно).

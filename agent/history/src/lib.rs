@@ -873,6 +873,10 @@ impl SubagentStore for AgentSubagents {
         Box::pin(self.open(id))
     }
 
+    fn mailbox(&self, id: &str) -> Arc<dyn agent_loop::Mailbox> {
+        Arc::new(AgentMailbox::new(&self.store, id))
+    }
+
     fn nested(&self, parent: &str) -> Arc<dyn SubagentStore> {
         Arc::new(AgentSubagents { store: self.store.clone(), parent: parent.into(), model: self.model.clone(), now: self.now.clone(), depth: self.depth + 1 })
     }
