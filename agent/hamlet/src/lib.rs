@@ -34,7 +34,7 @@ use agent_memory::{Embedder, ForgetTools, MemoryTools, ProviderEmbedder};
 use agent_model::openai_compat::OpenaiCompatProvider;
 use agent_model::http::CRON_FIRST_CHUNK_TIMEOUT;
 use agent_model::{AnyProvider, Purpose, Registry, Resolved};
-use agent_tools::{add_search, secret_envs, Blocklist, Catalog, ExecTools, FileTools, Home, Todo, WebConfig, WebTools};
+use agent_tools::{add_search, secret_envs, Blocklist, Catalog, ExecTools, FileTools, Home, Todo, Trash, WebConfig, WebTools};
 
 pub use config::AgentDir;
 
@@ -90,6 +90,7 @@ impl Parts {
         FileTools::new(self.home.clone()).add_to(&mut t);
         ExecTools::starting_in(self.home.clone(), self.secrets.clone(), Some(self.inbox.clone()), start.map(Path::to_path_buf)).add_to(&mut t);
         t.add(Todo::new());
+        Trash::new(self.home.clone()).add_to(&mut t);
         let skills = Catalog::skills(self.skills_dir.clone(), &self.home);
         let connectors = Catalog::connectors(self.connectors_dir.clone(), &self.home);
         add_search(&mut t, &skills, &connectors);
