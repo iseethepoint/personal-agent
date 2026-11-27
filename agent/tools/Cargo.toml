@@ -1,0 +1,15 @@
+[package]
+name = "agent-tools"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+agent-loop = { path = "../loop" }
+agent-model = { path = "../model" }
+serde_json = "1"
+tokio = { version = "1", features = ["fs"] }
+base64 = "0.22"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
