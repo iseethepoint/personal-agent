@@ -8,8 +8,9 @@ publish.workspace = true
 agent-loop = { path = "../loop" }
 agent-model = { path = "../model" }
 serde_json = "1"
-tokio = { version = "1", features = ["fs"] }
+tokio = { version = "1", features = ["fs", "process", "io-util", "sync", "time", "rt"] }
 base64 = "0.22"
+libc = "0.2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
