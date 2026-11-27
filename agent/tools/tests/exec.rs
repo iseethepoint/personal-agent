@@ -285,3 +285,19 @@ async fn output_buffer_keeps_tail() {
     let r = call(&tools, "muse.exec", json!({"command": "echo коротко"})).await.unwrap();
     assert_eq!(r["truncated"], false);
 }
+
+#[tokio::test]
+async fn search_key_is_redacted_too() {
+    // Общий список секретов: реестр моделей + ключ поиска из config/web.toml.
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let web = agent_tools::WebConfig::parse(&std::fs::read_to_string(root.join("config/web.toml")).unwrap()).unwrap();
+    let reg = Registry::load(&root.join("config/models.toml")).unwrap();
+    let names = agent_tools::secret_envs(&reg, &web);
+    assert!(names.contains(&"FIRECRAWL_API_KEY".to_string()), "{names:?}");
+    assert!(names.iter().any(|n| n == "ANTHROPIC_API_KEY"), "{names:?}");
+    // Безобидное поддельное значение, только для этого теста.
+    std::env::set_var("FIRECRAWL_API_KEY", "fc-fake-search-0123456789");
+    let (_home, tools, _inbox) = setup("search-secret", names);
+    let r = call(&tools, "muse.exec", json!({"command": "echo key=$FIRECRAWL_API_KEY"})).await.unwrap();
+    assert_eq!(r["output"], "key=<redacted>\n");
+}

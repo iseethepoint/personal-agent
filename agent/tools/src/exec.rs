@@ -130,7 +130,8 @@ pub struct ExecTools {
 }
 
 impl ExecTools {
-    /// `secret_envs` — имена переменных с ключами (`Registry::api_key_envs`);
+    /// `secret_envs` — имена переменных с ключами (`secret_envs`: реестр
+    /// моделей и настройка поиска);
     /// `inbox` — куда приходят итоги фоновых команд.
     pub fn new(home: Home, secret_envs: Vec<String>, inbox: Option<Inbox>) -> Self {
         ExecTools {

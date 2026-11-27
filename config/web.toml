@@ -1,0 +1,15 @@
+# Поиск и чтение страниц в сети (browser.search / browser.open).
+# Поставщик — Firecrawl (слово владельца 27.11). Ключ — только в переменной
+# окружения, имя которой указано здесь; в репозиторий ключ не идёт.
+
+[search]
+provider = "firecrawl"
+base_url = "https://api.firecrawl.dev/v2"
+api_key_env = "FIRECRAWL_API_KEY"
+# Сколько результатов просить у поставщика (по умолчанию Firecrawl — 10).
+limit = 10
+
+[blocklist]
+# Чёрный список адресов muse как есть (opt/hatch-private/configs/blocklist).
+domains = "config/blocklist/mase_all_domains.fst"
+regex = "config/blocklist/mase_blocklist_regex.json"

@@ -34,12 +34,15 @@ dependencies = [
  "agent-loop",
  "agent-model",
  "base64 0.22.1",
+ "fst",
  "libc",
  "regex",
+ "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",
  "tokio",
+ "toml",
 ]
 
 [[package]]
@@ -213,6 +216,12 @@ checksum = "afa489199eaffb1211795df1c6236ce1ad0d41a6fa45250add73e3b02420f06e"
 dependencies = [
  "percent-encoding",
 ]
+
+[[package]]
+name = "fst"
+version = "0.4.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7ab85b9b05e3978cc9a9cf8fea7f01b494e1a09ed3037e16ba39edc7a29eb61a"
 
 [[package]]
 name = "futures-channel"
