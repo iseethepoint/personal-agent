@@ -366,7 +366,14 @@ pub type AfterDone = Arc<dyn Fn(Status, String) -> futures_util::future::BoxFutu
 
 /// Заводит очередь монитора для подагента: (id, задача, ящик родителя,
 /// идёт ли работа) → крючок шага.
-type WatchFactory = Arc<dyn Fn(String, String, Inbox, Arc<dyn Fn() -> bool + Send + Sync>) -> crate::turn::StepHook + Send + Sync>;
+type WatchFactory = Arc<dyn Fn(crate::monitor::Snapshot, Inbox, Arc<dyn Fn() -> bool + Send + Sync>) -> crate::turn::StepHook + Send + Sync>;
+
+/// Владелец подагентов глубже первой: подагент-координатор.
+struct Owner {
+    id: String,
+    task: String,
+    status: Arc<dyn Fn() -> Status + Send + Sync>,
+}
 
 enum Input {
     /// Новая работа: части сообщения роли user.
@@ -465,6 +472,8 @@ struct Inner<P> {
     /// Набор и начало подсказки подагентов следующей глубины; есть — подагенты
     /// этого родителя заводят своих.
     deeper: std::sync::OnceLock<(Arc<Tools>, Prefix)>,
+    /// Родитель — подагент (координатор); у корня нет.
+    owner: Option<Owner>,
 }
 
 /// Подагенты одного родителя. Инструменты `subagent.*` — из `tools()`.
@@ -509,10 +518,12 @@ pub fn first_message(task: &str, depth: u32, can_spawn: bool) -> String {
 }
 
 /// Начало подсказки подагента, который заводит своих: к системному тексту —
-/// раздел `subagent_spawning.md`, к описаниям — `subagent.*`.
+/// раздел `subagent_spawning.md`, к описаниям — `subagent.*` и
+/// `hamlet.nothing_to_do` (молчать на заметку монитора о своём подагенте).
 pub fn spawning_prefix(mut prefix: Prefix) -> Prefix {
     prefix.system = format!("{}\n\n{}", prefix.system.trim_end(), personal(SPAWNING_MD).trim_end());
     prefix.tools.extend([Op::Spawn, Op::Send, Op::List, Op::Close, Op::Resume].into_iter().map(spec));
+    prefix.tools.push(NothingToDo(Default::default()).spec());
     prefix
 }
 
@@ -576,6 +587,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 monitor: std::sync::OnceLock::new(),
                 depth: 1,
                 deeper: std::sync::OnceLock::new(),
+                owner: None,
             }),
         }
     }
@@ -586,7 +598,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
 
     /// Включить монитор (модель `SubagentMonitor`).
     pub fn set_monitor<M: Provider + Send + Sync + 'static>(&self, m: Arc<crate::monitor::Monitor<M>>) {
-        let f: WatchFactory = Arc::new(move |id, task, inbox, running| m.watch(id, task, inbox, running));
+        let f: WatchFactory = Arc::new(move |snapshot, inbox, running| m.watch(snapshot, inbox, running));
         let _ = self.inner.monitor.set(f);
     }
 
@@ -661,24 +673,79 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         format!("agent-{}", self.inner.next.fetch_add(1, std::sync::atomic::Ordering::SeqCst))
     }
 
-    fn watch(&self, id: &str, task: &str) -> Option<crate::turn::StepHook> {
+    /// Агенты этого родителя в снимке монитора.
+    fn views(&self) -> Vec<crate::monitor::View> {
+        let depth = self.inner.depth;
+        self.inner
+            .agents
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|a| crate::monitor::View { id: a.id.clone(), depth, status: a.status.as_str().into(), task: a.task.clone() })
+            .collect()
+    }
+
+    /// Монитор шагов подагента `id`: снимок его поддерева — координатор
+    /// (он сам на глубине 1, его родитель глубже), его дети и дети самого
+    /// работника; заметка — в ящик этого родителя (корня или координатора).
+    fn watch(&self, id: &str) -> Option<crate::turn::StepHook> {
         self.inner.monitor.get().map(|f| {
             let me = Arc::downgrade(&self.inner);
             let watched = id.to_string();
-            let running: Arc<dyn Fn() -> bool + Send + Sync> = Arc::new(move || {
-                me.upgrade()
-                    .is_some_and(|i| i.agents.lock().unwrap().iter().any(|a| a.id == watched && a.status == Status::Running))
+            let running: Arc<dyn Fn() -> bool + Send + Sync> = {
+                let (me, watched) = (me.clone(), watched.clone());
+                Arc::new(move || me.upgrade().is_some_and(|i| i.agents.lock().unwrap().iter().any(|a| a.id == watched && a.status == Status::Running)))
+            };
+            let snapshot: crate::monitor::Snapshot = Arc::new(move || {
+                let inner = me.upgrade()?;
+                // Состояние координатора — до замка своих агентов (замки
+                // берутся сверху вниз).
+                let owner = inner.owner.as_ref().map(|o| (o.id.clone(), o.task.clone(), (o.status)()));
+                let (ordinal, worker, nested) = {
+                    let agents = inner.agents.lock().unwrap();
+                    let i = agents.iter().position(|a| a.id == watched)?;
+                    let a = &agents[i];
+                    let view = crate::monitor::View { id: a.id.clone(), depth: inner.depth, status: a.status.as_str().into(), task: a.task.clone() };
+                    ((i + 1, agents.len()), view, a.nested.clone())
+                };
+                let worker_children = nested.map(|n| n.views()).unwrap_or_default();
+                Some(match owner {
+                    None => crate::monitor::Event {
+                        coordinator: worker.clone(),
+                        worker,
+                        ordinal,
+                        coordinator_children: worker_children.clone(),
+                        worker_children,
+                    },
+                    Some((oid, otask, ostatus)) => crate::monitor::Event {
+                        coordinator: crate::monitor::View { id: oid, depth: inner.depth - 1, status: ostatus.as_str().into(), task: otask },
+                        worker,
+                        ordinal,
+                        coordinator_children: Subagents { inner: inner.clone() }.views(),
+                        worker_children,
+                    },
+                })
             });
-            f(id.to_string(), task.to_string(), self.inner.inbox.clone(), running)
+            f(snapshot, self.inner.inbox.clone(), running)
         })
     }
 
-    /// Сессия обычного подагента: очередь работы, ход за ходом; с
-    /// хранилищем — история, точка перезапуска и состояние в базе.
-    /// Подагенты одного подагента — следующая глубина; `None`, если глубже
-    /// заводить нельзя.
-    fn nested(&self, inbox: Inbox) -> Option<Subagents<P>> {
+    /// Подагенты одного подагента (`id`, `task`) — следующая глубина;
+    /// `None`, если глубже заводить нельзя. Монитор — тот же.
+    fn nested(&self, id: &str, task: &str, inbox: Inbox) -> Option<Subagents<P>> {
         let (tools, prefix) = self.inner.deeper.get()?.clone();
+        let parent = Arc::downgrade(&self.inner);
+        let me = id.to_string();
+        let status: Arc<dyn Fn() -> Status + Send + Sync> = Arc::new(move || {
+            parent
+                .upgrade()
+                .and_then(|i| i.agents.lock().unwrap().iter().find(|a| a.id == me).map(|a| a.status))
+                .unwrap_or(Status::Closed)
+        });
+        let monitor = std::sync::OnceLock::new();
+        if let Some(f) = self.inner.monitor.get() {
+            let _ = monitor.set(f.clone());
+        }
         Some(Subagents {
             inner: Arc::new(Inner {
                 provider: self.inner.provider.clone(),
@@ -690,13 +757,16 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 agents: Mutex::new(Vec::new()),
                 next: self.inner.next.clone(),
                 store: std::sync::OnceLock::new(),
-                monitor: std::sync::OnceLock::new(),
+                monitor,
                 depth: self.inner.depth + 1,
                 deeper: std::sync::OnceLock::new(),
+                owner: Some(Owner { id: id.to_string(), task: task.to_string(), status }),
             }),
         })
     }
 
+    /// Сессия обычного подагента: очередь работы, ход за ходом; с
+    /// хранилищем — история, точка перезапуска и состояние в базе.
     fn start(&self, s: Start) -> Agent<P> {
         let (tx, mut rx) = mpsc::unbounded_channel();
         let interrupt = Arc::new(Notify::new());
@@ -706,7 +776,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
         let inner = self.inner.clone();
         let stop = interrupt.clone();
         let agent_id = s.id.clone();
-        let watch = self.watch(&s.id, &s.task);
+        let watch = self.watch(&s.id);
         let (task, after, fresh) = (s.task.clone(), s.after, s.fresh);
         let (mut state, mut record) = (s.state, s.record);
         // Свои подагенты: их инструменты — к общему набору, их итоги — в свой
@@ -716,13 +786,17 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
             Some(st) => Inbox::with(st.mailbox(&s.id), s.pending),
             None => Inbox::new(),
         };
-        let nested = self.nested(inbox);
+        let nested = self.nested(&s.id, &s.task, inbox);
+        // Координатор отвечает на заметки своих подагентов и может смолчать:
+        // `hamlet.nothing_to_do` кончает ход без итога родителю.
+        let silent = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let tools = match &nested {
             Some(n) => {
                 let mut t = (*self.inner.tools).clone();
                 for x in n.tools() {
                     t.add(x);
                 }
+                t.add(NothingToDo(silent.clone()));
                 Arc::new(t)
             }
             None => self.inner.tools.clone(),
@@ -731,6 +805,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
             let _ = n.inner.store.set(st.nested(&s.id));
         }
         let own = nested.clone();
+        let mut last = s.result.clone();
         let handle = tokio::spawn(async move {
             let store = inner.store.get().cloned();
             if let (true, Some(st)) = (fresh, &store) {
@@ -787,6 +862,9 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                 turn.on_step = watch.clone();
                 turn.inbox = own.as_ref().map(|n| n.inner.inbox.clone());
                 turn.turn_id = Some(turn_id.clone());
+                if own.is_some() {
+                    turn.terminal = vec![NOTHING_TO_DO.into()];
+                }
                 turn.record = record.clone().map(|r| r as Arc<dyn crate::turn::Record>);
                 let mut quiet = |_: &str| {};
                 let outcome = tokio::select! {
@@ -805,8 +883,24 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                     close_dangling_calls(history);
                     continue;
                 };
+                let silenced = silent.swap(false, std::sync::atomic::Ordering::SeqCst);
                 if !rx.is_empty() {
                     // Пришла новая работа — итог отдаётся после неё.
+                    continue;
+                }
+                if silenced && outcome.is_ok() {
+                    // Смолчал: родителю ничего, состояние — прежний итог.
+                    if let Some(r) = &record {
+                        if let Err(e) = r.checkpoint(None, None, None).await {
+                            eprintln!("subagent checkpoint: {e}");
+                        }
+                    }
+                    Self::set(&inner, &agent_id, Status::Done, last.clone());
+                    if let Some(st) = &store {
+                        if let Err(e) = st.status(&agent_id, Status::Done, last.as_deref()).await {
+                            eprintln!("subagent store: {e}");
+                        }
+                    }
                     continue;
                 }
                 let (status, text) = match outcome {
@@ -824,6 +918,7 @@ impl<P: Provider + Send + Sync + 'static> Subagents<P> {
                     }
                 }
                 Self::set(&inner, &agent_id, status, Some(text.clone()));
+                last = Some(text.clone());
                 if let Some(st) = &store {
                     if let Err(e) = st.status(&agent_id, status, Some(&text)).await {
                         eprintln!("subagent store: {e}");
@@ -1133,6 +1228,30 @@ enum Op {
     List,
     Close,
     Resume,
+}
+
+/// `hamlet.nothing_to_do` (`nothing_to_do` в роли подагента): описание muse
+/// `tools/nothing_to_do_without_reaction_description.md`.
+pub const NOTHING_TO_DO: &str = "hamlet.nothing_to_do";
+const NOTHING_TO_DO_MD: &str = include_str!("../../../prompts/hooks/nothing_to_do_description.md");
+
+struct NothingToDo(Arc<std::sync::atomic::AtomicBool>);
+
+impl Tool for NothingToDo {
+    fn spec(&self) -> ToolSpec {
+        ToolSpec {
+            name: NOTHING_TO_DO.into(),
+            description: personal(NOTHING_TO_DO_MD).trim_end().into(),
+            input_schema: json!({"type": "object", "properties": {}, "additionalProperties": false}),
+        }
+    }
+
+    fn call(&self, _args: Value) -> ToolFuture<'_> {
+        Box::pin(async move {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(vec![ToolResultPart::Text { text: "ok".into() }])
+        })
+    }
 }
 
 /// Инструмент `subagent.*`.

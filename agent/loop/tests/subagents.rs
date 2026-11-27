@@ -491,3 +491,61 @@ async fn items_reach_child(wire: Wire) {
     assert_eq!(subs.list(20)["recent"].as_array().unwrap().len() + subs.list(20)["active"].as_array().unwrap().len(), 1);
 }
 both!(items_reach_child);
+
+/// П3з-4: монитор на глубине 2 — координатор и работник разные. Шаг внука
+/// — событие, где координатор — подагент корня, работник — внук: в
+/// системном тексте монитора задача координатора и задача внука, в
+/// снимке — дети координатора. Заметка — координатору, по
+/// `handoff_child.md` с указанием молчать; координатор отвечает
+/// `hamlet.nothing_to_do` — корню ничего. Корню — только итоги
+/// координатора.
+async fn monitor_at_depth_two(wire: Wire) {
+    let home = temp_dir("monitor-deep");
+    let steps = vec![
+        Step::Calls(vec![("c1", "subagent.spawn", json!({"message": "внук, ищи"})), ("c2", "slow", json!({"ms": 100}))]),
+        Step::Calls(vec![("g1", "slow", json!({"ms": 400}))]),
+        Step::Text("жду внука"),
+        Step::Calls(vec![("g2", "echo", json!({"text": "нашёл 3"}))]),
+        Step::Calls(vec![("g3", "slow", json!({"ms": 800}))]),
+        Step::Calls(vec![("c3", "hamlet.nothing_to_do", json!({}))]),
+        Step::Text("внук: 3"),
+        Step::Text("итог: 3"),
+    ];
+    let (server, p) = model(wire, steps, false);
+    let prefix = agent_loop::spawning_prefix(Prefix { system: "Ты — подагент.".into(), tools: tools().specs() });
+    let subs = Subagents::new(Arc::new(p), Arc::new(tools()), prefix, temp_dir("deep"), Inbox::new(), Transcript::new());
+    subs.set_deeper(Arc::new(tools()), Prefix { system: "Ты — внук.".into(), tools: tools().specs() });
+    let nothing = || Step::Calls(vec![("m", "subagent_monitor.nothing_to_do", json!({}))]);
+    let mon = vec![nothing(), nothing(), Step::Calls(vec![("m", "subagent_monitor.notify_main_agent", json!({}))]), nothing(), nothing()];
+    let (monitor_server, mp) = model(wire, mon, true);
+    subs.set_monitor(agent_loop::monitor::Monitor::new(Arc::new(Late(mp, Duration::from_millis(200))), &home));
+    call(&subs, "subagent.spawn", json!({"message": "раздай работу"})).await.unwrap();
+
+    let mut got: Vec<String> = Vec::new();
+    while !got.iter().any(|t| t.contains("итог: 3")) {
+        got.extend(wait(subs.inbox()).await.iter().map(text_of));
+    }
+    assert_eq!(got.len(), 2, "{wire:?}: {got:?}");
+    assert!(got.iter().all(|t| t.starts_with("[Subagent Result] agent_id: agent-1, status: done")), "{got:?}");
+    assert!(got[0].contains("жду внука"));
+
+    let m = monitor_server.requests();
+    let own = m[0].to_string();
+    assert!(own.contains("agent_id: agent-1\\ndepth: 1") && !own.contains("## Nested Subagent Task Context"), "{own}");
+    let deep = m[2].to_string();
+    assert!(deep.contains("## Coordinator Task Context") && deep.contains("раздай работу"), "{deep}");
+    assert!(deep.contains("## Nested Subagent Task Context") && deep.contains("внук, ищи"), "{deep}");
+    assert!(deep.contains("## Coordinator\\nagent_id: agent-1\\ndepth: 1"), "{deep}");
+    assert!(deep.contains("## Worker\\nagent_id: agent-2\\ndepth: 2\\nstatus: running\\nordinal: 1/1"), "{deep}");
+    assert!(deep.contains("## Coordinator Children\\n- agent-2 (depth 2): running") && deep.contains("result: нашёл 3"), "{deep}");
+
+    let r = server.requests();
+    let woken = r[5].to_string();
+    assert!(woken.contains("[Automatic progress note from a running subagent task, not a user message]"), "{woken}");
+    assert!(woken.contains("child_agent_id: agent-2\\nchild_agent_depth: 2\\nchild_agent_ordinal: 1/1\\nchild_agent_status: running"), "{woken}");
+    assert!(woken.contains("Default to `hamlet.nothing_to_do`") && woken.contains("result: нашёл 3"));
+    assert!(r[0].to_string().contains("\"hamlet.nothing_to_do\""), "у координатора есть hamlet.nothing_to_do");
+    assert!(!r[1].to_string().contains("\"hamlet.nothing_to_do\""), "у внука его нет");
+    assert!(r[7].to_string().contains("[Subagent Result] agent_id: agent-2, status: done") && r[7].to_string().contains("внук: 3"));
+}
+both!(monitor_at_depth_two);

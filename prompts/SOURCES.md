@@ -628,3 +628,17 @@
 - `image`, который не прочитался картинкой, — отказ;
 - `read_paths` в `runtime_tool_output` (ядро записывает прочитанные пути, `0xaaf3be0`) не ведутся: у Hamlet нет `runtime_tool_output`;
 - в `subagent_spawns.prompt` — текст задачи без вложений (вложения — в истории подагента).
+
+## Монитор подагентов на глубине 2 (П3з-4)
+
+Тексты muse как есть: `subagent_monitor/handoff_child.md`, `subagent_monitor/parent_follow_up_silence_guidance.md` (П10: `muse.nothing_to_do` → `hamlet.nothing_to_do`), `subagent_monitor/subagent_monitor_nested_subagent_task_context.md` (у muse — `activity_monitor/`).
+
+Устройство — как у muse (системный текст монитора `blocks/activity_monitor/subagent_monitor.md`):
+- координатор — подагент корня, вершина поддерева; работник — агент, чей шаг вызвал событие (сам координатор или его подагент); в системном тексте — задача координатора (`{coordinator_task_context_section}`) и, если работник глубже, его задача (`{nested_subagent_task_context_section}`);
+- заметка — «receiving parent agent» работника: работник-координатор — корню (`coordinator_agent_*`, `worker_agent_*`, `coordinator_children`), работник глубже — координатору по `handoff_child.md` (`child_agent_*`, `child_subagents`, `{{SUBAGENT_HANDOFF_GUIDANCE}}` — `parent_follow_up_silence_guidance.md`);
+- координатор отвечает на такую заметку или молчит `hamlet.nothing_to_do` (`nothing_to_do` есть в роли `owner_subagent_depth1`; описание — `tools/nothing_to_do_without_reaction_description.md`): ход, кончившийся им, родителю ничего не шлёт («Assistant responses may be relayed to your parent, so write one only for a substantive coordinator result»).
+
+Своё:
+- снимок берётся в миг решения монитора: блоки «Coordinator» / «Worker» — `agent_id`, `depth`, `status` (у работника ещё `ordinal: n/m` — место среди детей его родителя, как `child_agent_ordinal`), «Coordinator Children» и `child_subagents` — строки `- <id> (depth N): <status>`, «Subtree Snapshot» — координатор и его дети с отступом;
+- `hamlet.nothing_to_do` — только у подагента, который сам заводит подагентов (у прочих заметок монитора нет); после молчания состояние подагента — прежний итог;
+- заметка корню — прежнего вида (П4ж-2а); шаблон ядра «## Subagent Progress» с `update_kind` — для итогов, его значения для промежуточных событий не видны.
