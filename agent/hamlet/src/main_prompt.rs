@@ -211,3 +211,104 @@ pub fn with_owner(base: String, owner: &str) -> String {
         format!("{base}\n\n{}", owner.trim_matches('\n'))
     }
 }
+
+/// Имя роли главного разговора — то, с чем ядро сравнивает роль хода
+/// (`ctx.0x360`, `0xcdc0cec`: `foreground_root`); у Hamlet роль главного
+/// так и зовётся (`roles.rs`).
+pub const MAIN_ROLE: &str = "foreground_root";
+
+/// Раздел developer-текста: блоки по порядку, каждый без переводов строки по
+/// краям, пустые выпадают, стык — пустая строка (`0xcd55160` → `0xbff2900`:
+/// рендер, `trim`, «\n\n» `0x9e0a89`).
+fn section(blocks: &[&str]) -> String {
+    blocks.iter().map(|b| b.trim_matches('\n')).filter(|b| !b.is_empty()).collect::<Vec<_>>().join("\n\n")
+}
+
+/// Тексты хода главного разговора (П5-2, часть 5б; `prompts/SOURCES.md`).
+///
+/// `turn_directives` у Hamlet пусто: его заметки присылает отправитель хода,
+/// источников нет. Составной текст главного — только developer-текст
+/// (`0xcdb9b00`): разделов `0xcf`, `0x64`, `0xcc`, `0xcd`, `0xce` в срезе 1
+/// главного нет, `date_grounding` — по разделу `0xc8`, его тоже нет, раздел
+/// `0x3b` (`shared/runtime`) — П8.
+///
+/// Developer-текст — срез 1 главного профиля (`0x9904fe`) по веткам
+/// `0xcdbf740`; разделы склеиваются пустой строкой (`0xcdc14ce`). Варианты
+/// блоков — по умолчанию (байты хода `0x8ea2`/`0x8eca`/`0x8ee5`/`0x8eb9` = 0,
+/// как снимок стандартной обвязки в П5-1); `@without_todo_list` — по набору
+/// инструментов, как в системном тексте. Имена инструментов ядро сравнивает
+/// без пространства `muse.`, у Hamlet — без `hamlet.`.
+pub fn turn_texts(tools: &Tools, role: &str) -> Vec<String> {
+    let has = |name: &str| tools.get(name).is_some();
+    let todo = has("todo.write");
+    let v = |base: &'static str, without: &'static str| if todo { base } else { without };
+    let mut out: Vec<String> = Vec::new();
+
+    // `c`, `d` — ветка по умолчанию; `{offer_options_guidance}` (`0xcd53cb0`)
+    // при `ctx.0x37a` = 0 — `user_chat/offer_options.md`.
+    out.push(section(&[p!("user_chat/context_and_active_work.md")]));
+    out.push(section(&[&fill(p!("user_chat/taking_ownership.md"), &[("offer_options_guidance", p!("user_chat/offer_options.md"))], false)]));
+    // `e` — при инструменте `memory_search` или `memory_get` (`0xcdc0448`,
+    // `0xcdc0e9b`).
+    if has("hamlet.memory_search") || has("hamlet.memory_get") {
+        out.push(section(&[
+            p!("user_chat/memory_search_baseline.md"),
+            v(p!("user_chat/retaining_memories.md"), p!("user_chat/retaining_memories@without_todo_list.md")),
+            p!("user_chat/memory_correction_baseline.md"),
+            p!("user_chat/memory_scope_and_custody.md"),
+        ]));
+    }
+    // `10` — без условия, если флаг `0x3f` не стоит, иначе при `todo.write`
+    // (`0xcdc0b43`); флаг не опознан, поэтому — при `todo.write`.
+    if todo {
+        out.push(section(&[
+            p!("user_chat/active_work.md"),
+            p!("user_chat/active_work_blockers.md"),
+            p!("user_chat/active_work_updates.md"),
+            p!("user_chat/active_work_finishing.md"),
+        ]));
+    }
+    // `11` — вариант 0 (вариант 2 — по глобальному `0x29ca27c8`, `0xcdc0c7a`).
+    out.push(section(&[
+        p!("user_chat/due_diligence.md"),
+        p!("user_chat/due_diligence_follow_ups.md"),
+        p!("user_chat/due_diligence_live_information.md"),
+    ]));
+    // `12` — вшитый текст `0xa14c1f` при `ctx.0x37a` (не опознан) — SOURCES.
+    out.push(section(&[p!("user_chat/identifiers_and_dates.md")]));
+    out.push(section(&[
+        p!("user_chat/security_operations.md"),
+        p!("user_chat/security_operations_anti_phishing.md"),
+        p!("user_chat/security_operations_disclosure.md"),
+        p!("user_chat/security_operations_sensitive_values.md"),
+    ]));
+    // `17`: `shared_spaces` — П17.
+    out.push(section(&[p!("user_chat/working_with_tools.md")]));
+    out.push(section(&[p!("user_chat/service_limits.md")]));
+    // `19`: `browser_and_sources_places` — П20.
+    out.push(section(&[p!("user_chat/browser_and_sources.md"), p!("user_chat/browser_and_sources_handoffs.md")]));
+    // `1a` (`secure_vault*`) — П18; `1c` (`purchases`) — П20.
+    out.push(section(&[p!("user_chat/captchas.md")]));
+    out.push(section(&[p!("user_chat/recurring_work_recovery.md")]));
+    // `1e` — роль `foreground_root`, вида сессии нет, `cfg.0x72e0` = 0
+    // (`0xcdc0cd3`).
+    if role == MAIN_ROLE {
+        out.push(section(&[p!("user_chat/communication_and_delivery.md")]));
+    }
+    out.push(section(&[p!("user_chat/conversation.md")]));
+    // `2d`, `20` — при `ctx.0x378` (П19); `21` (`artifacts`) — П17.
+    // `22`: `proactivity_guidance` — П13.
+    out.push(section(&[
+        p!("user_chat/background_results.md"),
+        p!("user_chat/background_results_silence.md"),
+        p!("user_chat/background_results_delivery.md"),
+    ]));
+
+    let text = out.into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n\n");
+    let text = personal(&text).trim_matches('\n').to_string();
+    if text.is_empty() {
+        Vec::new()
+    } else {
+        vec![text]
+    }
+}

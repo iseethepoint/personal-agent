@@ -1228,10 +1228,86 @@
 
 **Браузер.** Срез 2 профиля 1 пуст. Составной текст = раздел `0x64` в.1 (`0xcdb6660` выводит `0x64` без условий): записи таблицы `0x2906bd30` подряд — `assignment`, `browsing`, `obstacles`, `asking`, `commitments`, `facts`, `privacy`, `conduct`, `tools/copyrighted_material.md`, `reporting`. `specialists.md` и `bot_checks.md` не берутся целиком (специалисты и проверки ботов — П4к-2…4). Developer-текста хода у профиля по виду нет (`+0x8ecc`). Затем личный вариант меток и края без переводов строки (своё, как у системного текста). У Hamlet — `agent_browser::planner::turn_texts`, кладётся за заданием и за продолжением, начинающим новую работу. Обновление посреди работы приходит в тот же ход, без новых текстов.
 
-**Часть 5б** (не сделано): условия `0xcd552d0` (срез 2), `0xcdbf740` (таблица `0x9d84ec`), флаги `0xcc`/`0xcd`/`0xce` в `0xcdb6660` — затем наполнение у главного и ролей по роли.
+**Часть 5б** — условия `turn_directives`, флагов составного текста и developer-текст главного (`0xcdbf740`), см. следующий раздел; роли — следующим срезом.
 
 **Тесты:**
 - `agent/loop/tests/turn_texts.rs` (оба поставщика): с умением и без; порядок двух текстов; тексты те же после перезапуска; после сжатия у старого хода текстов нет;
 - `agent/model/tests/anthropic.rs` — форма `content: [{"type":"text"}]`, заметки подряд — отдельными сообщениями;
 - `agent/model/tests/openai_compat.rs` — роль `developer`;
 - `agent/browser/tests/planner_text.rs` — составной текст исполнителя; `planner.rs` — он за заданием.
+
+## П5-2, часть 5б: условия текстов хода
+
+**`turn_directives`** (срез 2; `0xcdb67c0` → `0xcd552d0` → замыкание `0xce59510`, через `0x29adfb08` → `0xbc80b30`):
+- Замыкание отбрасывает всё, кроме раздела `0xd0` (`cmpb $0xd0`, `0xce59524`). Разделы `0x13`, `0xcd`, `0x14` среза 2 главного здесь не выводятся; где читается их наличие — не найдено.
+- Вариант `d0` выводится, только если в ходе есть элемент этого вида: вид элемента → вариант по таблице `0x9d81ec` (`0xcd55370`), наличие варианта в срезе — `0xabfb5d0` (`0xcd5540e`); варианта нет — запись в журнал.
+- Элементы — вектор хода `+0x6a08`, копия списка `+0x670/+0x678` входящего запроса хода (объект `+0x2650`; `0xcaa9d97`–`0xcaa9db7`): их присылает отправитель хода.
+
+У Hamlet таких элементов нет, `turn_directives` пусто. Варианты:
+
+| Вариант | Текст | Когда будет источник |
+|---|---|---|
+| `d0` | `turn_directives/space_request.md` | П17 |
+| `1d0` | `turn_directives/artifact_annotations.md` | П17 |
+| `2d0`, `3d0`, `4d0` | `connection_permission_setup`, `connection_permission_edit`, `pending_connection_permission_setup` | П19 |
+| `5d0` | `shopping_entry_without_commentary.md` | П20 |
+| `6d0` | `voice_device_reply.md` | П15 |
+| `8d0` | `output_language.md` (`{locale}`, ядро `0x7dbbc8`) | П6 (язык владельца) |
+| `9d0` | `cancellation_handoff.md` (ядро `0x7dbd41`) | П6 (отмена сообщением владельца) |
+| `cd0`, `dd0` | `session/web_artifact_completion_ownership_handoff.md`, `session/web_artifact_inspection_report_handoff.md` | П17 |
+| `fd0` | `idea_activation_refused.md` | П22 |
+| `10d0`, `11d0` | `poppy_command.md`, `poppy_report.md` | П4к |
+| `12d0`, `13d0`, `14d0` | `group_muse_message`, `group_muse_silenced`, `group_muse_silence_ended` | П19 |
+| `15d0` | `proactive_reads_granted.md` | П13 |
+| `7d0`, `ad0`, `bd0`, `ed0` | записи без текста | — |
+
+**Составной текст** (`0xcdb6cb0`; `0xcdb1920` отдаёт оба среза профиля — `+0x10` и `+0x20` описателя; составной текст берёт срез 1):
+- `0xcf` — ни у одного профиля нет, часть пуста.
+- `0xcdb6660`, фильтр `0xbfcd420`: `0x64` — без условия; `0xcc` — по флагу F_cc (байт замыкания `+0x18`); `0xcd`, `0xce` — по флагу F_cd (байт `+0x10`). В тексте `0x64` — замены условных блоков: `bot-challenge-guides` (байт `+0x6a` контекста, `0x980040`), `poppy-conversations` (`+0x6b`, `0x9798f2`), `cookie-consent` (не `+0x66`, `0x53951f`); вызов `0x29aa3128` с байтом `+0x6c`. У Hamlet блока `cookie-consent` в `browsing.md` нет (П4к-3), два других — в файлах, которые не берутся.
+- У главного в срезе 1 нет `0x64`, `0xcc`, `0xcd`, `0xce` — из этой части ему ничего.
+
+**Флаги** (вызов `0xcaaf8dd`):
+- F_cd (`r9`, `0xcaaf6e1`–`0xcaaf877`) = конфиг хода `+0x72e0` == 0 и запрос`+0x800` ≠ 0 и источник запроса (`+0x7a8` или `+0x658`) ≠ `runtime.onboarding` (`0x46db70`) и (запрос`+0x120` == 2, или канала `+0x578` нет, или канал ≠ `voice`). Тот же предикат — функция `0xce18d00` (её же зовут `0x9482770`, `0xc145d20`).
+- F_cc (первый на стеке, `0xcaaf885`) = `+0x8ee0` == 1 и не `+0x8ecc`; `+0x8ee0` = запрос`+0x803` или `+0x8edf` (`0xca98e24`); `+0x8edf` — сравнение с идентификатором (`0xca98dd3`), не разобрано.
+
+Байты запроса `+0x800` и `+0x803` не опознаны, поэтому `0xcc` (`chat/identifier_standing_rule.md`), `0xcd` (`turn_commentary_guidance`, ядро `0x7f1cd4`), `0xce` (`chat/plain_language_head.md`) у ролей **не выводятся**. План — разбор байтов `+0x800`/`+0x803` входящего запроса.
+
+Догадка, не доказано: рядом с предикатом — файл `hatch-inference/src/model/commentary.rs` (`0x290ace88`) и проверка имени `foreground_root` (`0xc146fc4`), предикат выключается для голосового канала и онбординга — похоже на «главный разговор не голосом».
+
+**Developer-текст главного** (`0xcdbf740`; у Hamlet — `agent_hamlet::main_prompt::turn_texts`, кладётся `Daemon::turn` за вестями каждого нового хода; ход, оборванный перезапуском, несёт свой текст в истории, как у muse сохранённый `+0x3270`).
+
+Устройство:
+- контекст хода `ctx` = `turn+0xe60` — копия стековой структуры `0x18400` (`0xcaac349`), её заполняет `0xcdba1f0` из аргументов, которые собирает ход (`0xcaabdbd`–`0xcaac10c`). Поля: роль `ctx.0x360` = `turn.0x2240` (сравнения с `foreground_root` `0xcdc0cec` и 21-знаковым — `owner_subagent_depth1`, `0xcaab3c4`); вид сессии `ctx.0x0` = `cfg.0x26e8`; `ctx.0x370` = `cfg.0x72e0`; `ctx.0x378` = `0xa9d9320(cfg)` (возможность из набора `cfg.0xf88` и вид); `ctx.0x37a` = `turn.0x8ede`; `ctx.0x37c` = запрос`+0x800`; инструменты `ctx.0x70/0x78` = `turn.0x40c8→+0x18/+0x20`, имена сравниваются целиком без пространства `muse.` (`memory_search`, `todo.write`, `connection.list`); флаг F3f = (`turn.0x3020` нет) или `turn.0x304d`;
+- цикл по срезу 1 (`0x9904fe`): таблицы `0x9d84ec` / `0x9d878c` (для разделов главного совпадают), разделы `< 0x25` — таблица `0x9d8a2c` по `b − 0xe`; `0x28`, `0x2d` отбрасываются без `ctx.0x378` (`0xcdbfaba`); `0xcdc14ba` — пропуск;
+- ветка по умолчанию `0xcdc0ef0` → реестр `user_chat` (`0xa9546f0` → `0xa9551c0`): варианты блоков по байтам `ctx.0x37b` (`turn.0x8ea2`), `ctx.0x385` (`turn.0x8eca`), `ctx.0x386` (`turn.0x8ee5`), `ctx.0x38d` (`turn.0x8eb9`);
+- раздел — блоки по порядку, каждый `trim`, пустые выпадают, стык «\n\n» (`0xcd55160` → `0xbff2900`); разделы — «\n\n» (`0xcdc14ce`).
+
+| Раздел | Условие у muse | У Hamlet |
+|---|---|---|
+| `c` `context_and_active_work`, `11` `due_diligence*`, `15`, `16`, `18`, `1d`, `1f` | без своего условия | уходят |
+| `d` `taking_ownership` | без своего условия; `{offer_options_guidance}` (`0xcd53cb0`): `ctx.0x37a` = 0 → `user_chat/offer_options.md`, иначе `chat/proactivity_offer_options.md` (`.sota` при `ctx.0x386`) | уходит с `user_chat/offer_options.md` (смешанный блок: упоминание `hamlet.create_options` остаётся, правило П5-1) |
+| `e` память | инструмент `memory_search` или `memory_get` (`0xcdc0448`, `0xcdc0e9b`) | при `hamlet.memory_search` / `hamlet.memory_get` |
+| `10` `active_work*` | без условия, если F3f не стоит; иначе `todo.write` (`0xcdc0b43`) | при `todo.write` (F3f не опознан) |
+| `17` | без своего условия; доводка `0x29ae37c8` по `ctx.0x378` | `working_with_tools`; `shared_spaces` — П17 |
+| `19` | без своего условия | `browser_and_sources`, `_handoffs`; `_places` (`place_discovery`, `social.search`) — П20 |
+| `1a` `secure_vault*` | без своего условия | П18 |
+| `1b` `captchas` | без своего условия | уходит |
+| `1c` `purchases` | без своего условия | П20 |
+| `1e` `communication_and_delivery` | роль `foreground_root`, вида нет, `ctx.0x370` = 0 (`0xcdc0cd3`) | у роли `MAIN_ROLE` (`foreground_root`) |
+| `22` | без своего условия | `background_results`, `_silence`, `_delivery`; `proactivity_guidance` — П13 |
+| `21` `artifacts` | вид ∈ {нет, 14, 44, 45}, `ctx.0x370` ≤ 1 (`0xcdc0bb7`) | П17 |
+| `20` `peer_collaboration` | `ctx.0x378` и инструмент `connection.list` (`0xcdc0ac9`) | П19 |
+| `2d` `chats` | `ctx.0x378`, подстановки списка чатов (`0xcdc004f`) | П19 |
+| `12` | вшитый текст `0xa14c1f` при `ctx.0x37a` (`0xcdc0c90`) | не выводится: `turn.0x8ede` не опознан |
+| `ca` `connectors`, `cb` `saved_credentials` | генераторы по `ctx.0x380` и данным (`0xcdc033d`, `0xcdc04fa`) | П18 |
+| `c6`, `c7`, `c9`, `24` | генераторы (`ctx.0x1c0`, `ctx.0x168`, `0xcd4f4d0`, `0xcdc0bf5`) | не выводятся: содержание не опознано |
+| `28`, `29`, `92`, `90`, флаговые `b9`…`c4` | пропуск `0xcdc14ba` | — |
+| `0x3b` (за срезом, `ctx.0x382`) | раздел есть в срезе 0 профиля | П8 (`shared/runtime`) |
+
+Не доказано (вывод, принят ревизором):
+- (а) у главного вида сессии нет: виды 1–14 — теги подагентов, браузера и т. п. (таблица `0x9d842c`); прямого адреса нет. На этом держится `1e`;
+- (б) байты вариантов `turn.0x8ea2`/`0x8eca`/`0x8ee5`/`0x8eb9` и `ctx.0x37a` = 0 — варианты по умолчанию, то же решение, что П5-1 (снимок стандартной обвязки). Вариант при `ctx.0x386` (`0x11` без `follow_ups`, `0x23` → `proactive_work.md`, свои списки `0x13`, `0x22`; `.sota` у `offer_options`) — П13.
+
+Своё: `@without_todo_list` у `retaining_memories` — по набору инструментов, как в системном тексте (П5-1).
+
+**Тесты:** `agent/hamlet/tests/main_turn_texts.rs` — порядок по собранному тексту, блоки несделанных частей не уходят, нет переменных, меток, muse/Meta, ветки по набору и роли; `agent/hamlet/tests/assembly.rs` `main_turn_texts_follow_owner_message_and_survive_restart` (оба поставщика) — текст за сообщением владельца, после перезапуска старый ход несёт его на месте, новый — свой.

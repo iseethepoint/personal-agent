@@ -92,6 +92,9 @@ pub struct Hamlet {
     pub timezone: Option<String>,
     /// Дополнения владельца к системным текстам (`system.md`).
     pub owner_system: String,
+    /// Тексты хода главного разговора (`main_prompt::turn_texts`): кладутся
+    /// за вестями каждого нового хода.
+    pub turn_texts: Vec<String>,
     pub clock: Arc<dyn Clock>,
 }
 
@@ -393,6 +396,7 @@ impl Hamlet {
         }
         std::fs::write(&copy, &main_text).map_err(|e| format!("{}: {e}", copy.display()))?;
         let prefix = Prefix::with_system(main_text, &home_dir, &tools);
+        let turn_texts = main_prompt::turn_texts(&tools, main_prompt::MAIN_ROLE);
         // Сброс памяти — набор роли `memory_flush`.
         let flush_tools = roles::Role::get("memory_flush").apply((*tools).clone());
 
@@ -495,6 +499,7 @@ impl Hamlet {
             verification,
             timezone: t.agent.timezone.clone(),
             owner_system: system.clone(),
+            turn_texts,
             clock,
         })
     }
