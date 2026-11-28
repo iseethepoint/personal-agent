@@ -258,8 +258,9 @@ const SCHEDULER_RESOLUTION: [&str; 5] = [
 ];
 
 /// П5-2, часть 3: задания фоновых ролей и сброс памяти.
-const BACKGROUND: [&str; 2] = [
+const BACKGROUND: [&str; 3] = [
     "security_authority.md",
+    "standing_context.md",
     "verification.md",
 ];
 

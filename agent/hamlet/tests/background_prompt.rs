@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use agent_hamlet::background_prompt::{event_hook, event_hook_records, memory_flush, memory_flush_records, verification, verification_records};
+use agent_hamlet::background_prompt::{event_hook, event_hook_records, memory_flush, memory_flush_records, verification, verification_records, verification_turn_texts};
 use agent_hamlet::subagent_prompt::Record;
 use agent_loop::personal;
 use serde::Deserialize;
@@ -137,4 +137,16 @@ fn memory_flush_follows_profile() {
     assert!(text.contains("running a memory flush before older context is condensed"));
     assert!(text.contains("The year is 2027, not 2026."));
     assert!(text.ends_with("If 2, 3, or 4 fails, don't call."), "{text}");
+}
+
+/// П5-2 ч.5в: тексты хода проверяющего — раздел `0x26` вариант 4 среза 1
+/// профиля 19 (`background/standing_context.md`), личный вариант меток.
+#[test]
+fn verification_turn_text_is_standing_context() {
+    let t = verification_turn_texts();
+    let file = std::fs::read_to_string(root().join("prompts/background/standing_context.md")).unwrap();
+    assert_eq!(t, vec![personal(&file).trim_matches('\n').to_string()]);
+    assert!(t[0].starts_with("# Working Context") && t[0].ends_with("private standing context."));
+    assert!(t[0].contains("not the user's") && !t[0].contains("group's"));
+    clean(&t[0]);
 }

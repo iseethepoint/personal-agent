@@ -250,6 +250,7 @@ impl Hamlet {
                         let exec = roles::Role::get("verifier").allows("hamlet.exec");
                         Arc::new(move || main_prompt::with_owner(background_prompt::verification(c.now_ms(), tz.as_deref(), exec), &owner))
                     },
+                    turn_texts: background_prompt::verification_turn_texts(),
                     spill_dir: spill_dir.clone(),
                     now: Arc::new(move || vclock.now_ms()),
                 },

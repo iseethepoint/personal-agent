@@ -121,6 +121,17 @@ pub fn verification(now_ms: i64, timezone: Option<&str>, exec: bool) -> String {
     join(verification_records(now_ms, timezone, exec))
 }
 
+/// Тексты хода проверяющего (П5-2, часть 5в; `prompts/SOURCES.md`):
+/// developer-текст по срезу 1 профиля 19 (`0x9906bc`: `426 b8 ba bc bd bf
+/// c1`) в ветках `0xcdbf740` — раздел `0x26` вариант 4 без условия
+/// (`0xcdbfffc`, `background/standing_context.md`); `b8` — контекст проекта
+/// (`turn.0x33e8`, «root_project»), не опознан; флаговые — пропуск.
+/// `date_grounding` нет (`0xc8` в срезе нет), `0x3b` — вариант 3, не
+/// выводится; составной текст — без `0x64`/`0xcc`/`0xcd`/`0xce`.
+pub fn verification_turn_texts() -> Vec<String> {
+    vec![personal(p!("background/standing_context.md")).trim_matches('\n').to_string()]
+}
+
 /// Сброс памяти — профиль 30. Стек — `0x35` вариант 7 (`0x29055c00`,
 /// 9 записей).
 pub fn memory_flush_records(now_ms: i64, timezone: Option<&str>, exec: bool) -> Vec<Record> {
