@@ -259,6 +259,9 @@ pub struct Verifier<P> {
     pub tools: Arc<dyn Fn() -> Tools + Send + Sync>,
     /// Системный текст на момент проверки (профиль `verification`).
     pub system: Arc<dyn Fn() -> String + Send + Sync>,
+    /// Тексты хода — за сообщением исполнения (П5-2 ч.5в; у muse —
+    /// developer-текст по срезу 1 профиля).
+    pub turn_texts: Vec<String>,
     pub spill_dir: PathBuf,
     pub now: Arc<dyn Fn() -> i64 + Send + Sync>,
 }
@@ -270,6 +273,7 @@ impl<P> Clone for Verifier<P> {
             provider: self.provider.clone(),
             tools: self.tools.clone(),
             system: self.system.clone(),
+            turn_texts: self.turn_texts.clone(),
             spill_dir: self.spill_dir.clone(),
             now: self.now.clone(),
         }
@@ -309,8 +313,9 @@ impl<P: Provider + Send + Sync + 'static> Verifier<P> {
                 let _ = store.hook_run_phase(&run, p).await;
             });
         };
-        let first = execute_message(category, task, draft, trajectory);
-        let out = worker::run(&*self.provider, &*self.provider, &prefix, &tools, &self.spill_dir, worker::Begin::Fresh(first), None, kind, on_phase, None).await;
+        let mut first = vec![Message { role: Role::User, content: vec![Part::Text { text: execute_message(category, task, draft, trajectory) }] }];
+        agent_loop::push_turn_texts(&mut first, &self.turn_texts);
+        let out = worker::run(&*self.provider, &*self.provider, &prefix, &tools, &self.spill_dir, worker::Begin::Messages(first), None, kind, on_phase, None).await;
         let (verdict, settled) = match out.signal {
             Some(Signal::Notify { message, .. }) => {
                 let r = async {

@@ -1184,6 +1184,10 @@ async fn health_answer_is_verified_before_delivery() {
         // П5-2 ч.3: системный текст проверяющего — профиль `verification`
         // (без `exec` — соседние даты).
         assert!(r(2).contains("You independently verify the response") && r(2).contains("Fri 2027-01-15 (today)") && !r(2).contains("You are Hamlet's"), "{wire:?}");
+        // П5-2 ч.5в: текст хода проверяющего (`standing_context`) — за
+        // сообщением исполнения.
+        assert!(r(2).find("<verification-draft>").unwrap() < r(2).find("# Working Context").expect("текст хода проверяющего"), "{wire:?}");
+        assert_eq!(r(2).matches("# Working Context").count(), 1, "{wire:?}");
         assert!(r(3).contains("Call hamlet.notify_main_agent with only the"), "{wire:?}: фаза итога");
         assert!(r(4).contains("job_id: response_verification") && r(4).contains("Take at most 1 g per dose and no more than 4 g a day."), "{wire:?}: заметка главному агенту");
         let pool = sqlx::PgPool::connect(&db_url(&dir)).await.unwrap();
