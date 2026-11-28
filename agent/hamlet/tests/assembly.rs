@@ -17,6 +17,7 @@ use std::time::Duration;
 use agent_cron::FakeClock;
 use agent_hamlet::daemon::Services;
 use agent_hamlet::{AgentDir, Hamlet, Options};
+use agent_model::Role;
 use chrono::TimeZone;
 use common::{model, temp_dir, Server, Step, Wire};
 use serde_json::json;
@@ -490,10 +491,10 @@ async fn conversation_survives_restart() {
         assert!(body.contains("first") && body.contains("One.") && body.contains("read memory"), "{wire:?}: история из базы");
         assert!(body.contains("The owner drinks coffee without sugar."), "{wire:?}: результат инструмента из базы");
         assert!(!body.contains("Changed while stopped."), "{wire:?}");
-        // В базе: first, заметка изменчивого, One., read memory, вызов,
-        // результат, ответ после перезапуска.
+        // В базе: first, заметка изменчивого, текст хода, One., read memory,
+        // текст хода, вызов, результат, ответ после перезапуска.
         let saved = h2.history.load().await.unwrap().unwrap();
-        assert_eq!(saved.history.len(), 7, "{wire:?}: {:?}", saved.history);
+        assert_eq!(saved.history.len(), 9, "{wire:?}: {:?}", saved.history);
         assert!(saved.last_volatile.is_some_and(|v| v.contains("2027-01-15")), "{wire:?}");
         h2.browsers.shutdown().await;
     }
@@ -563,9 +564,10 @@ async fn interrupted_tool_call_resumes_after_restart() {
         assert_eq!(state("root:mailbox:orphan".into()).await, "aborted", "{wire:?}");
         let (mode, payload): (String, Option<String>) = sqlx::query_as("select mode, payload_json from agent.runtime_restart_checkpoints where agent_id = 'root'").fetch_one(&pool).await.unwrap();
         assert_eq!((mode.as_str(), payload), ("idle", None), "{wire:?}");
-        // В истории: строка, заметка, вызов, результат перезапуска, ответ.
+        // В истории: строка, заметка, текст хода, вызов, результат
+        // перезапуска, ответ.
         let saved = h2.history.load().await.unwrap().unwrap();
-        assert_eq!(saved.history.len(), 5, "{wire:?}: {:?}", saved.history);
+        assert_eq!(saved.history.len(), 6, "{wire:?}: {:?}", saved.history);
         h2.browsers.shutdown().await;
     }
 }
@@ -1256,8 +1258,17 @@ async fn owner_lines_go_through_the_mailbox_in_order() {
         repoint(&dir, &s1, &s2);
         let h2 = build(&dir, FakeClock::at(t0())).await;
         assert_eq!(one_run(&h2, None).await, "B.", "{wire:?}");
-        let body = s2.requests()[0].to_string();
-        let at = |w: &str| body.find(w).unwrap_or_else(|| panic!("{wire:?}: нет {w}"));
+        // Место строки владельца среди частей сообщений запроса (в тексте
+        // хода есть «third-party», поэтому не поиск по всему телу).
+        let mut parts: Vec<String> = Vec::new();
+        for m in s2.requests()[0]["messages"].as_array().unwrap() {
+            match &m["content"] {
+                serde_json::Value::String(t) => parts.push(t.clone()),
+                serde_json::Value::Array(a) => parts.extend(a.iter().filter_map(|p| p["text"].as_str().map(str::to_string))),
+                _ => {}
+            }
+        }
+        let at = |w: &str| parts.iter().position(|p| p.lines().any(|l| l == w)).unwrap_or_else(|| panic!("{wire:?}: нет {w}"));
         assert!(at("first") < at("second") && at("second") < at("third"), "{wire:?}: по порядку");
         h2.browsers.shutdown().await;
     }
@@ -1523,5 +1534,43 @@ async fn roles_shape_tool_sets() {
         assert!(exec.contains(&"hamlet.exec".to_string()) && !exec.iter().any(|n| n.starts_with("hooks.")) && !exec.contains(&"todo.write".to_string()), "{wire:?}: {exec:?}");
         assert_eq!(request_tool_names(&s.requests()[3]), ["hamlet.exec", "hamlet.nothing_to_report", "hamlet.notify_main_agent"], "{wire:?}");
         services.stop(&h).await;
+    }
+}
+
+/// П5-2 ч.5б: тексты хода главного разговора лежат за сообщением владельца
+/// своего хода; после перезапуска старый ход несёт их на том же месте, новый
+/// ход получает свои.
+#[tokio::test]
+async fn main_turn_texts_follow_owner_message_and_survive_restart() {
+    for wire in [Wire::Anthropic, Wire::OpenaiCompat] {
+        let (s1, _p) = model(wire, vec![Step::Text("Hi.")], true);
+        let dir = agent_dir("turn-texts", wire, &s1);
+        let h1 = build(&dir, FakeClock::at(t0())).await;
+        let dev = h1.turn_texts[0].clone();
+        let head = dev.lines().next().unwrap().to_string();
+        assert_eq!(head, "# Context and Active Work", "{wire:?}");
+        assert_eq!(one_run(&h1, Some("hello")).await, "Hi.", "{wire:?}");
+        let b1 = s1.requests()[0].to_string();
+        let (u, d) = (b1.find("hello").unwrap(), b1.find(&head).expect("текст хода в запросе"));
+        assert!(u < d, "{wire:?}: текст хода — за сообщением владельца");
+        assert_eq!(b1.matches(&head).count(), 1, "{wire:?}");
+        h1.browsers.shutdown().await;
+        drop(h1);
+
+        let (s2, _p) = model(wire, vec![Step::Text("Again.")], true);
+        repoint(&dir, &s1, &s2);
+        let h2 = build(&dir, FakeClock::at(t0())).await;
+        assert_eq!(h2.turn_texts, vec![dev.clone()], "{wire:?}");
+        assert_eq!(one_run(&h2, Some("again")).await, "Again.", "{wire:?}");
+        let b2 = s2.requests()[0].to_string();
+        let first = b2.find(&head).unwrap();
+        let second = b2[first + 1..].find(&head).unwrap() + first + 1;
+        let (hello, hi, again) = (b2.find("hello").unwrap(), b2.find("Hi.").unwrap(), b2.find("again").unwrap());
+        assert!(hello < first && first < hi && again < second, "{wire:?}: старый ход — на месте, новый — свой");
+        // В истории: сообщение владельца, за ним — текст хода целиком.
+        let saved = h2.history.load().await.unwrap().unwrap().history;
+        let i = saved.iter().position(|m| m.text() == "hello").unwrap();
+        assert_eq!((saved[i + 1].role, saved[i + 1].text()), (Role::Developer, dev.clone()), "{wire:?}");
+        h2.browsers.shutdown().await;
     }
 }

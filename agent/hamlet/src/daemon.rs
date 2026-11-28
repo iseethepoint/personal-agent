@@ -124,9 +124,11 @@ impl Hamlet {
         // службы — как есть; записывается историей и
         // отмечается за ходом.
         static TURNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let was_resumed = resumed.is_some();
         let turn_id = resumed.unwrap_or_else(|| format!("{}:turn:{}:{}", crate::ROOT_AGENT, self.clock.now_ms(), TURNS.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
         let start = conv.history.len();
         let (ids, taken) = self.inbox.take();
+        let fresh = !was_resumed && !taken.is_empty();
         for m in taken {
             if m.role == Role::User {
                 match self.volatile() {
@@ -136,6 +138,12 @@ impl Hamlet {
             } else {
                 conv.history.push(m);
             }
+        }
+        // Тексты хода — за вестями нового хода (П5-2 ч.5б); ход, оборванный
+        // перезапуском, несёт свои в истории (у muse — сохранённый текст
+        // `+0x3270`, `load_turn_developer_contexts`).
+        if fresh {
+            conv.push_turn_texts(&self.turn_texts);
         }
         self.history.sync(&conv.history, conv.last_volatile()).await?;
         self.inbox.attach(&ids, &turn_id).await?;
