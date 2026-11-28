@@ -807,7 +807,6 @@
 
 | Блок | Что | Строка плана |
 |---|---|---|
-| `user_chat/how_you_work_product_questions.md`, `user_chat/docs.md` | справочник о себе | П5-3 |
 | `chat/how_you_evolve.md` (`session/self_evolution.md`), `chat/alignment_status_pointer.md` | самоулучшение | П11 |
 | `chat/relationships.md` (`session/relationships.md`) | карта людей | П11 |
 | `user_chat/proactivity.md` | проактивность | П13 |
@@ -1342,3 +1341,50 @@
 **Место у Hamlet.** Проверяющий — `Verifier::verify`: тексты хода — за сообщением исполнения (`Begin::Messages`). Открытый вопрос: у muse сообщение фазы итога — отдельный ход со своим developer-текстом или нет; по ядру не установлено, у Hamlet фаза итога текстов не получает.
 
 **Тесты:** `agent/hamlet/tests/background_prompt.rs` `verification_turn_text_is_standing_context`; `assembly.rs` `health_answer_is_verified_before_delivery` — у проверяющего текст хода за сообщением исполнения, один раз.
+
+## Справочник о себе (П5-3)
+
+**Откуда.** `R/home/hatch/docs/` muse-live (36 файлов; чтение — `git show HEAD:rootfs-full/home/hatch/docs/…`) → `agents/hamlet/home/docs/` (домашняя папка агента, у модели — `~/docs/`). Все 36 — документы продукта, данных пользователя muse в них нет. Правки П10: «Muse» → «Hamlet», «Meta» убрана. Разделы о приложении, службах Meta и несделанных частях — по правилу П5-1: раздел целиком о такой части не переносится (строка плана), смешанный остаётся целиком; правки внутри раздела — в таблице ниже.
+
+**Место в главном тексте** — по копии системного текста (`workspace/system/system_prompt.md`, см. П5-1 часть 2): `user_chat/how_you_work_product_questions.md` — сразу за «How You Work» (`how_you_work_limitation`) через пустую строку; список `user_chat/docs.md` — за `chat/filesystem_workspace.md` через пустую строку, «## Security» — со следующей строки (стык `\n`, как в копии). `agent/hamlet/src/main_prompt.rs`, `assemble`.
+
+**Перенесены (8):**
+
+| Файл | Не перенесено (раздел — строка плана) | Правки по месту |
+|---|---|---|
+| `hamlet.md` (из `muse.md`) | таблица Quick Facts: строки Launched, Web app, Mobile apps, Mac app (приложение — —), Chrome extension (—), Model (модель выбирается настройкой — —), Messaging channels (П6), Paired devices, Home Link (П21), Referrals (—), App screens (П6), Channels/calls/notifications (П6/П15), Voice (П15), Feed (П22), Ideas (П22), Connectors (П18), Media (П14), Artifacts (П17), Purchases (П20), How user information is handled (П8), Muse Mail (П16); абзацы о приложении и вкладках (—); Models, Plan, Spark/Wonder, API, Safety and limits, Subscriptions (модели и тарифы Meta — —, своего раздела нет); в Answering Product Questions — `subscription_status`, кошельки, выгрузка данных (П8), карточка согласия (П20), `client-surfaces` (П6) | вступление: «Muse is Meta's personal AI agent product» → «Hamlet is a personal AI agent product», «every conversation in the Muse app is between one user and their own agent, and the app has no group or shared chats» → «every conversation is between one user and their own agent»; Product → «Hamlet»; The browser → «What sites you can reach, sign-in, and the decisions that stay with the user»; «Credentials, privacy, data controls | Sign-in secrets, saved logins, retention, permissions» → «Credentials, privacy | Sign-in secrets and who can see the user's data»; «Files, uploads, Library | Where files live, the note shown on your files in the app, and how users get them back» → «Files | Where files live and how users get them back» |
+| `memory.md` | Import memory (приложение — —); Forget saved information (`/opt/muse/skills/forget` — П5-4); Related controls (`data-handling` — П8) | убрано «For background upkeep, read `~/docs/self_improvement.md`.» (П11); «In the main chat and personal side chats, memory search also returns matching excerpts from those chats, but never every message. The app's chat search is separate. Both are described in `~/docs/client-surfaces.md`.» → «In the main chat, memory search also returns matching excerpts from past conversations, but never every message.» (побочные чаты — П19, приложение — П6) |
+| `goals.md` | App controls (приложение — —); Goal briefings (писателя записок нет — П13) | «managed by Muse» → «managed by Hamlet» |
+| `scheduling-and-watching.md` | Background work runs reliably (приложение и push — П6) | «If Muse restarts» → «If Hamlet restarts» |
+| `chat/scheduling-and-watching.md` | Services in this runtime, Recovery after replacement (гостевая машина и её службы — П8) | — |
+| `browser.md` | Chrome extension (—); Purchases and delivery (П20) | убраны предложения о перехвате живого окна («When a task the user started… never offer takeover.» — экрана живого окна нет, как правка П5-1 `shared/environment/browser.md`) и абзац «Browser permissions live under Settings > Connectors > Browser…» (приложение — П20) |
+| `files-and-library.md` | пункты: связанные устройства (П21), System Files и «About this file» (приложение — —), кнопка вложения и куда ложатся загрузки (П6), папка целиком; Deliverables and the Library, Managing Library items, Downloading and sharing (приложение — П17) | заголовок «Files and the Library» → «Files» (Library нет); «there are two ways to get it: find it in the Library, or ask you to find it in your workspace and share it again» → «they can ask you to find it in your workspace and share it again» |
+| `privacy-and-credentials.md` | в Sign-in secrets — пункты: карточка Secure Vault (П18), «secure ways to enter a password» и Wallet (П18/П20), защищённый поиск кода в почте и `[credential:<uuid>]` (П18), повторная отправка кода специалистом входа (П4к-2); разделы Saved logins (П18), Data retention and the user's controls (приложение и Meta — —), Permissions (П20); в Who can see — пункт об Activity view (приложение — —) | «Each Muse belongs…», «the user's Muse» → Hamlet |
+
+Пункты, где упомянуты несделанные части внутри общего правила (Secure Vault в первом и четвёртом пункте Sign-in secrets, корзина и оплата в `browser.md` «Decisions and user control», `workspace/your_files` в `files-and-library.md`), — смешанные, остаются целиком.
+
+**Не перенесены (28):**
+
+| Файл | Строка плана |
+|---|---|
+| `artifacts.md` | П17 |
+| `calls-texts-notifications.md` | П6 / П15 |
+| `chat-connections.md`, `chat-connections/whatsapp.md` | П6 |
+| `client-surfaces.md` | П6 |
+| `data-handling.md` | П8 |
+| `chat/browser-purchase-preapproval.md`, `chat/payments-and-purchases.md`, `payments-and-purchases.md` | П20 |
+| `connectors.md` | П18 |
+| `devices/*` (12: charm, gadget, glasses, home_link и 4 интеграции, mac_app, quest, tailscale) | П21 |
+| `feed.md`, `ideas.md` | П22 |
+| `media.md` | П14 |
+| `referrals.md` | — (приглашения Meta) |
+| `self_improvement.md` | П11 |
+| `spaces.md` | П17 / П19 |
+| `voice.md` | П15 |
+
+**Тексты подсказки:**
+- `user_chat/how_you_work_product_questions.md` — оставлены три последних абзаца; убраны абзац об аватаре и имени (оба варианта; аватара нет, как правка П5-1 `user_chat/who_you_are.md`) и абзац о `client-surfaces` и подключениях чатов (П6). Правки П10 («Hamlet team», «Hamlet's policies») — уже с П5-1, часть 1.
+- `user_chat/docs.md` — только 8 перенесённых файлов; описания сокращены по месту до перенесённого: `browser.md` «downloads, cancellations, holds» → «and the decisions that stay with the user»; `goals.md` без «goal briefings»; `files-and-library.md` (личный вариант) → «your workspace, browser downloads, and how users get files»; `memory.md` → «saved memory<group: `~/GROUP.md` entries> and what memory search returns»; `hamlet.md` (личный) → «what Hamlet is and how to answer product questions»; `privacy-and-credentials.md` (личный) → «passwords and sign-in secrets, one-time codes, and who can see the user's data»; `chat/scheduling-and-watching.md` «verifying recovery» → «verifying delivery». Групповые варианты не уходят (`personal`) и не правились.
+- Ссылки на `client-surfaces.md` из подсказки — только в убранном абзаце `how_you_work_product_questions.md`; прочие собираемые ссылки (`recurring_work*.md` → `chat/scheduling-and-watching.md`, `agent/who_you_are.md`, `scheduler_worker/who_you_are.md` → `hamlet.md`) ведут на перенесённые файлы. `chat/how_you_work.md`, `user_chat/purchases.md` не собираются (П5-1, П20).
+
+**Тесты:** `agent/hamlet/tests/docs.rs` — каждая ссылка `~/docs/…` из собранных текстов всех ролей (главный, тексты хода, подагент, работник и итог расписаний, фоновые, браузер) и из самих документов ведёт на файл; список `~/docs/` главного текста равен набору перенесённых файлов; документы без меток, muse и Meta. `main_prompt.rs` `docs_blocks_at_snapshot_place` — оба блока на месте копии.

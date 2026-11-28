@@ -209,3 +209,25 @@ fn stable_and_owner_text_after() {
     let with = main_system(&t, "Owner rule.\n");
     assert_eq!(with, format!("{a}\n\nOwner rule."));
 }
+
+/// П5-3: справочник о себе — на месте копии системного текста: абзацы о
+/// `~/docs/` сразу после «How You Work» (до «Personalization»), список
+/// `~/docs/` — после `~/workspace/`-раздела «Filesystem», перед «Security».
+#[test]
+fn docs_blocks_at_snapshot_place() {
+    let text = full();
+    let questions = "For more information on how you or your capabilities work, read the documentation available to you from `~/docs/`.";
+    let training = "Don't answer questions from training data about your capabilities, the product, or Hamlet's policies and data practices.";
+    assert_eq!(text.matches(questions).count(), 1);
+    let (how, q, t, pers) = (text.find("### How You Work").unwrap(), text.find(questions).unwrap(), text.find(training).unwrap(), text.find("## Personalization").unwrap());
+    assert!(how < q && q < t && t < pers);
+    assert!(text[t..].starts_with(&format!("{training} An answer that sounds specific but isn't in the docs or a tool result is a guess. Never say you did or checked something without the matching action behind it.\n## Personalization")));
+
+    let list = "\n\n- `~/docs/`\n  `browser.md` - the browser";
+    assert_eq!(text.matches(list).count(), 1);
+    let (fs, l, sec) = (text.find("## Filesystem").unwrap(), text.find(list).unwrap(), text.find("## Security").unwrap());
+    assert!(fs < l && l < sec);
+    assert!(text.contains("`chat/scheduling-and-watching.md` - choosing crons, hooks, or services and verifying delivery\n## Security"));
+    // Ссылок на несделанные части в абзацах нет (П6: client-surfaces).
+    assert!(!text.contains("client-surfaces") && !text.contains("chat-connections"));
+}

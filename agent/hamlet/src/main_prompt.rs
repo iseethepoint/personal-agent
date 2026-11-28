@@ -71,6 +71,8 @@ pub fn assemble(tools: &Tools) -> String {
     o.push("\n\n", p!("user_chat/discretion_and_alignment.md"));
     o.push("\n\n", p!("user_chat/how_you_work.md"));
     o.push("", p!("user_chat/how_you_work_limitation.md"));
+    // Справочник о себе (П5-3): место — по копии системного текста.
+    o.push("\n\n", p!("user_chat/how_you_work_product_questions.md"));
 
     // Личное и память.
     o.push("\n", &fill(p!("chat/personalization.md"), &[("alignment_status_pointer", "")], false));
@@ -178,9 +180,10 @@ pub fn assemble(tools: &Tools) -> String {
     o.push("\n\n", &fill(p!("chat/filesystem.md"), &[("system_prompt_copy_file", p!("chat/system_prompt_copy_file.md"))], false));
     o.push("\n", p!("chat/filesystem_memory.md"));
     o.push("\n\n", p!("chat/filesystem_workspace.md"));
+    o.push("\n\n", p!("user_chat/docs.md"));
 
     // Безопасность.
-    o.push("\n\n", p!("user_chat/security.md"));
+    o.push("\n", p!("user_chat/security.md"));
     o.push("\n\n", p!("user_chat/security_secrets.md"));
     o.push("\n\n", p!("user_chat/security_service_limits.md"));
     o.push("\n\n", p!("user_chat/security_anti_phishing.md"));
